@@ -1,4 +1,4 @@
-(ns bank.ui
+(ns fixtures.cljs-file
   (:require [reagent.core :as r]))
 
 (defn greeting

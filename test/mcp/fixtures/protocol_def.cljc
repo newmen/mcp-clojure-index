@@ -1,5 +1,6 @@
-(ns bank.protocols
-  (:require [bank.user :as user]))
+(ns fixtures.protocol-def
+  (:require [fixtures.user :as user])
+  (:import [java.lang.String String]))
 
 (defprotocol Transferable
   (transfer [this from to amount])
@@ -8,7 +9,7 @@
 (defprotocol Comparable
   (compare-to [this other]))
 
-(extend-type bank.user/User
+(extend-type fixtures.user/User
   Transferable
   (transfer [this from to amount]
     (str "Transfer " amount " from " from " to " to))

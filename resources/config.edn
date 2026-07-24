@@ -8,4 +8,4 @@
  :server/transport  :stdio
  :index/root-path   "/Users/alfa/projects/clojure/mcp"
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
- :index/exclude     [#"target" #".git" #".lsp" #".clj-kondo"]}
+ :index/exclude     ["target" ".git" ".lsp" ".clj-kondo"]}

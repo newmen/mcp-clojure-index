@@ -1,7 +1,13 @@
 (ns mcp.config
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.edn :as edn])
   (:import (java.io PushbackReader)))
+
+(defn- pattern->regex
+  [pattern]
+  (let [escaped (str/replace pattern "." "\\.")]
+    (re-pattern escaped)))
 
 (def defaults
   {:qdrant/host       "localhost"
@@ -16,15 +22,21 @@
    :server/port       8080
    :index/root-path   "."
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
-   :index/exclude     [#"target" #".git" #".lsp" #".clj-kondo"]
+   :index/exclude     ["target" ".git" ".lsp" ".clj-kondo"]
    :search/top-k      100
    :search/re-rank-top 10})
+
+(defn compile-exclude-patterns
+  "Convert string exclude patterns to compiled regex patterns."
+  [exclude-strings]
+  (mapv pattern->regex exclude-strings))
 
 (defn load-config
   [config-path]
   (with-open [r (io/reader config-path)]
-    (let [file-config (edn/read (PushbackReader. r))]
-      (merge defaults file-config))))
+    (let [file-config (edn/read (PushbackReader. r))
+          merged (merge defaults file-config)]
+      (update merged :index/exclude compile-exclude-patterns))))
 
 (defn validate-config
   [config]

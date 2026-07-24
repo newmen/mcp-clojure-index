@@ -36,7 +36,7 @@
   (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
         ns-chunk (first (filter #(= :ns (:chunk/type %)) (:result/chunks result)))]
     (is ns-chunk)
-    (is (= "bank.user" (:chunk/name ns-chunk)))))
+    (is (= "fixtures.valid-defs" (:chunk/name ns-chunk)))))
 
 (deftest parse-valid-defs-has-defn
   (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
@@ -143,7 +143,7 @@
   (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
         enriched (sut/enrich-chunks-with-ns result)]
     (is (every? (comp some? :chunk/ns) (:result/chunks enriched)))
-    (is (= "bank.user" (:chunk/ns (first (:result/chunks enriched)))))))
+    (is (= "fixtures.valid-defs" (:chunk/ns (first (:result/chunks enriched)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; extract-symbols
@@ -154,10 +154,10 @@
         enriched (sut/enrich-chunks-with-ns result)
         symbols (sut/extract-symbols enriched)]
     (is (seq symbols))
-    (is (some #(= "bank.user/create-user" (str (:sym/name %))) symbols))
-    (is (some #(= "bank.user/format-name" (str (:sym/name %))) symbols))
-    (is (some #(= "bank.user/UserProtocol" (str (:sym/name %))) symbols))
-    (is (some #(= "bank.user/User" (str (:sym/name %))) symbols))))
+    (is (some #(= "fixtures.valid-defs/create-user" (str (:sym/name %))) symbols))
+    (is (some #(= "fixtures.valid-defs/format-name" (str (:sym/name %))) symbols))
+    (is (some #(= "fixtures.valid-defs/UserProtocol" (str (:sym/name %))) symbols))
+    (is (some #(= "fixtures.valid-defs/User" (str (:sym/name %))) symbols))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-project

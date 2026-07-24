@@ -4,8 +4,7 @@
             [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]
             [mcp.symbol-index :as si]
-            [mcp.graph :as graph]
-            [mcp.config :as config])
+            [mcp.graph :as graph])
   (:import (java.nio.file FileSystems Files Path
                           WatchService StandardWatchEventKinds
                           WatchEvent WatchKey)

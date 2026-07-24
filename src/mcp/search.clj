@@ -116,13 +116,23 @@
              :re-rank (:re-rank r)})
           reranked)))
 
+(defonce ^:private file-cache-atom (atom {}))
+(defonce ^:private cache-max-size 50)
+
 (defn- read-chunk-source
-  "Try to read source code for a chunk from the file system."
+  "Try to read source code for a chunk from the file system.
+   Caches file contents to avoid repeated disk I/O within a search."
   [file-path start-line end-line]
   (try
-    (let [lines (vec (str/split-lines (slurp file-path)))
-          chunk-lines (subvec lines (dec start-line) end-line)]
-      (str/join "\n" chunk-lines))
+    (let [lines (or (get @file-cache-atom file-path)
+                    (let [lines (vec (str/split-lines (slurp file-path)))]
+                      (swap! file-cache-atom
+                             (fn [c]
+                               (if (>= (count c) cache-max-size)
+                                 (assoc (into {} (drop 1 c)) file-path lines)
+                                 (assoc c file-path lines))))
+                      lines))]
+      (str/join "\n" (subvec lines (dec start-line) end-line)))
     (catch Exception _ nil)))
 
 (defn- enrich-result-chunks

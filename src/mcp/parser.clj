@@ -102,9 +102,15 @@
 ;; CST-based top-level form extraction via rewrite-clj
 ;; ---------------------------------------------------------------------------
 
+(def ^:private top-level-form-tags #{:list :map :vector :set})
+
 (defn- form-tag?
   [tag]
-  (#{:list :map :vector :set} tag))
+  (contains? top-level-form-tags tag))
+
+(defn- container-tag?
+  [tag]
+  (contains? (conj top-level-form-tags :fn) tag))
 
 (defn- top-level-forms-cst
   [source]
@@ -198,10 +204,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Referenced symbol extraction from body
 ;; ---------------------------------------------------------------------------
-
-(defn- container-tag?
-  [tag]
-  (#{:list :vector :map :set :fn} tag))
 
 (defn- walk-container-nodes
   "Walk only container nodes (list/vector/map/set) to collect symbol tokens.

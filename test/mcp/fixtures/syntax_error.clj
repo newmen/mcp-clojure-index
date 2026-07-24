@@ -1,4 +1,4 @@
-(ns broken.core)
+(ns fixtures.syntax-error)
 
 (defn oops
   [x]

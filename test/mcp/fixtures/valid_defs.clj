@@ -1,11 +1,10 @@
-(ns bank.user
-  (:require [clojure.string :as str]
-            [bank.validation :as validation]))
+(ns fixtures.valid-defs
+  (:require [clojure.string :as str]))
 
 (defn create-user
   "Creates a new user in the system."
   [name email]
-  (validation/validate-email email)
+  (str/trim email)
   {:name name :email email})
 
 (defn- format-name

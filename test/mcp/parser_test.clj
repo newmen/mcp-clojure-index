@@ -237,3 +237,35 @@
         h1 (set (map :chunk/hash (:result/chunks r1)))
         h2 (set (map :chunk/hash (:result/chunks r2)))]
     (is (= h1 h2))))
+
+;; ---------------------------------------------------------------------------
+;; Symbol extraction from body (Task 5)
+;; ---------------------------------------------------------------------------
+
+(deftest symbols-extracted-from-body
+  (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
+        enriched (sut/enrich-chunks-with-ns result)
+        create-user (first (filter #(= "create-user" (:chunk/name %))
+                                    (:result/chunks enriched)))]
+    (is (seq (:chunk/symbols create-user)))
+    (is (contains? (:chunk/symbols create-user) 's/trim))
+    (is (contains? (:chunk/symbols create-user) 'name))
+    (is (contains? (:chunk/symbols create-user) 'email))))
+
+(deftest symbols-extracted-from-multi-ns
+  (let [result (sut/parse-file (fixture-path "multi_ns/core.clj"))
+        enriched (sut/enrich-chunks-with-ns result)
+        process (first (filter #(= "process" (:chunk/name %))
+                                (:result/chunks enriched)))]
+    (is (seq (:chunk/symbols process)))
+    (is (contains? (:chunk/symbols process) 'utils/enrich))
+    (is (contains? (:chunk/symbols process) 'utils/validate))))
+
+(deftest symbols-extracted-from-graph-project-core
+  (let [result (sut/parse-file (fixture-path "graph_project/utils.clj"))
+        enriched (sut/enrich-chunks-with-ns result)
+        transform (first (filter #(= "transform" (:chunk/name %))
+                                  (:result/chunks enriched)))]
+    (is (seq (:chunk/symbols transform)))
+    (is (contains? (:chunk/symbols transform) 'assoc))
+    (is (contains? (:chunk/symbols transform) 'enrich))))

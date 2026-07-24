@@ -199,13 +199,32 @@
 ;; Referenced symbol extraction from body
 ;; ---------------------------------------------------------------------------
 
+(defn- container-tag?
+  [tag]
+  (#{:list :vector :map :set :fn} tag))
+
+(defn- walk-container-nodes
+  "Walk only container nodes (list/vector/map/set) to collect symbol tokens.
+  Avoids calling n/children on leaf nodes like :token, :keyword which throw."
+  [nodes]
+  (lazy-seq
+    (when-let [node (first nodes)]
+      (let [tag (n/tag node)
+            result (if (= :token tag)
+                     (let [sexpr (node-sexpr-safe node)]
+                       (if (instance? clojure.lang.Symbol sexpr)
+                         [sexpr]
+                         []))
+                     [])]
+        (if (container-tag? tag)
+          (concat result (walk-container-nodes (n/children node))
+                  (walk-container-nodes (rest nodes)))
+          (concat result (walk-container-nodes (rest nodes))))))))
+
 (defn- extract-referenced-symbols-from-node
   [cst-node]
   (try
-    (->> (tree-seq n/children seq (n/children cst-node))
-         (filter #(= :symbol (n/tag %)))
-         (map node-sexpr-safe)
-         (remove nil?)
+    (->> (walk-container-nodes (n/children cst-node))
          (into #{}))
     (catch Exception _ #{})))
 

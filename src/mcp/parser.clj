@@ -391,7 +391,7 @@
 (defn enrich-project-chunks
   [project-result]
   (let [by-file (group-by :chunk/file (:chunks project-result))]
-    (reduce-kv (fn [acc file chunks]
+    (reduce-kv (fn [acc _ chunks]
                  (let [file-result (enrich-chunks-with-ns
                                     {:result/chunks chunks
                                      :result/errors (:errors project-result)})

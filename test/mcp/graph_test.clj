@@ -181,7 +181,6 @@
   (let [{:keys [graph]} (parse-project-and-build-graph "graph_project")
         file-to-remove (first (keys (:by-file graph)))
         removed (sut/remove-file! graph file-to-remove)
-        remaining-edges (:edges removed)
         removed-edges (filter #(= (:edge/file %) file-to-remove) (:edges graph))]
     (doseq [e removed-edges]
       (let [callee (:edge/to e)
@@ -206,7 +205,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest add-file-adds-edges
-  (let [{:keys [graph index]} (parse-project-and-build-graph "multi_ns")
+  (let [{:keys [graph]} (parse-project-and-build-graph "multi_ns")
         empty-g (sut/empty-graph)
         all-edges (:edges graph)
         added (sut/add-file! empty-g all-edges)]

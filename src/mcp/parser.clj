@@ -121,7 +121,7 @@
             (if (form-tag? tag)
               (recur (rest remaining)
                      (int (+ line (dec lines-in-str)))
-                     (conj forms {:string cstr :start-line line}))
+                     (conj forms {:string cstr :start-line line :cst-node child}))
               (recur (rest remaining)
                      (int (+ line (dec lines-in-str)))
                      forms)))
@@ -168,15 +168,10 @@
               (catch Exception _ nil))))
         children-nodes))
 
-(defn- extract-form-metadata
-  [source-str ftype]
+(defn- extract-form-metadata-from-node
+  [cst-node ftype]
   (try
-    (let [zloc (z/of-string* source-str {:track-position? true})
-          node (z/node zloc)
-          top-children (n/children node)
-          form-node (first top-children)
-          children (when form-node (n/children form-node))
-          ;; filter out whitespace nodes to get meaningful children
+    (let [children (n/children cst-node)
           meaningful (remove (fn [c] (#{:whitespace :newline} (n/tag c))) children)
           body-start (drop 2 meaningful)
           body-strings (keep node-sexpr-safe body-start)
@@ -190,9 +185,29 @@
         tag (assoc :tag tag)))
     (catch Exception _ {})))
 
+(defn- extract-form-metadata
+  [source-str ftype]
+  (try
+    (let [zloc (z/of-string* source-str {:track-position? true})
+          node (z/node zloc)
+          top-children (n/children node)
+          form-node (first top-children)]
+      (extract-form-metadata-from-node form-node ftype))
+    (catch Exception _ {})))
+
 ;; ---------------------------------------------------------------------------
 ;; Referenced symbol extraction from body
 ;; ---------------------------------------------------------------------------
+
+(defn- extract-referenced-symbols-from-node
+  [cst-node]
+  (try
+    (->> (tree-seq n/children seq (n/children cst-node))
+         (filter #(= :symbol (n/tag %)))
+         (map node-sexpr-safe)
+         (remove nil?)
+         (into #{}))
+    (catch Exception _ #{})))
 
 (defn- extract-referenced-symbols
   [source-str]
@@ -201,12 +216,7 @@
           node (z/node zloc)
           top-children (n/children node)
           form-node (first top-children)]
-      (when form-node
-        (->> (tree-seq n/children seq (n/children form-node))
-             (filter #(= :symbol (n/tag %)))
-             (map node-sexpr-safe)
-             (remove nil?)
-             (into #{}))))
+      (extract-referenced-symbols-from-node form-node))
     (catch Exception _ #{})))
 
 ;; ---------------------------------------------------------------------------
@@ -234,33 +244,39 @@
                      chunks []
                      errors []]
                 (if-let [form (first remaining)]
-(let [s (:string form)
-                          start-line (:start-line form)
-                          end-line (compute-end-line s start-line)
-                          ftype (classify-form-type s)
-                          nm (when ftype (extract-form-name s))
-                          vis (form-visibility s)
-                          meta-data (when ftype (extract-form-metadata s ftype))
-                          symbols (when (and ftype (not= :ns ftype))
-                                    (extract-referenced-symbols s))]
-                      (recur (rest remaining)
-                             (conj chunks
-                                   {:chunk/id        (UUID/randomUUID)
-                                    :chunk/ns        nil
-                                    :chunk/file      file-path
-                                    :chunk/type      (or ftype :top-level)
-                                    :chunk/name      (when ftype (str nm))
-                                    :chunk/source    s
-                                    :chunk/start-line start-line
-                                    :chunk/end-line   end-line
-                                    :chunk/visibility (if (and (= ftype :fn) (= vis :private))
-                                                        :private
-                                                        :public)
-                                    :chunk/language  lang
-                                    :chunk/metadata  meta-data
-                                    :chunk/symbols   symbols
-                                    :chunk/hash      (sha-256 s)})
-                             errors))
+                  (let [s (:string form)
+                        start-line (:start-line form)
+                        end-line (compute-end-line s start-line)
+                        ftype (classify-form-type s)
+                        nm (when ftype (extract-form-name s))
+                        vis (form-visibility s)
+                        cst-node (:cst-node form)
+                        meta-data (when ftype
+                                    (if cst-node
+                                      (extract-form-metadata-from-node cst-node ftype)
+                                      (extract-form-metadata s ftype)))
+                        symbols (when (and ftype (not= :ns ftype))
+                                  (if cst-node
+                                    (extract-referenced-symbols-from-node cst-node)
+                                    (extract-referenced-symbols s)))]
+                    (recur (rest remaining)
+                           (conj chunks
+                                 {:chunk/id        (UUID/randomUUID)
+                                  :chunk/ns        nil
+                                  :chunk/file      file-path
+                                  :chunk/type      (or ftype :top-level)
+                                  :chunk/name      (when ftype (str nm))
+                                  :chunk/source    s
+                                  :chunk/start-line start-line
+                                  :chunk/end-line   end-line
+                                  :chunk/visibility (if (and (= ftype :fn) (= vis :private))
+                                                      :private
+                                                      :public)
+                                  :chunk/language  lang
+                                  :chunk/metadata  meta-data
+                                  :chunk/symbols   symbols
+                                  :chunk/hash      (sha-256 s)})
+                           errors))
                   {:result/chunks chunks
                    :result/errors errors}))))))
       (catch Exception e

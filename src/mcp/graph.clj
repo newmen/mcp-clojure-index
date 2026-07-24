@@ -38,7 +38,7 @@
   [sym _ index]
   (if-let [rec (get (:index/by-qname index) sym)]
     (:sym/name rec)
-    (if-let [ns-part (namespace sym)]
+    (if-let [_ (namespace sym)]
       (let [simple (name sym)
             records (get (:index/by-simple index) (symbol simple))]
         (when (seq records)

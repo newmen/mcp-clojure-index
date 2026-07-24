@@ -12,5 +12,6 @@ pom.xml.asc
 .hgignore
 .hg/
 .clj-kondo/
+.calva/
 .lsp/
 .kilo/

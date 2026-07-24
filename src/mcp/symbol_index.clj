@@ -226,3 +226,17 @@
                                 (update acc rname (fnil conj []) sym)
                                 acc))
                             m symbols)))))))
+
+;; ---------------------------------------------------------------------------
+;; Update file path in all index entries (rename without content change)
+;; ---------------------------------------------------------------------------
+
+(defn update-file-path!
+  [index old-path new-path]
+  (let [symbols (get (:index/by-file index) old-path [])]
+    (if (empty? symbols)
+      index
+      (let [updated (mapv #(assoc % :sym/file new-path) symbols)]
+        (-> index
+            (remove-file! old-path)
+            (add-file! updated))))))

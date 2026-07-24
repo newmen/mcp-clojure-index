@@ -235,3 +235,17 @@
                               (update acc (:edge/file e)
                                       (fnil conj #{}) (:edge/from-id e)))
                             m deduped)))))))
+
+;; ---------------------------------------------------------------------------
+;; Update file path in all graph entries (rename without content change)
+;; ---------------------------------------------------------------------------
+
+(defn update-file-path!
+  [graph old-path new-path]
+  (let [removed-ids (get (:by-file graph) old-path #{})]
+    (if (empty? removed-ids)
+      graph
+      (let [removed-edges (filter #(contains? removed-ids (:edge/from-id %)) (:edges graph))
+            updated-edges (mapv (fn [e] (assoc e :edge/file new-path)) removed-edges)]
+        (-> (remove-file! graph old-path)
+            (add-file! updated-edges))))))

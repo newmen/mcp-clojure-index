@@ -15,7 +15,7 @@
 ;;                      :macro  [...]
 ;;                      :protocol [...]
 ;;                      :record [...]
-;;                      :var    [...]}
+;;                      :val    [...]}
 ;;    :index/by-protocol {'ProtocolName [SymbolRecord ...]}  ;; protocol-name -> methods
 ;;    :index/by-record   {'RecordName   [SymbolRecord ...]}  ;; record-name -> methods
 ;;    :index/namespaces {'ns.name NamespaceRecord ...}}  ;; ns-name -> NamespaceRecord
@@ -26,7 +26,7 @@
   {:index/by-qname    {}
    :index/by-simple   {}
    :index/by-file     {}
-   :index/by-type     {:fn [] :macro [] :protocol [] :record [] :var []}
+   :index/by-type     {:fn [] :macro [] :protocol [] :record [] :val []}
    :index/by-protocol {}
    :index/by-record   {}
    :index/namespaces  {}})
@@ -90,7 +90,7 @@
          by-type (reduce (fn [acc sym]
                            (update acc (:sym/type sym)
                                    (fnil conj []) sym))
-                         {:fn [] :macro [] :protocol [] :record [] :var []}
+                         {:fn [] :macro [] :protocol [] :record [] :val []}
                          symbols)
          ns-records (when chunks
                       (reduce (fn [acc chunk]

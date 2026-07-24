@@ -98,14 +98,15 @@
     (is (.startsWith ^String (:chunk/source fn-chunk) "(defn create-user"))))
 
 ;; ---------------------------------------------------------------------------
-;; syntax_error.clj — line-based parser does not detect syntax errors,
-;; but still extracts partial forms without crashing
+;; syntax_error.clj — rewrite-clj CST parser detects the unbalanced paren
+;; and returns the error in :result/errors without crashing.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-syntax-error-no-crash
   (let [result (sut/parse-file (fixture-path "syntax_error.clj"))]
     (is (some? result))
-    (is (seq (:result/chunks result)))))
+    (is (empty? (:result/chunks result)))
+    (is (seq (:result/errors result)))))
 
 ;; ---------------------------------------------------------------------------
 ;; empty.clj
@@ -190,3 +191,49 @@
 
 (deftest sha-256-length
   (is (= 64 (count (sut/sha-256 "anything")))))
+
+;; ---------------------------------------------------------------------------
+;; CST-based chunking validation (Task 3)
+;; ---------------------------------------------------------------------------
+
+(deftest chunks-do-not-intersect
+  (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
+        chunks (:result/chunks result)]
+    (doseq [c chunks]
+      (is (<= (:chunk/start-line c) (:chunk/end-line c))
+          (str "Chunk " (:chunk/name c) " has invalid line range")))
+    (let [sorted (sort-by :chunk/start-line chunks)]
+      (doseq [[a b] (partition 2 1 sorted)]
+        (is (<= (:chunk/end-line a) (:chunk/start-line b))
+            (str "Chunks " (:chunk/name a) " and " (:chunk/name b) " overlap"))))))
+
+(deftest chunks-contain-full-source
+  (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
+        chunks (:result/chunks result)
+        ns-chunk (first (filter #(= :ns (:chunk/type %)) chunks))]
+    (is (.startsWith ^String (:chunk/source ns-chunk) "(ns"))
+    (is (.endsWith ^String (:chunk/source ns-chunk) ")"))
+    (let [fn-chunk (first (filter #(= "create-user" (:chunk/name %)) chunks))]
+      (is (.startsWith ^String (:chunk/source fn-chunk) "(defn"))
+      (is (.endsWith ^String (:chunk/source fn-chunk) ")")))))
+
+(deftest chunks-have-no-nested-overlap
+  (let [result (sut/parse-file (fixture-path "protocol_def.cljc"))
+        chunks (:result/chunks result)]
+    (is (every? #(#{:ns :fn :macro :protocol :record :var :top-level} (:chunk/type %)) chunks))
+    (let [protocol-chunks (filter #(= :protocol (:chunk/type %)) chunks)]
+      (is (some #(= "Transferable" (:chunk/name %)) protocol-chunks))
+      (is (some #(= "Comparable_" (:chunk/name %)) protocol-chunks)))))
+
+(deftest edn-file-line-numbers
+  (let [result (sut/parse-file (fixture-path "config.edn"))
+        chunks (:result/chunks result)]
+    (is (every? #(pos? (:chunk/start-line %)) chunks))
+    (is (= 1 (:chunk/start-line (first chunks))))))
+
+(deftest hash-is-stable-across-parses
+  (let [r1 (sut/parse-file (fixture-path "valid_defs.clj"))
+        r2 (sut/parse-file (fixture-path "valid_defs.clj"))
+        h1 (set (map :chunk/hash (:result/chunks r1)))
+        h2 (set (map :chunk/hash (:result/chunks r2)))]
+    (is (= h1 h2))))

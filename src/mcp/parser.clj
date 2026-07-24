@@ -1,6 +1,8 @@
 (ns mcp.parser
   (:require [clojure.java.io :as io]
-            [clojure.string :as s])
+            [clojure.string :as s]
+            [rewrite-clj.node :as n]
+            [rewrite-clj.zip :as z])
   (:import (java.security MessageDigest)
            (java.util UUID)
            (java.math BigInteger)))
@@ -35,41 +37,29 @@
     (.endsWith (.toLowerCase ^String s) ".edn")))
 
 ;; ---------------------------------------------------------------------------
-;; Top-level form matching via node string inspection
+;; Top-level form matching
 ;; ---------------------------------------------------------------------------
-
-(defn- first-symbol-of-form
-  [^String s]
-  (let [trimmed (s/trim s)]
-    (when (.startsWith trimmed "(")
-      (try
-        (let [after-paren (.substring trimmed 1)
-              first-form (re-find #"[^\s()]+" after-paren)]
-          (when first-form
-            (symbol first-form)))
-        (catch Exception _ nil)))))
 
 (defn- classify-form-type
   [s]
-  (when-let [sym (first-symbol-of-form s)]
-    (case sym
-      defn        :fn
-      defn-       :fn
-      defmacro    :macro
-      defprotocol :protocol
-      defrecord   :record
-      deftype     :record
-      def         :var
-      defonce     :var
-      ns          :ns
-      nil)))
+  (let [trimmed (s/triml s)]
+    (cond
+      (.startsWith trimmed "(defn ")       :fn
+      (.startsWith trimmed "(defn-")       :fn
+      (.startsWith trimmed "(defmacro ")   :macro
+      (.startsWith trimmed "(defprotocol ") :protocol
+      (.startsWith trimmed "(defrecord ")  :record
+      (.startsWith trimmed "(deftype ")    :record
+      (.startsWith trimmed "(def ")        :var
+      (.startsWith trimmed "(defonce ")    :var
+      (.startsWith trimmed "(ns ")         :ns
+      :else nil)))
 
 (defn- form-visibility
   [s]
-  (let [trimmed (s/triml s)]
-    (if (.startsWith trimmed "(defn-")
-      :private
-      :public)))
+  (if (.startsWith (s/triml s) "(defn-")
+    :private
+    :public))
 
 (defn- extract-form-name
   [s]
@@ -89,81 +79,51 @@
               second)))))
     (catch Exception _ nil)))
 
-(defn- count-lines
-  [s]
-  (max 1 (count (s/split-lines s))))
+(defn- line-count
+  [^String s]
+  (if (zero? (count s))
+    0
+    (loop [i 0
+           cnt 1]
+      (let [idx (.indexOf s (int \newline) i)]
+        (if (neg? idx)
+          cnt
+          (recur (inc idx) (inc cnt)))))))
+
+;; ---------------------------------------------------------------------------
+;; CST-based top-level form extraction via rewrite-clj
+;; ---------------------------------------------------------------------------
+
+(defn- form-tag?
+  [tag]
+  (#{:list :map :vector :set} tag))
+
+(defn- top-level-forms-cst
+  [source]
+  (try
+    (let [zloc (z/of-string* source {:track-position? true})
+          children (n/children (z/node zloc))]
+      (loop [remaining children
+             line (int 1)
+             forms []]
+        (if-let [child (first remaining)]
+          (let [tag (n/tag child)
+                cstr (n/string child)
+                lines-in-str (line-count cstr)]
+            (if (form-tag? tag)
+              (recur (rest remaining)
+                     (int (+ line (dec lines-in-str)))
+                     (conj forms {:string cstr :start-line line}))
+              (recur (rest remaining)
+                     (int (+ line (dec lines-in-str)))
+                     forms)))
+          forms)))
+    (catch Exception _ nil)))
 
 (defn- compute-end-line
   [s start-line]
-  (+ start-line (dec (count-lines s))))
-
-;; ---------------------------------------------------------------------------
-;; Line-based top-level form extraction
-;; ---------------------------------------------------------------------------
-
-(defn extract-top-level-forms-line-based
-  [^String s]
-  (let [len (.length s)]
-    (loop [i 0
-           depth 0
-           in-str? false
-           in-comment? false
-           line 1
-           col 1
-           start-line 1
-           forms []
-           buf (StringBuilder.)]
-      (if (>= i len)
-        (let [remaining (.toString buf)]
-          (if (pos? (count remaining))
-            (conj forms {:string remaining :start-line start-line})
-            forms))
-        (let [ch (.charAt s i)
-              ni (inc i)
-              nc (inc col)]
-          (cond
-            (and in-comment? (not= ch \newline))
-            (recur ni depth true in-comment? line nc start-line forms buf)
-
-            (and in-comment? (= ch \newline))
-            (recur ni depth false in-comment? (inc line) 1 start-line forms (.append buf ch))
-
-            (and in-str? (or (not= ch \") (and (> i 0) (= (.charAt s (dec i)) \\))))
-            (recur ni depth true in-comment? line nc start-line forms (.append buf ch))
-
-            in-str?
-            (recur ni depth false in-comment? line nc start-line forms (.append buf ch))
-
-            (= ch \;)
-            (recur ni depth true in-comment? line nc start-line forms buf)
-
-            (= ch \")
-            (recur ni depth true in-comment? line nc start-line forms (.append buf ch))
-
-            (= ch \()
-            (let [new-d (inc depth)]
-              (if (= 1 new-d)
-                (let [nb (StringBuilder.)]
-                  (.append nb ch)
-                  (recur ni new-d false in-comment? line nc line forms nb))
-                (do
-                  (.append buf ch)
-                  (recur ni new-d false in-comment? line nc start-line forms buf))))
-
-            (= ch \))
-            (let [new-d (dec depth)]
-              (.append buf ch)
-              (if (zero? new-d)
-                (recur ni new-d false in-comment? line nc 0
-                       (conj forms {:string (.toString buf) :start-line start-line})
-                       (StringBuilder.))
-                (recur ni new-d false in-comment? line nc start-line forms buf)))
-
-            (= ch \newline)
-            (recur ni depth false in-comment? (inc line) 1 start-line forms (.append buf ch))
-
-            :else
-            (recur ni depth false in-comment? line nc start-line forms (.append buf ch))))))))
+  (let [nl (if (s/blank? s) 1 (line-count s))]
+    (+ start-line (dec nl))))
 
 ;; ---------------------------------------------------------------------------
 ;; Main parsing
@@ -179,37 +139,43 @@
       (let [file-string (slurp file-path)]
         (if (s/blank? file-string)
           {:result/chunks [] :result/errors []}
-          (let [top-level-forms (extract-top-level-forms-line-based file-string)]
-            (loop [remaining top-level-forms
-                   chunks []
-                   errors []]
-              (if-let [form (first remaining)]
-                (let [s (:string form)
-                      start-line (:start-line form)
-                      end-line (compute-end-line s start-line)
-                      ftype (classify-form-type s)
-                      nm (when ftype (extract-form-name s))
-                      vis (form-visibility s)]
-                  (recur (rest remaining)
-                         (conj chunks
-                               {:chunk/id        (UUID/randomUUID)
-                                :chunk/ns        nil
-                                :chunk/file      file-path
-                                :chunk/type      (or ftype :top-level)
-                                :chunk/name      (when ftype (str nm))
-                                :chunk/source    s
-                                :chunk/start-line start-line
-                                :chunk/end-line   end-line
-                                :chunk/visibility (if (and (= ftype :fn) (= vis :private))
-                                                    :private
-                                                    :public)
-                                :chunk/language  lang
-                                :chunk/metadata  {}
-                                :chunk/symbols   #{}
-                                :chunk/hash      (sha-256 s)})
-                         errors))
-                {:result/chunks chunks
-                 :result/errors errors})))))
+          (let [top-level-forms (top-level-forms-cst file-string)]
+            (if (nil? top-level-forms)
+              {:result/chunks []
+               :result/errors [{:error/file file-path
+                                :error/line   nil
+                                :error/column nil
+                                :error/message "Failed to parse file: syntax error"}]}
+              (loop [remaining top-level-forms
+                     chunks []
+                     errors []]
+                (if-let [form (first remaining)]
+                  (let [s (:string form)
+                        start-line (:start-line form)
+                        end-line (compute-end-line s start-line)
+                        ftype (classify-form-type s)
+                        nm (when ftype (extract-form-name s))
+                        vis (form-visibility s)]
+                    (recur (rest remaining)
+                           (conj chunks
+                                 {:chunk/id        (UUID/randomUUID)
+                                  :chunk/ns        nil
+                                  :chunk/file      file-path
+                                  :chunk/type      (or ftype :top-level)
+                                  :chunk/name      (when ftype (str nm))
+                                  :chunk/source    s
+                                  :chunk/start-line start-line
+                                  :chunk/end-line   end-line
+                                  :chunk/visibility (if (and (= ftype :fn) (= vis :private))
+                                                      :private
+                                                      :public)
+                                  :chunk/language  lang
+                                  :chunk/metadata  {}
+                                  :chunk/symbols   #{}
+                                  :chunk/hash      (sha-256 s)})
+                           errors))
+                  {:result/chunks chunks
+                   :result/errors errors}))))))
       (catch Exception e
         {:result/chunks []
          :result/errors [{:error/file file-path

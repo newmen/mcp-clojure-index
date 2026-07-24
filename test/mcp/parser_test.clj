@@ -73,8 +73,8 @@
 
 (deftest parse-valid-defs-has-def-vars
   (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
-        var-chunks (filter #(= :var (:chunk/type %)) (:result/chunks result))
-        names (set (map :chunk/name var-chunks))]
+        val-chunks (filter #(= :val (:chunk/type %)) (:result/chunks result))
+        names (set (map :chunk/name val-chunks))]
     (is (contains? names "MAX-RETRIES"))))
 
 (deftest parse-valid-defs-line-numbers
@@ -220,7 +220,7 @@
 (deftest chunks-have-no-nested-overlap
   (let [result (sut/parse-file (fixture-path "protocol_def.cljc"))
         chunks (:result/chunks result)]
-    (is (every? #(#{:ns :fn :macro :protocol :record :var :top-level} (:chunk/type %)) chunks))
+    (is (every? #(#{:ns :fn :macro :protocol :record :val :top-level} (:chunk/type %)) chunks))
     (let [protocol-chunks (filter #(= :protocol (:chunk/type %)) chunks)]
       (is (some #(= "Transferable" (:chunk/name %)) protocol-chunks))
       (is (some #(= "Comparable_" (:chunk/name %)) protocol-chunks)))))

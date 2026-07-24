@@ -50,8 +50,8 @@
       (.startsWith trimmed "(defprotocol ") :protocol
       (.startsWith trimmed "(defrecord ")  :record
       (.startsWith trimmed "(deftype ")    :record
-      (.startsWith trimmed "(def ")        :var
-      (.startsWith trimmed "(defonce ")    :var
+      (.startsWith trimmed "(def ")        :val
+      (.startsWith trimmed "(defonce ")    :val
       (.startsWith trimmed "(ns ")         :ns
       :else nil)))
 

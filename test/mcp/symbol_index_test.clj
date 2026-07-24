@@ -35,7 +35,7 @@
     (is (contains? (:index/by-type idx) :macro))
     (is (contains? (:index/by-type idx) :protocol))
     (is (contains? (:index/by-type idx) :record))
-    (is (contains? (:index/by-type idx) :var))))
+    (is (contains? (:index/by-type idx) :val))))
 
 ;; ---------------------------------------------------------------------------
 ;; build-index
@@ -84,7 +84,7 @@
     (is (= 1 (count (get (:index/by-type idx) :macro))))
     (is (= 1 (count (get (:index/by-type idx) :protocol))))
     (is (= 2 (count (get (:index/by-type idx) :record))))
-    (is (= 2 (count (get (:index/by-type idx) :var))))))
+    (is (= 2 (count (get (:index/by-type idx) :val))))))
 
 ;; ---------------------------------------------------------------------------
 ;; find-symbol
@@ -153,8 +153,8 @@
 
 (deftest find-by-type-vars
   (let [idx (parse-and-index "valid_defs.clj")
-        vars (sut/find-by-type idx :var)]
-    (is (= 2 (count vars)))))
+        vals (sut/find-by-type idx :val)]
+    (is (= 2 (count vals)))))
 
 (deftest find-by-type-empty-for-missing-type
   (let [idx (parse-and-index "valid_defs.clj")]
@@ -278,7 +278,7 @@
     (is (nil? (:doc meta-data)))
     (is (= '[name] (:arglists meta-data)))))
 
-(deftest metadata-empty-for-dynamic-var
+(deftest metadata-empty-for-dynamic-val
   (let [result (parser/parse-file (fixture-path "valid_defs.clj"))
         enriched (parser/enrich-chunks-with-ns result)
         db-conn (first (filter #(= "*db-connection*" (:chunk/name %))

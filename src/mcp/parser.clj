@@ -61,6 +61,11 @@
     :private
     :public))
 
+(defn- strip-trailing-delims
+  [^String s]
+  (let [s (s/replace s #"[\)\]\}]" "")]
+    (s/replace s #"^[\(\[\{]" "")))
+
 (defn- extract-form-name
   [s]
   (try
@@ -72,11 +77,14 @@
         (let [second ^String (nth parts 1)]
           (when (and second (not= "" second))
             (if (.startsWith second "^")
-              (when (>= (count parts) 3)
-                (let [third ^String (nth parts 2)]
-                  (when (and third (not= "" third))
-                    third)))
-              second)))))
+              ;; metadata prefix — find the name by skipping meta patterns
+              (let [rest (nth parts 2 "")
+                    rest-parts (s/split rest #"\s+")]
+                (when (seq rest-parts)
+                  (let [name-candidate (first rest-parts)]
+                    (when (and name-candidate (not= "" name-candidate))
+                      (strip-trailing-delims name-candidate)))))
+              (strip-trailing-delims second))))))
     (catch Exception _ nil)))
 
 (defn- line-count
@@ -126,6 +134,82 @@
     (+ start-line (dec nl))))
 
 ;; ---------------------------------------------------------------------------
+;; Metadata extraction (docstring, arglists, tag)
+;; ---------------------------------------------------------------------------
+
+(defn- node-sexpr-safe
+  [node]
+  (try (n/sexpr node) (catch Exception _ nil)))
+
+(defn- extract-docstring
+  [children-strs]
+  (when (and (>= (count children-strs) 1)
+             (string? (first children-strs)))
+    (first children-strs)))
+
+(defn- extract-arglists
+  [children-nodes ftype]
+  (when (and (= :fn ftype) (>= (count children-nodes) 2))
+    (let [body (drop 2 children-nodes)
+          first-vector (some #(when (= :vector (n/tag %)) %) body)]
+      (when first-vector
+        (node-sexpr-safe first-vector)))))
+
+(defn- extract-tag
+  [children-nodes]
+  (some (fn [child]
+          (when (= :meta (n/tag child))
+            (try
+              (let [meta-children (n/children child)
+                    meta-val (first meta-children)
+                    meta-sexpr (node-sexpr-safe meta-val)]
+                (when (map? meta-sexpr)
+                  (:tag meta-sexpr)))
+              (catch Exception _ nil))))
+        children-nodes))
+
+(defn- extract-form-metadata
+  [source-str ftype]
+  (try
+    (let [zloc (z/of-string* source-str {:track-position? true})
+          node (z/node zloc)
+          top-children (n/children node)
+          form-node (first top-children)
+          children (when form-node (n/children form-node))
+          ;; filter out whitespace nodes to get meaningful children
+          meaningful (remove (fn [c] (#{:whitespace :newline} (n/tag c))) children)
+          body-start (drop 2 meaningful)
+          body-strings (keep node-sexpr-safe body-start)
+          doc (when (and ftype (not= :ns ftype) (not= :protocol ftype))
+                (extract-docstring body-strings))
+          arglists (extract-arglists meaningful ftype)
+          tag (extract-tag meaningful)]
+      (cond-> {}
+        doc (assoc :doc doc)
+        arglists (assoc :arglists arglists)
+        tag (assoc :tag tag)))
+    (catch Exception _ {})))
+
+;; ---------------------------------------------------------------------------
+;; Referenced symbol extraction from body
+;; ---------------------------------------------------------------------------
+
+(defn- extract-referenced-symbols
+  [source-str]
+  (try
+    (let [zloc (z/of-string* source-str {:track-position? true})
+          node (z/node zloc)
+          top-children (n/children node)
+          form-node (first top-children)]
+      (when form-node
+        (->> (tree-seq n/children seq (n/children form-node))
+             (filter #(= :symbol (n/tag %)))
+             (map node-sexpr-safe)
+             (remove nil?)
+             (into #{}))))
+    (catch Exception _ #{})))
+
+;; ---------------------------------------------------------------------------
 ;; Main parsing
 ;; ---------------------------------------------------------------------------
 
@@ -150,30 +234,33 @@
                      chunks []
                      errors []]
                 (if-let [form (first remaining)]
-                  (let [s (:string form)
-                        start-line (:start-line form)
-                        end-line (compute-end-line s start-line)
-                        ftype (classify-form-type s)
-                        nm (when ftype (extract-form-name s))
-                        vis (form-visibility s)]
-                    (recur (rest remaining)
-                           (conj chunks
-                                 {:chunk/id        (UUID/randomUUID)
-                                  :chunk/ns        nil
-                                  :chunk/file      file-path
-                                  :chunk/type      (or ftype :top-level)
-                                  :chunk/name      (when ftype (str nm))
-                                  :chunk/source    s
-                                  :chunk/start-line start-line
-                                  :chunk/end-line   end-line
-                                  :chunk/visibility (if (and (= ftype :fn) (= vis :private))
-                                                      :private
-                                                      :public)
-                                  :chunk/language  lang
-                                  :chunk/metadata  {}
-                                  :chunk/symbols   #{}
-                                  :chunk/hash      (sha-256 s)})
-                           errors))
+(let [s (:string form)
+                          start-line (:start-line form)
+                          end-line (compute-end-line s start-line)
+                          ftype (classify-form-type s)
+                          nm (when ftype (extract-form-name s))
+                          vis (form-visibility s)
+                          meta-data (when ftype (extract-form-metadata s ftype))
+                          symbols (when (and ftype (not= :ns ftype))
+                                    (extract-referenced-symbols s))]
+                      (recur (rest remaining)
+                             (conj chunks
+                                   {:chunk/id        (UUID/randomUUID)
+                                    :chunk/ns        nil
+                                    :chunk/file      file-path
+                                    :chunk/type      (or ftype :top-level)
+                                    :chunk/name      (when ftype (str nm))
+                                    :chunk/source    s
+                                    :chunk/start-line start-line
+                                    :chunk/end-line   end-line
+                                    :chunk/visibility (if (and (= ftype :fn) (= vis :private))
+                                                        :private
+                                                        :public)
+                                    :chunk/language  lang
+                                    :chunk/metadata  meta-data
+                                    :chunk/symbols   symbols
+                                    :chunk/hash      (sha-256 s)})
+                             errors))
                   {:result/chunks chunks
                    :result/errors errors}))))))
       (catch Exception e
@@ -209,21 +296,28 @@
 (defn chunk->symbol-record
   [chunk ns-name]
   (when (:chunk/name chunk)
-    (let [sym-name (symbol (str ns-name "/" (:chunk/name chunk)))]
-      {:sym/name       sym-name
-       :sym/simple     (symbol (:chunk/name chunk))
-       :sym/ns         (symbol ns-name)
-       :sym/type       (:chunk/type chunk)
-       :sym/file       (:chunk/file chunk)
-       :sym/line       (:chunk/start-line chunk)
-       :sym/arglists   (:arglists (:chunk/metadata chunk))
-       :sym/doc        (:doc (:chunk/metadata chunk))
-       :sym/protocol   nil
-       :sym/record     nil
-       :sym/tag        nil
-       :sym/chunk-id   (:chunk/id chunk)
-       :sym/visibility (:chunk/visibility chunk)
-       :sym/aliases    #{}})))
+    (let [sym-name (symbol (str ns-name "/" (:chunk/name chunk)))
+          meta (:chunk/metadata chunk)
+          ftype (:chunk/type chunk)]
+      (cond-> {:sym/name       sym-name
+               :sym/simple     (symbol (:chunk/name chunk))
+               :sym/ns         (symbol ns-name)
+               :sym/type       ftype
+               :sym/file       (:chunk/file chunk)
+               :sym/line       (:chunk/start-line chunk)
+               :sym/arglists   (:arglists meta)
+               :sym/doc        (:doc meta)
+               :sym/protocol   nil
+               :sym/record     nil
+               :sym/tag        (:tag meta)
+               :sym/chunk-id   (:chunk/id chunk)
+               :sym/visibility (:chunk/visibility chunk)
+               :sym/aliases    #{}}
+        (or (= :protocol ftype) (= :record ftype))
+        (assoc :sym/protocol-name
+               (when (= :protocol ftype) (:chunk/name chunk))
+               :sym/record-name
+               (when (= :record ftype) (:chunk/name chunk)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level ns info extraction
@@ -256,12 +350,27 @@
             (:result/chunks parse-result)))))
 
 ;; ---------------------------------------------------------------------------
+;; Convenience: enrich all chunks from a project result (grouped by file)
+;; ---------------------------------------------------------------------------
+
+(defn enrich-project-chunks
+  [project-result]
+  (let [by-file (group-by :chunk/file (:chunks project-result))]
+    (reduce-kv (fn [acc file chunks]
+                 (let [file-result (enrich-chunks-with-ns
+                                    {:result/chunks chunks
+                                     :result/errors (:errors project-result)})
+                       enriched (:result/chunks file-result)]
+                   (update acc :chunks into enriched)))
+               {:chunks [] :errors (:errors project-result)}
+               by-file)))
+
+;; ---------------------------------------------------------------------------
 ;; Convenience: parse + enrich
 ;; ---------------------------------------------------------------------------
 
 (defn parse-file-full
   [file-path]
-  (let [result (parse-file file-path)]
-    (-> result
-        enrich-chunks-with-ns
-        (assoc :symbols (extract-symbols result)))))
+  (let [result (parse-file file-path)
+        enriched (enrich-chunks-with-ns result)]
+    (assoc enriched :symbols (extract-symbols enriched))))

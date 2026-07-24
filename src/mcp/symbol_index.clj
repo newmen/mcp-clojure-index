@@ -16,6 +16,8 @@
 ;;                      :protocol [...]
 ;;                      :record [...]
 ;;                      :var    [...]}
+;;    :index/by-protocol {'ProtocolName [SymbolRecord ...]}  ;; protocol-name -> methods
+;;    :index/by-record   {'RecordName   [SymbolRecord ...]}  ;; record-name -> methods
 ;;    :index/namespaces {'ns.name NamespaceRecord ...}}  ;; ns-name -> NamespaceRecord
 ;; ---------------------------------------------------------------------------
 
@@ -25,6 +27,8 @@
    :index/by-simple   {}
    :index/by-file     {}
    :index/by-type     {:fn [] :macro [] :protocol [] :record [] :var []}
+   :index/by-protocol {}
+   :index/by-record   {}
    :index/namespaces  {}})
 
 ;; ---------------------------------------------------------------------------
@@ -52,9 +56,7 @@
           ns-name (:chunk/name chunk)]
       (try
         (let [lines (s/split-lines source)
-              _ (first lines)
               body-lines (rest lines)
-              ;; Simple extraction: find require/use/import forms
               requires (into []
                              (keep (fn [line]
                                      (let [t (s/trim line)]
@@ -100,6 +102,16 @@
       :index/by-simple  by-simple
       :index/by-file    by-file
       :index/by-type    by-type
+      :index/by-protocol (reduce (fn [acc sym]
+                                   (if-let [pname (:sym/protocol sym)]
+                                     (update acc pname (fnil conj []) sym)
+                                     acc))
+                                 {} symbols)
+      :index/by-record   (reduce (fn [acc sym]
+                                   (if-let [rname (:sym/record sym)]
+                                     (update acc rname (fnil conj []) sym)
+                                     acc))
+                                 {} symbols)
       :index/namespaces ns-records})))
 
 ;; ---------------------------------------------------------------------------
@@ -124,22 +136,28 @@
 
 (defn find-by-protocol
   [index protocol-name]
-  (let [pname (symbol (name protocol-name))]
-    (filter (fn [sym]
-              (and (= :fn (:sym/type sym))
-                   (= pname (:sym/protocol sym))))
-            (vals (:index/by-qname index)))))
+  (get (:index/by-protocol index) (symbol (name protocol-name)) []))
 
 (defn find-by-record
   [index record-name]
-  (let [rname (symbol (name record-name))]
-    (filter (fn [sym]
-              (= rname (:sym/record sym)))
-            (vals (:index/by-qname index)))))
+  (get (:index/by-record index) (symbol (name record-name)) []))
 
 ;; ---------------------------------------------------------------------------
 ;; Incremental update helpers
 ;; ---------------------------------------------------------------------------
+
+(defn- remove-from-inverted-index
+  [m removed-syms]
+  (reduce (fn [acc sym]
+            (let [k (or (:sym/protocol sym) (:sym/record sym))]
+              (if k
+                (let [remaining (remove (fn [r] (= (:sym/name r) (:sym/name sym)))
+                                        (get acc k []))]
+                  (if (empty? remaining)
+                    (dissoc acc k)
+                    (assoc acc k remaining)))
+                acc)))
+          m removed-syms))
 
 (defn remove-file!
   [index file-path]
@@ -167,7 +185,9 @@
                       (reduce-kv (fn [acc t cnt]
                                    (let [remaining (drop-last cnt (get m t []))]
                                      (assoc acc t remaining)))
-                                 m removed-types))))))))
+                                 m removed-types)))
+            (update :index/by-protocol remove-from-inverted-index removed)
+            (update :index/by-record remove-from-inverted-index removed))))))
 
 (defn add-file!
   [index symbols]
@@ -191,4 +211,18 @@
                     (reduce (fn [acc sym]
                               (update acc (:sym/type sym)
                                       (fnil conj []) sym))
+                            m symbols)))
+          (update :index/by-protocol
+                  (fn [m]
+                    (reduce (fn [acc sym]
+                              (if-let [pname (:sym/protocol sym)]
+                                (update acc pname (fnil conj []) sym)
+                                acc))
+                            m symbols)))
+          (update :index/by-record
+                  (fn [m]
+                    (reduce (fn [acc sym]
+                              (if-let [rname (:sym/record sym)]
+                                (update acc rname (fnil conj []) sym)
+                                acc))
                             m symbols)))))))

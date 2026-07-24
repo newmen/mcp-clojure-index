@@ -1,0 +1,44 @@
+@startuml MCP Server Architecture - C4 Component Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(agent, "LLM Agent (Kilo Code)", "Agent using MCP tools for code analysis")
+
+System_Boundary(mcp, "MCP Server") {
+    Container(server, "MCP Server", "Clojure, mcp.server", "Entry point, lifecycle, MCP transport (stdio/HTTP)")
+
+    Container(tools, "Tools Layer", "Clojure, mcp.tools", "Registration and dispatch of MCP tools")
+
+    ContainerDb(symindex, "Symbol Index", "Clojure, mcp.symbol-index", "In-memory index of symbols: functions, macros, protocols, records, ns; search by type/protocol/record")
+    ContainerDb(graph, "Dependency Graph", "Clojure, mcp.graph (loom)", "Call graph (callers/callees) with from-id/to-id for linking to Qdrant")
+
+    Container(parser, "Pipeline", "Clojure, mcp.parser, rewrite-clj", "Parsing .clj/.cljc/.cljs/.edn files, semantic chunking, metadata + visibility extraction; returns ParseError on errors")
+    Container(embeddings, "Embedding Generator", "Clojure, mcp.embeddings", "Embedding generation and reranking via Ollama; hash-based caching")
+    Container(watcher, "File Watcher", "Clojure, mcp.watcher", "Java WatchService; incremental reindexing of changed files")
+
+    ContainerDb(qdrant, "Qdrant Store", "Clojure, mcp.qdrant", "Vector storage: upsert, search, delete! by file; payload with language + visibility")
+}
+
+System_Ext(fs, "File System", "Clojure projects (.clj, .cljc, .cljs, .edn)")
+System_Ext(ollama, "Ollama", "Local LLMs for embeddings and reranking")
+System_Ext(qdrant_ext, "Qdrant", "Vector DB (localhost:6333)")
+
+Rel(agent, server, "MCP Protocol", "JSON-RPC via stdio/HTTP")
+Rel(server, tools, "Dispatch")
+Rel(server, watcher, "Init on start")
+Rel(tools, parser, "parse-project / parse-file")
+Rel(tools, symindex, "find-symbol / find-namespace / find-by-type / find-by-protocol / find-by-record")
+Rel(tools, graph, "find-callers / find-callees")
+Rel(tools, embeddings, "semantic_search → generate + rerank")
+Rel(tools, qdrant, "search / upsert! / delete!")
+
+Rel(parser, fs, "Read .clj/.cljc/.cljs/.edn files")
+Rel(embeddings, ollama, "HTTP POST /api/embed", "vishalraj/nomic-embed-code")
+Rel(embeddings, ollama, "HTTP POST /api/rerank", "qllama/bce-reranker-base_v1")
+Rel(qdrant, qdrant_ext, "HTTP REST / gRPC", "localhost:6333")
+Rel(watcher, fs, "WatchService events")
+Rel(watcher, parser, "parse-file on change")
+Rel(watcher, qdrant, "delete! + upsert! on change")
+
+@enduml

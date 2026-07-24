@@ -1,0 +1,20 @@
+@startuml MCP Server - C4 System Context Diagram
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(agent, "LLM Agent (Kilo Code)", "Agent that needs semantic access to Clojure code")
+
+System(mcp_server, "MCP Semantic Code Index Server", "Local MCP server for semantic indexing and analysis of Clojure code")
+
+System_Ext(fs, "File System", "Directories of Clojure projects (.clj, .cljc, .cljs, .edn)")
+System_Ext(ollama, "Ollama", "Local LLM server (embeddings + reranking)")
+System_Ext(qdrant, "Qdrant", "Vector database")
+
+Rel(agent, mcp_server, "Uses MCP tools (JSON-RPC, stdio/HTTP)")
+Rel(mcp_server, fs, "Reads .clj/.cljc/.cljs/.edn files; WatchService for incremental indexing")
+Rel(mcp_server, ollama, "Generates embeddings / reranking", "HTTP localhost:11434")
+Rel(mcp_server, qdrant, "Stores / searches vectors", "HTTP localhost:6333")
+
+SHOW_LEGEND()
+@enduml

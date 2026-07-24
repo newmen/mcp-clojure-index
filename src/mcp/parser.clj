@@ -1,6 +1,6 @@
 (ns mcp.parser
   (:require [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as s])
   (:import (java.security MessageDigest)
            (java.util UUID)
            (java.math BigInteger)))
@@ -40,7 +40,7 @@
 
 (defn- first-symbol-of-form
   [^String s]
-  (let [trimmed (str/trim s)]
+  (let [trimmed (s/trim s)]
     (when (.startsWith trimmed "(")
       (try
         (let [after-paren (.substring trimmed 1)
@@ -66,7 +66,7 @@
 
 (defn- form-visibility
   [s]
-  (let [trimmed (str/triml s)]
+  (let [trimmed (s/triml s)]
     (if (.startsWith trimmed "(defn-")
       :private
       :public)))
@@ -74,10 +74,10 @@
 (defn- extract-form-name
   [s]
   (try
-    (let [trimmed (str/triml s)
+    (let [trimmed (s/triml s)
           after-paren (subs trimmed 1)
-          after-open (str/triml after-paren)
-          parts (str/split after-open #"\s+" 3)]
+          after-open (s/triml after-paren)
+          parts (s/split after-open #"\s+" 3)]
       (when (>= (count parts) 2)
         (let [second ^String (nth parts 1)]
           (when (and second (not= "" second))
@@ -91,7 +91,7 @@
 
 (defn- count-lines
   [s]
-  (max 1 (count (str/split-lines s))))
+  (max 1 (count (s/split-lines s))))
 
 (defn- compute-end-line
   [s start-line]
@@ -177,7 +177,7 @@
                :else                     "unknown")]
     (try
       (let [file-string (slurp file-path)]
-        (if (str/blank? file-string)
+        (if (s/blank? file-string)
           {:result/chunks [] :result/errors []}
           (let [top-level-forms (extract-top-level-forms-line-based file-string)]
             (loop [remaining top-level-forms

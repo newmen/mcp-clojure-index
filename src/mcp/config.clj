@@ -1,12 +1,12 @@
 (ns mcp.config
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+            [clojure.string :as s]
             [clojure.edn :as edn])
   (:import (java.io PushbackReader)))
 
 (defn- pattern->regex
   [pattern]
-  (let [escaped (str/replace pattern "." "\\.")]
+  (let [escaped (s/replace pattern "." "\\.")]
     (re-pattern escaped)))
 
 (def defaults

@@ -1,12 +1,12 @@
 (ns fixtures.protocol-def
   (:require [fixtures.user :as user])
-  (:import [java.lang.String String]))
+  (:import java.lang.String))
 
 (defprotocol Transferable
   (transfer [this from to amount])
   (balance [this account]))
 
-(defprotocol Comparable
+(defprotocol Comparable_
   (compare-to [this other]))
 
 (extend-type fixtures.user/User

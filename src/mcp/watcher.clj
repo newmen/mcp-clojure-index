@@ -113,7 +113,6 @@
                                  [(:delete r) (:create r)])
                                (for [[p _] modify-pairs] [p])))
             standalone (remove #(contains? consumed (:path %)) old-enough)
-            remaining (remove (set (map :path old-enough)) (map :path events))
             ;; Deduplicate standalone by kind+path (keep latest)
             deduped (vals (reduce (fn [acc evt]
                                     (assoc acc [(:kind evt) (:path evt)] evt))
@@ -150,7 +149,9 @@
           symbols (parser/extract-symbols enriched)]
       (if (empty? chunks)
         (do (println "[watcher] No chunks found in" file-path)
-            {:index index :graph graph})
+            (try (qdrant/delete! cfg file-path) (catch Exception _ nil))
+            {:index (si/remove-file! index file-path)
+             :graph (graph/remove-file! graph file-path)})
         (let [pairs (embeddings/generate-from-chunks cfg chunks)
               embeddings (mapv second pairs)
               new-chunks (mapv first pairs)
@@ -207,53 +208,57 @@
 ;; Main watcher loop
 ;; ---------------------------------------------------------------------------
 
+(defn- process-action
+  [cfg index-ref graph-ref action]
+  (let [idx @index-ref
+        gr @graph-ref]
+    (case (:action action)
+      :modify
+      (let [result (process-modify cfg idx gr (:file action))]
+        (reset! index-ref (:index result))
+        (reset! graph-ref (:graph result)))
+      :delete
+      (let [result (process-delete cfg idx gr (:file action))]
+        (reset! index-ref (:index result))
+        (reset! graph-ref (:graph result)))
+      :rename
+      (let [result (process-rename cfg idx gr (:old-file action) (:new-file action))]
+        (reset! index-ref (:index result))
+        (reset! graph-ref (:graph result))))))
+
+(defn- drain-queue
+  [queue cfg index-ref graph-ref]
+  (let [{:keys [actions pending]} (coalesce-events queue)]
+    (run! (partial process-action cfg index-ref graph-ref) actions)
+    pending))
+
 (defn- watcher-loop
   [^WatchService watcher cfg index-ref graph-ref stop-atom]
   (let [extensions (into #{} (:index/include-extensions cfg))
         excludes (:index/exclude cfg)]
-    (loop []
-      (when (nil? @stop-atom)
+    (loop [queue (empty-queue)]
+      (if (some? @stop-atom)
+        (drain-queue queue cfg index-ref graph-ref)
         (let [^WatchKey key (try
                               (.poll watcher poll-timeout-ms TimeUnit/MILLISECONDS)
-                              (catch Exception _ nil))
-              keys-to-process (if (nil? key)
-                                []
-                                (let [^Path dir (.watchable key)]
-                                  (try
-                                    (let [events (->> (.pollEvents key)
-                                                      (mapv (fn [^WatchEvent e]
-                                                              (let [^Path ctx (.context e)
-                                                                    full-path (.resolve dir ctx)]
-                                                                (when (should-watch? (str full-path) extensions excludes)
-                                                                  [e dir]))))
-                                                      (filter some?))
-                                          valid (.reset key)]
-                                      (when (not valid)
-                                        (println "[watcher] WatchKey no longer valid for" dir))
-                                      events)
-                                    (catch Exception _ []))))]
-          ;; Process each event individually for now
-          ;; TODO: Add proper debounce queue in future iteration
-          (doseq [[^WatchEvent e ^Path dir] keys-to-process]
-            (let [kind (.name (.kind e))
-                  ^Path filename (.context e)
-                  full-path (str (.toAbsolutePath (.resolve dir filename)))]
-              (try
-                (let [idx @index-ref
-                      gr @graph-ref]
-                  (cond
-                    (#{"ENTRY_CREATE" "ENTRY_MODIFY"} kind)
-                    (let [result (process-modify cfg idx gr full-path)]
-                      (reset! index-ref (:index result))
-                      (reset! graph-ref (:graph result)))
-                    
-                    (= kind "ENTRY_DELETE")
-                    (let [result (process-delete cfg idx gr full-path)]
-                      (reset! index-ref (:index result))
-                      (reset! graph-ref (:graph result)))))
-                (catch Exception ex
-                  (println "[watcher] Error handling event:" (.getMessage ex))))))
-          (recur))))))
+                              (catch Exception _ nil))]
+          (if (nil? key)
+            (let [pending (drain-queue queue cfg index-ref graph-ref)]
+              (recur {:pending pending :last-event (System/currentTimeMillis)}))
+            (let [^Path dir (.watchable key)
+                  new-queue (try
+                              (reduce (fn [acc ^WatchEvent e]
+                                        (let [^Path ctx (.context e)]
+                                          (if (should-watch? (str (.resolve dir ctx)) extensions excludes)
+                                            (debounce-add acc e dir)
+                                            acc)))
+                                      queue
+                                      (.pollEvents key))
+                              (catch Exception _ queue))]
+              (when-not (.reset key)
+                (println "[watcher] WatchKey no longer valid for" dir))
+              (let [pending (drain-queue new-queue cfg index-ref graph-ref)]
+                (recur {:pending pending :last-event (System/currentTimeMillis)})))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Register directory for watching (recursive)

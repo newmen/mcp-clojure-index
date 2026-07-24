@@ -26,24 +26,6 @@
     (io/copy src dest)
     dest))
 
-(defn- make-chunk
-  [overrides]
-  (merge
-    {:chunk/id        (java.util.UUID/randomUUID)
-     :chunk/ns        "test.ns"
-     :chunk/file      "/fake/path.clj"
-     :chunk/type      :fn
-     :chunk/name      "my-func"
-     :chunk/source    "(defn my-func [x] (* x 2))"
-     :chunk/start-line 1
-     :chunk/end-line   1
-     :chunk/visibility :public
-     :chunk/language  "clojure"
-     :chunk/metadata  {}
-     :chunk/symbols   #{}
-     :chunk/hash      "abc123def456"}
-    overrides))
-
 (defn- make-symbol
   [sym-name file-path]
   {:sym/name       (symbol (str "test.ns/" (name sym-name)))

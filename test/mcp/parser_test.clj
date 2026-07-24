@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [mcp.parser :as sut]))
 
-(def fixtures-dir "test/mcp/fixtures")
+(def fixtures-dir "test-resources/fixtures")
 
 (defn fixture-path
   [name]
@@ -133,7 +133,7 @@
   (let [result (sut/parse-file (fixture-path "protocol_def.cljc"))]
     (is (seq (:result/chunks result)))
     (is (some #(= "Transferable" (:chunk/name %)) (:result/chunks result)))
-    (is (some #(= "Comparable" (:chunk/name %)) (:result/chunks result)))))
+    (is (some #(= "Comparable_" (:chunk/name %)) (:result/chunks result)))))
 
 ;; ---------------------------------------------------------------------------
 ;; enrich-chunks-with-ns

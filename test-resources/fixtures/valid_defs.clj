@@ -1,15 +1,15 @@
 (ns fixtures.valid-defs
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as s]))
 
 (defn create-user
   "Creates a new user in the system."
   [name email]
-  (str/trim email)
-  {:name name :email email})
+  {:name (s/trim name)
+   :email (s/trim email)})
 
 (defn- format-name
   [name]
-  (str/trim name))
+  (s/trim name))
 
 (defmacro with-tx
   [& body]
@@ -21,12 +21,13 @@
 
 (defrecord User [name email]
   UserProtocol
-  (get-name [this] name)
+  (get-name [_] (format-name name))
   (set-name [this new-name] (assoc this :name new-name)))
 
 (deftype UserType [name email]
   UserProtocol
-  (get-name [this] name))
+  (get-name [_] (format-name name))
+  (set-name [_ new-name] (UserType. new-name email)))
 
 (def MAX-RETRIES 3)
 

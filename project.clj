@@ -8,4 +8,4 @@
   :repl-options {:init-ns mcp.server}
   :profiles {:dev {:dependencies [[criterium "0.4.6"]]
                    :plugins [[lambdaisland/kaocha "1.91.1392"]]}}
-  :test-runner {:namespace-exclude-regex #"(?i)test.*"})
+  :test-paths ["test"])

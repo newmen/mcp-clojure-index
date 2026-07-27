@@ -35,7 +35,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- resolve-symbol
-  [sym _ index]
+  [sym _ns-name index] ; TODO: use passed namespace name to resolve a symbol from that namespace
+                       ; TODO: implement a test to check right resolve symbol that was defined few times in different namespaces
   (if-let [rec (get (:index/by-qname index) sym)]
     (:sym/name rec)
     (if-let [_ (namespace sym)]
@@ -63,7 +64,10 @@
 
 (defn- deduplicate-edges
   [edges]
-  (vals (into {} (map (fn [e] [(edge-key e) e]) edges))))
+  (->> edges
+       (map (fn [e] [(edge-key e) e]))
+       (into {})
+       (vals)))
 
 ;; ---------------------------------------------------------------------------
 ;; Build edges from a single chunk
@@ -81,7 +85,7 @@
 
 (defn chunk->edges
   "Build call edges from a single chunk. Returns a vector of Edge maps.
-  Exported for incremental updates via add-file!."
+   Exported for incremental updates via add-file!."
   [chunk index]
   (let [ftype (:chunk/type chunk)
         cname (:chunk/name chunk)
@@ -207,7 +211,9 @@
   (if (empty? edges)
     graph
     (let [file-path (:edge/file (first edges))
-          without-old (if file-path (remove-file! graph file-path) graph)
+          without-old (if file-path
+                        (remove-file! graph file-path)
+                        graph)
           deduped (deduplicate-edges edges)]
       (-> without-old
           (update :edges into deduped)

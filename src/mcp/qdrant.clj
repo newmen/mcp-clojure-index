@@ -115,7 +115,8 @@
               :vectors (default-vector-config)}
         resp (http-put url body)
         {:keys [status body]} (parse-response resp)]
-    (when (and (not= 200 status) (not= 409 status))
+    (when (and (not= 200 status)
+               (not= 409 status))
       (throw (ex-info "Failed to create Qdrant collection"
                       {:status status :body body :url url})))))
 

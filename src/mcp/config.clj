@@ -22,7 +22,7 @@
    :server/port       8080
    :index/root-path   "."
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
-   :index/exclude     ["target" ".git" ".lsp" ".clj-kondo"]
+   :index/exclude     ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo"]
    :search/top-k      100
    :search/re-rank-top 10})
 

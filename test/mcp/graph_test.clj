@@ -335,3 +335,40 @@
                :chunk/symbols #{'foo}}
         edges (sut/chunk->edges chunk idx)]
     (is (empty? edges))))
+
+;; ---------------------------------------------------------------------------
+;; Namespace-aware symbol resolution (resolve-symbol uses ns-name)
+;; ---------------------------------------------------------------------------
+
+(deftest same-name-project-has-cross-namespace-edges
+  (let [result (parser/parse-project (str fixtures-dir "/same_name_project") [])
+        enriched (parser/enrich-project-chunks result)
+        by-file (group-by :chunk/file (:chunks enriched))
+        all-symbols (into []
+                          (mapcat (fn [[_file chunks]]
+                                    (let [ns-name (:chunk/ns (first chunks))]
+                                      (keep #(parser/chunk->symbol-record % ns-name) chunks))))
+                          by-file)
+        all-chunks (:chunks enriched)
+        index (si/build-index all-symbols all-chunks)
+        graph (sut/build-graph all-chunks index)
+        consumer-edges (filter #(= 'same-name-project.consumer/run (:edge/from %)) (:edges graph))]
+    (is (pos? (count (:edges graph))) "Graph should have edges")
+    (is (pos? (count consumer-edges)) "consumer/run should have edges")))
+
+(deftest same-name-prefers-same-namespace-for-unqualified-call
+  (let [result (parser/parse-project (str fixtures-dir "/same_name_project") [])
+        enriched (parser/enrich-project-chunks result)
+        by-file (group-by :chunk/file (:chunks enriched))
+        all-symbols (into []
+                          (mapcat (fn [[_file chunks]]
+                                    (let [ns-name (:chunk/ns (first chunks))]
+                                      (keep #(parser/chunk->symbol-record % ns-name) chunks))))
+                          by-file)
+        all-chunks (:chunks enriched)
+        index (si/build-index all-symbols all-chunks)
+        graph (sut/build-graph all-chunks index)
+        wrap-edges (filter #(= 'same-name-project.producer-a/wrap (:edge/from %)) (:edges graph))]
+    (is (pos? (count wrap-edges)) "producer-a/wrap should have edges")
+    (is (= 'same-name-project.producer-a/produce (:edge/to (first wrap-edges)))
+        "Unqualified 'produce' call in same namespace should resolve to producer-a/produce")))

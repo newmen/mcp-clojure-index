@@ -37,7 +37,6 @@
 (defn- initialize-handler
   [msg state]
   (let [id (:id msg)
-        _client-info (get-in msg [:params :clientInfo])
         server-info {:name "mcp-clojure-index"
                      :version "0.1.0"}]
     [(json-rpc-result id {:protocolVersion protocol-version

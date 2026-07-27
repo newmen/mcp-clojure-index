@@ -294,7 +294,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest remove-then-add-file-roundtrip
-  (let [{:keys [graph chunks]} (parse-project-and-build-graph "multi_ns")]
+  (let [{:keys [graph]} (parse-project-and-build-graph "multi_ns")]
     (is (pos? (count (:edges graph))))
     (let [file-path (first (keys (:by-file graph)))
           original-count (count (:edges graph))

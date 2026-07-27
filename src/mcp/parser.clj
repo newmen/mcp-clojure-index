@@ -9,14 +9,20 @@
 
 (set! *warn-on-reflection* true)
 
+(defn- get-top-children
+  [^String source-str]
+  (let [zloc (z/of-string* source-str {:track-position? true})
+        node (z/node zloc)]
+    (n/children node)))
+
 ;; ---------------------------------------------------------------------------
 ;; Hash
 ;; ---------------------------------------------------------------------------
 
 (defn sha-256
-  [s]
+  [^String encoding-str]
   (let [^MessageDigest digest (MessageDigest/getInstance "SHA-256")]
-    (.update digest (.getBytes ^String s "UTF-8"))
+    (.update digest (.getBytes ^String encoding-str "UTF-8"))
     (format "%064x" (BigInteger. 1 (.digest digest)))))
 
 ;; ---------------------------------------------------------------------------
@@ -25,75 +31,79 @@
 
 (defn clojure-file?
   [path]
-  (let [s (if (instance? java.io.File path) (.getPath ^java.io.File path) path)
-        lc (.toLowerCase ^String s)]
-    (or (.endsWith lc ".clj")
-        (.endsWith lc ".cljc")
-        (.endsWith lc ".cljs"))))
+  (let [s (if (instance? java.io.File path)
+            (.getPath ^java.io.File path)
+            path)
+        lc (s/lower-case ^String s)]
+    (or (s/ends-with? lc ".clj")
+        (s/ends-with? lc ".cljc")
+        (s/ends-with? lc ".cljs"))))
 
 (defn edn-file?
   [path]
-  (let [s (if (instance? java.io.File path) (.getPath ^java.io.File path) path)]
-    (.endsWith (.toLowerCase ^String s) ".edn")))
+  (let [s (if (instance? java.io.File path)
+            (.getPath ^java.io.File path)
+            path)]
+    (s/ends-with? (s/lower-case ^String s) ".edn")))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level form matching
 ;; ---------------------------------------------------------------------------
 
 (defn- classify-form-type
-  [s]
-  (let [trimmed (s/triml s)]
+  [^String form-str]
+  (let [trimmed (s/triml form-str)]
     (cond
-      (.startsWith trimmed "(defn ")       :fn
-      (.startsWith trimmed "(defn-")       :fn
-      (.startsWith trimmed "(defmacro ")   :macro
-      (.startsWith trimmed "(defprotocol ") :protocol
-      (.startsWith trimmed "(defrecord ")  :record
-      (.startsWith trimmed "(deftype ")    :record
-      (.startsWith trimmed "(def ")        :val
-      (.startsWith trimmed "(defonce ")    :val
-      (.startsWith trimmed "(ns ")         :ns
+      (s/starts-with? trimmed "(defn ")       :fn
+      (s/starts-with? trimmed "(defn-")       :fn
+      (s/starts-with? trimmed "(defmacro ")   :macro
+      (s/starts-with? trimmed "(defprotocol ") :protocol
+      (s/starts-with? trimmed "(defrecord ")  :record
+      (s/starts-with? trimmed "(deftype ")    :record
+      (s/starts-with? trimmed "(def ")        :val
+      (s/starts-with? trimmed "(defonce ")    :val
+      (s/starts-with? trimmed "(ns ")         :ns
       :else nil)))
 
 (defn- form-visibility
-  [s]
-  (if (.startsWith (s/triml s) "(defn-")
+  [^String form-str]
+  (if (s/starts-with? (s/triml form-str) "(defn-")
     :private
     :public))
 
 (defn- strip-trailing-delims
-  [^String s]
-  (let [s (s/replace s #"[\)\]\}]" "")]
+  [^String form-str]
+  (let [s (s/replace form-str #"[\)\]\}]" "")]
     (s/replace s #"^[\(\[\{]" "")))
 
 (defn- extract-form-name
-  [s]
+  [^String form-str]
   (try
-    (let [trimmed (s/triml s)
+    (let [trimmed (s/triml form-str)
           after-paren (subs trimmed 1)
           after-open (s/triml after-paren)
           parts (s/split after-open #"\s+" 3)]
       (when (>= (count parts) 2)
         (let [second ^String (nth parts 1)]
-          (when (and second (not= "" second))
-            (if (.startsWith second "^")
+          (when-not (s/blank? second)
+            (if (s/starts-with? second "^")
               ;; metadata prefix — find the name by skipping meta patterns
               (let [rest (nth parts 2 "")
                     rest-parts (s/split rest #"\s+")]
                 (when (seq rest-parts)
                   (let [name-candidate (first rest-parts)]
-                    (when (and name-candidate (not= "" name-candidate))
+                    (when-not (s/blank? name-candidate)
                       (strip-trailing-delims name-candidate)))))
               (strip-trailing-delims second))))))
     (catch Exception _ nil)))
 
 (defn- line-count
-  [^String s]
-  (if (zero? (count s))
+  [^String form-str]
+  (if (zero? (count form-str))
     0
     (loop [i 0
            cnt 1]
-      (let [idx (.indexOf s (int \newline) i)]
+      (let [idx (.indexOf form-str (int \newline) i)]
         (if (neg? idx)
           cnt
           (recur (inc idx) (inc cnt)))))))
@@ -113,30 +123,31 @@
   (contains? (conj top-level-form-tags :fn) tag))
 
 (defn- top-level-forms-cst
-  [source]
+  [^String source-str]
   (try
-    (let [zloc (z/of-string* source {:track-position? true})
-          children (n/children (z/node zloc))]
-      (loop [remaining children
-             line (int 1)
-             forms []]
-        (if-let [child (first remaining)]
-          (let [tag (n/tag child)
-                cstr (n/string child)
-                lines-in-str (line-count cstr)]
-            (if (form-tag? tag)
-              (recur (rest remaining)
-                     (int (+ line (dec lines-in-str)))
-                     (conj forms {:string cstr :start-line line :cst-node child}))
-              (recur (rest remaining)
-                     (int (+ line (dec lines-in-str)))
-                     forms)))
-          forms)))
+    (loop [remaining (get-top-children source-str)
+           line (int 1)
+           forms []]
+      (if-let [child (first remaining)]
+        (let [tag (n/tag child)
+              cstr (n/string child)
+              lines-in-str (line-count cstr)
+              next-line (int (+ line (dec lines-in-str)))]
+          (if (form-tag? tag)
+            (recur (rest remaining)
+                   next-line
+                   (conj forms {:string cstr
+                                :start-line line
+                                :cst-node child}))
+            (recur (rest remaining)
+                   next-line
+                   forms)))
+        forms))
     (catch Exception _ nil)))
 
 (defn- compute-end-line
-  [s start-line]
-  (let [nl (if (s/blank? s) 1 (line-count s))]
+  [^String form-str start-line]
+  (let [nl (if (s/blank? form-str) 1 (line-count form-str))]
     (+ start-line (dec nl))))
 
 ;; ---------------------------------------------------------------------------
@@ -155,7 +166,8 @@
 
 (defn- extract-arglists
   [children-nodes ftype]
-  (when (and (= :fn ftype) (>= (count children-nodes) 2))
+  (when (and (= :fn ftype)
+             (>= (count children-nodes) 2))
     (let [body (drop 2 children-nodes)
           first-vector (some #(when (= :vector (n/tag %)) %) body)]
       (when first-vector
@@ -178,10 +190,13 @@
   [cst-node ftype]
   (try
     (let [children (n/children cst-node)
-          meaningful (remove (fn [c] (#{:whitespace :newline} (n/tag c))) children)
+          meaningful (remove (comp #{:whitespace :newline} n/tag)
+                             children)
           body-start (drop 2 meaningful)
           body-strings (keep node-sexpr-safe body-start)
-          doc (when (and ftype (not= :ns ftype) (not= :protocol ftype))
+          doc (when (and ftype
+                         (not= :ns ftype)
+                         (not= :protocol ftype))
                 (extract-docstring body-strings))
           arglists (extract-arglists meaningful ftype)
           tag (extract-tag meaningful)]
@@ -192,11 +207,9 @@
     (catch Exception _ {})))
 
 (defn- extract-form-metadata
-  [source-str ftype]
+  [^String source-str ftype]
   (try
-    (let [zloc (z/of-string* source-str {:track-position? true})
-          node (z/node zloc)
-          top-children (n/children node)
+    (let [top-children (get-top-children source-str)
           form-node (first top-children)]
       (extract-form-metadata-from-node form-node ftype))
     (catch Exception _ {})))
@@ -212,12 +225,10 @@
   (lazy-seq
     (when-let [node (first nodes)]
       (let [tag (n/tag node)
-            result (if (= :token tag)
+            result (when (= :token tag)
                      (let [sexpr (node-sexpr-safe node)]
-                       (if (instance? clojure.lang.Symbol sexpr)
-                         [sexpr]
-                         []))
-                     [])]
+                       (when (instance? clojure.lang.Symbol sexpr)
+                         [sexpr])))]
         (if (container-tag? tag)
           (concat result (walk-container-nodes (n/children node))
                   (walk-container-nodes (rest nodes)))
@@ -231,11 +242,9 @@
     (catch Exception _ #{})))
 
 (defn- extract-referenced-symbols
-  [source-str]
+  [^String source-str]
   (try
-    (let [zloc (z/of-string* source-str {:track-position? true})
-          node (z/node zloc)
-          top-children (n/children node)
+    (let [top-children (get-top-children source-str)
           form-node (first top-children)]
       (extract-referenced-symbols-from-node form-node))
     (catch Exception _ #{})))
@@ -265,29 +274,29 @@
                      chunks []
                      errors []]
                 (if-let [form (first remaining)]
-                  (let [s (:string form)
+                  (let [form-str (:string form)
                         start-line (:start-line form)
-                        end-line (compute-end-line s start-line)
-                        ftype (classify-form-type s)
-                        nm (when ftype (extract-form-name s))
-                        vis (form-visibility s)
+                        end-line (compute-end-line form-str start-line)
+                        ftype (classify-form-type form-str)
+                        nm (when ftype (extract-form-name form-str))
+                        vis (form-visibility form-str)
                         cst-node (:cst-node form)
                         meta-data (when ftype
                                     (if cst-node
                                       (extract-form-metadata-from-node cst-node ftype)
-                                      (extract-form-metadata s ftype)))
+                                      (extract-form-metadata form-str ftype)))
                         symbols (when (and ftype (not= :ns ftype))
                                   (if cst-node
                                     (extract-referenced-symbols-from-node cst-node)
-                                    (extract-referenced-symbols s)))]
+                                    (extract-referenced-symbols form-str)))]
                     (recur (rest remaining)
                            (conj chunks
                                  {:chunk/id        (UUID/randomUUID)
-                                  :chunk/ns        nil
+                                  :chunk/ns        nil ; will be set by enrich-chunks-with-ns
                                   :chunk/file      file-path
                                   :chunk/type      (or ftype :top-level)
                                   :chunk/name      (when ftype (str nm))
-                                  :chunk/source    s
+                                  :chunk/source    form-str
                                   :chunk/start-line start-line
                                   :chunk/end-line   end-line
                                   :chunk/visibility (if (and (= ftype :fn) (= vis :private))
@@ -296,7 +305,7 @@
                                   :chunk/language  lang
                                   :chunk/metadata  meta-data
                                   :chunk/symbols   symbols
-                                  :chunk/hash      (sha-256 s)})
+                                  :chunk/hash      (sha-256 form-str)})
                            errors))
                   {:result/chunks chunks
                    :result/errors errors}))))))
@@ -313,7 +322,7 @@
     (reduce
       (fn [acc ^java.io.File f]
         (let [path (.getPath f)
-              lc (.toLowerCase path)
+              lc (s/lower-case path)
               ext (re-find #"(\.[^.]+)$" lc)]
           (if (and ext (extensions (second ext))
                    (.isFile f)
@@ -363,13 +372,12 @@
 (defn- extract-ns-name
   [chunks]
   (let [ns-chunk (first (filter #(= :ns (:chunk/type %)) chunks))]
-    (if ns-chunk
-      (or (extract-form-name (:chunk/source ns-chunk)) "unknown")
-      "unknown")))
+    (or (and ns-chunk (extract-form-name (:chunk/source ns-chunk)))
+        "unknown")))
 
 (defn enrich-chunks-with-ns
   [parse-result]
-  (let [ns-name (or (extract-ns-name (:result/chunks parse-result)) "unknown")]
+  (let [ns-name (extract-ns-name (:result/chunks parse-result))]
     (update parse-result :result/chunks
             (fn [chunks]
               (mapv (fn [chunk]
@@ -393,7 +401,7 @@
 (defn enrich-project-chunks
   [project-result]
   (let [by-file (group-by :chunk/file (:chunks project-result))]
-    (reduce-kv (fn [acc _ chunks]
+    (reduce-kv (fn [acc _file chunks]
                  (let [file-result (enrich-chunks-with-ns
                                     {:result/chunks chunks
                                      :result/errors (:errors project-result)})

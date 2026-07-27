@@ -37,10 +37,10 @@
 
 (defn- parse-ns-require-form
   "Extract require/use/import info from an ns form's require-like clause.
-  Returns a vector like [:require [clojure.string :as str] ...] or nil."
+   Returns a vector like [:require [clojure.string :as s] ...] or nil."
   [clause-str]
   (let [trimmed (s/trim clause-str)]
-    (when (and (.startsWith trimmed "(") (.endsWith trimmed ")"))
+    (when (and (s/starts-with? trimmed "(") (s/ends-with? trimmed ")"))
       (let [inner (subs trimmed 1 (dec (count trimmed)))
             parts (s/split inner #"\s+" 2)]
         (when (>= (count parts) 2)
@@ -60,11 +60,11 @@
               requires (into []
                              (keep (fn [line]
                                      (let [t (s/trim line)]
-                                       (when (or (.startsWith t "(:require")
-                                                  (.startsWith t "(:use")
-                                                  (.startsWith t "(:import")
-                                                  (.startsWith t "[")
-                                                  (.startsWith t "#{"))
+                                       (when (or (s/starts-with? t "(:require")
+                                                 (s/starts-with? t "(:use")
+                                                 (s/starts-with? t "(:import")
+                                                 (s/starts-with? t "[")
+                                                 (s/starts-with? t "#{"))
                                          (parse-ns-require-form line)))))
                              body-lines)]
           {:ns/name      (symbol ns-name)
@@ -78,41 +78,36 @@
   ([symbols]
    (build-index symbols nil))
   ([symbols chunks]
-   (let [by-qname (into {} (map (juxt :sym/name identity)) symbols)
-         by-simple (reduce (fn [acc sym]
-                             (update acc (:sym/simple sym)
-                                     (fnil conj []) sym))
-                           {} symbols)
-         by-file (reduce (fn [acc sym]
-                           (update acc (:sym/file sym)
-                                   (fnil conj []) sym))
-                         {} symbols)
-         by-type (reduce (fn [acc sym]
-                           (update acc (:sym/type sym)
-                                   (fnil conj []) sym))
-                         {:fn [] :macro [] :protocol [] :record [] :val []}
-                         symbols)
-         ns-records (when chunks
-                      (reduce (fn [acc chunk]
-                                (if-let [ns-rec (extract-ns-record chunk)]
-                                  (assoc acc (:ns/name ns-rec) ns-rec)
-                                  acc))
-                              {} chunks))]
-     {:index/by-qname   by-qname
-      :index/by-simple  by-simple
-      :index/by-file    by-file
-      :index/by-type    by-type
-      :index/by-protocol (reduce (fn [acc sym]
-                                   (if-let [pname (:sym/protocol sym)]
-                                     (update acc pname (fnil conj []) sym)
-                                     acc))
-                                 {} symbols)
-      :index/by-record   (reduce (fn [acc sym]
-                                   (if-let [rname (:sym/record sym)]
-                                     (update acc rname (fnil conj []) sym)
-                                     acc))
-                                 {} symbols)
-      :index/namespaces ns-records})))
+   {:index/by-qname   (into {} (map (juxt :sym/name identity)) symbols)
+    :index/by-simple  (reduce (fn [acc sym]
+                                (update acc (:sym/simple sym)
+                                        (fnil conj []) sym))
+                              {} symbols)
+    :index/by-file    (reduce (fn [acc sym]
+                                (update acc (:sym/file sym)
+                                        (fnil conj []) sym))
+                              {} symbols)
+    :index/by-type    (reduce (fn [acc sym]
+                                (update acc (:sym/type sym)
+                                        (fnil conj []) sym))
+                              {:fn [] :macro [] :protocol [] :record [] :val []}
+                              symbols)
+    :index/by-protocol (reduce (fn [acc sym]
+                                 (if-let [pname (:sym/protocol sym)]
+                                   (update acc pname (fnil conj []) sym)
+                                   acc))
+                               {} symbols)
+    :index/by-record   (reduce (fn [acc sym]
+                                 (if-let [rname (:sym/record sym)]
+                                   (update acc rname (fnil conj []) sym)
+                                   acc))
+                               {} symbols)
+    :index/namespaces (when chunks
+                        (reduce (fn [acc chunk]
+                                  (if-let [ns-rec (extract-ns-record chunk)]
+                                    (assoc acc (:ns/name ns-rec) ns-rec)
+                                    acc))
+                                {} chunks))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Lookups
@@ -120,7 +115,9 @@
 
 (defn find-symbol
   [index name]
-  (let [sym (if (instance? clojure.lang.Named name) name (symbol name))]
+  (let [sym (if (instance? clojure.lang.Named name)
+              name
+              (symbol name))]
     (if (qualified-symbol? sym)
       (when-let [rec (get (:index/by-qname index) sym)]
         [rec])

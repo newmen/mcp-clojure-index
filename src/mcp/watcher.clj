@@ -276,10 +276,10 @@
             (when (not-any? #(re-find % p-str) excludes)
               (try
                 (.register p watcher
-(into-array java.nio.file.WatchEvent$Kind
-                                        [StandardWatchEventKinds/ENTRY_CREATE
-                                         StandardWatchEventKinds/ENTRY_DELETE
-                                         StandardWatchEventKinds/ENTRY_MODIFY]))
+                           (into-array java.nio.file.WatchEvent$Kind
+                                       [StandardWatchEventKinds/ENTRY_CREATE
+                                        StandardWatchEventKinds/ENTRY_DELETE
+                                        StandardWatchEventKinds/ENTRY_MODIFY]))
                 (catch Exception e
                   (println "[watcher] Could not register" p-str ":" (.getMessage e)))))))))))
 

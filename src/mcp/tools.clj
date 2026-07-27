@@ -80,7 +80,8 @@
 
 (defn- map->text
   [m]
-  (s/join "\n" (map (fn [[k v]] (str (name k) ": " v)) m)))
+  (->> (map (fn [[k v]] (str (name k) ": " v)) m)
+       (s/join "\n")))
 
 (defmulti handle-tool
   (fn [tool-name _args _state]

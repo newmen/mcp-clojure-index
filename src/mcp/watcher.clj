@@ -1,5 +1,6 @@
 (ns mcp.watcher
   (:require [clojure.java.io :as io]
+            [clojure.set :as set]
             [mcp.parser :as parser]
             [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]
@@ -345,3 +346,89 @@
       (catch Exception e
         (println "[watcher] Qdrant upload failed:" (.getMessage e))))
     {:index index :graph graph}))
+
+;; ---------------------------------------------------------------------------
+;; State restoration from Qdrant
+;; ---------------------------------------------------------------------------
+
+(defn- collect-project-files
+  [cfg]
+  (let [root-path (:index/root-path cfg)
+        excludes (:index/exclude cfg)
+        extensions (into #{} (:index/include-extensions cfg))]
+    (reduce (fn [acc ^File f]
+              (let [path (.getPath f)]
+                (if (and (.isFile f)
+                         (some #(.endsWith (.toLowerCase path) %) extensions)
+                         (not-any? #(re-find % path) excludes))
+                  (let [h (sha-256-file path)]
+                    (if h
+                      (assoc acc path #{h})
+                      acc))
+                  acc)))
+            {}
+            (file-seq (io/file root-path)))))
+
+(defn- file->hash-map
+  [chunks]
+  (persistent!
+    (reduce (fn [acc chunk]
+              (let [f (:chunk/file chunk)
+                    h (:chunk/hash chunk)]
+                (assoc! acc f (conj (get acc f #{}) h))))
+            (transient {})
+            chunks)))
+
+(defn- chunks->symbols
+  [chunks]
+  (let [by-file (group-by :chunk/file chunks)]
+    (into []
+          (mapcat (fn [[_file file-chunks]]
+                    (let [ns-name (:chunk/ns (first file-chunks))]
+                      (keep #(parser/chunk->symbol-record % ns-name) file-chunks))))
+          by-file)))
+
+(defn restore-state!
+  [cfg]
+  (if (:qdrant/recreate? cfg)
+    (do (println "[watcher] :qdrant/recreate? is true, performing full re-index")
+        (reindex-all! cfg))
+    (let [info (qdrant/collection-info cfg)]
+      (if (or (nil? info) (zero? (:points-count info 0)))
+        (do (println "[watcher] Qdrant collection is empty or does not exist, performing full re-index")
+            (reindex-all! cfg))
+        (let [chunks (qdrant/scroll-all cfg)]
+          (if (nil? chunks)
+            (do (println "[watcher] scroll-all returned nil, performing full re-index")
+                (reindex-all! cfg))
+            (let [chunks-vec (vec chunks)]
+              (println "[watcher] Restored" (count chunks-vec) "chunks from Qdrant")
+              (let [symbols (chunks->symbols chunks-vec)
+                    index (si/build-index symbols chunks-vec)
+                    graph (graph/build-graph chunks-vec index)
+                    _ (println "[watcher] Built symbol index:" (count symbols) "symbols")
+                    _ (println "[watcher] Built dependency graph:" (count (:edges graph)) "edges")
+                    stored-hashes (file->hash-map chunks-vec)
+                    fs-hashes (collect-project-files cfg)
+                    all-fs-paths (set (keys fs-hashes))
+                    all-stored-paths (set (keys stored-hashes))
+                    changed (filter (fn [path]
+                                     (not= (get fs-hashes path)
+                                           (get stored-hashes path)))
+                                   (set/intersection all-fs-paths all-stored-paths))
+                    new-files (set/difference all-fs-paths all-stored-paths)
+                    deleted (set/difference all-stored-paths all-fs-paths)
+                    _ (println "[watcher] Syncing:" (count changed) "changed,"
+                               (count new-files) "new," (count deleted) "deleted files")
+                    index-atom (atom index)
+                    graph-atom (atom graph)]
+                (doseq [file-path deleted]
+                  (let [result (process-delete cfg @index-atom @graph-atom file-path)]
+                    (reset! index-atom (:index result))
+                    (reset! graph-atom (:graph result))))
+                (doseq [file-path (concat changed new-files)]
+                  (let [result (process-modify cfg @index-atom @graph-atom file-path)]
+                    (reset! index-atom (:index result))
+                    (reset! graph-atom (:graph result))))
+                (println "[watcher] State restoration complete")
+                {:index @index-atom :graph @graph-atom}))))))))

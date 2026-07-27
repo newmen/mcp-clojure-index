@@ -97,9 +97,9 @@
         initial (tools/make-initial-state cfg)
         index-ref (:index-ref initial)
         graph-ref (:graph-ref initial)
-        watcher-result (watcher/reindex-all! cfg)
-        _ (reset! index-ref (:index watcher-result))
-        _ (reset! graph-ref (:graph watcher-result))
+        restore-result (watcher/restore-state! cfg)
+        _ (reset! index-ref (:index restore-result))
+        _ (reset! graph-ref (:graph restore-result))
         watcher-map (watcher/start-watching! cfg index-ref graph-ref)
         server-state (atom (assoc initial
                                   :index @index-ref

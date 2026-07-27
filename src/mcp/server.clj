@@ -126,5 +126,6 @@
   [& args]
   (let [config-path (or (first args) "resources/config.edn")
         cfg (-> (config/load-config config-path)
+                (config/resolve-config)
                 (config/validate-config))]
     (start cfg)))

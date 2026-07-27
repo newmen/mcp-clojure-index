@@ -1,4 +1,5 @@
-(ns mcp.graph)
+(ns mcp.graph
+  (:require [clojure.string :as s]))
 
 (set! *warn-on-reflection* true)
 
@@ -34,19 +35,41 @@
 ;; Symbol resolution helpers
 ;; ---------------------------------------------------------------------------
 
+(defn- resolve-require-alias
+  "Resolve an alias like 'a' from the calling namespace's :require to the full namespace symbol.
+   Returns nil if ns-name is nil or no matching alias is found."
+  [alias-str ^String ns-name index]
+  (when (and ns-name (seq ns-name))
+    (let [ns-sym (symbol ns-name)
+          ns-rec (get (:index/namespaces index) ns-sym)]
+      (when ns-rec
+        (some (fn [req]
+                  (let [specs (:specs req)]
+                    (when (s/includes? specs (str ":as " alias-str))
+                      (let [parts (s/split specs #"\s+")]
+                        (when (pos? (count parts))
+                          (symbol (first parts)))))))
+                (:ns/requires ns-rec))))))
+
 (defn- resolve-symbol
-  [sym _ns-name index] ; TODO: use passed namespace name to resolve a symbol from that namespace
-                       ; TODO: implement a test to check right resolve symbol that was defined few times in different namespaces
-  (if-let [rec (get (:index/by-qname index) sym)]
-    (:sym/name rec)
-    (if-let [_ (namespace sym)]
-      (let [simple (name sym)
-            records (get (:index/by-simple index) (symbol simple))]
-        (when (seq records)
-          (:sym/name (first records))))
-      (let [records (get (:index/by-simple index) sym)]
-        (when (seq records)
-          (:sym/name (first records)))))))
+  [sym ^String ns-name index]
+  (let [ns-sym (when ns-name (symbol ns-name))]
+    (if-let [rec (get (:index/by-qname index) sym)]
+      (:sym/name rec)
+      (if-let [ns-part (namespace sym)]
+        (let [simple (name sym)
+              records (get (:index/by-simple index) (symbol simple))]
+          (when (seq records)
+            (if-let [actual-ns (resolve-require-alias ns-part ns-name index)]
+              (let [preferred (filter #(= actual-ns (:sym/ns %)) records)]
+                (:sym/name (first (or (seq preferred) records))))
+              (:sym/name (first records)))))
+        (let [records (get (:index/by-simple index) sym)]
+          (when (seq records)
+            (let [same-ns (filter #(= ns-sym (:sym/ns %)) records)]
+              (if (seq same-ns)
+                (:sym/name (first same-ns))
+                (:sym/name (first records))))))))))
 
 (defn- resolve-to-id
   "Look up a chunk-id for a qualified symbol via the index."

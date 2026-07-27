@@ -70,6 +70,10 @@
 ;; HTTP helpers
 ;; ---------------------------------------------------------------------------
 
+(defn- http-get
+  [url]
+  (http/get url {:throw-exceptions false}))
+
 (defn- http-put
   [url body-map]
   (http/put url {:content-type "application/json"
@@ -206,6 +210,53 @@
 ;; ---------------------------------------------------------------------------
 ;; Search
 ;; ---------------------------------------------------------------------------
+
+;; ---------------------------------------------------------------------------
+;; Collection info
+;; ---------------------------------------------------------------------------
+
+(defn collection-info
+  [cfg]
+  (try
+    (let [url (collection-url cfg)
+          resp (http-get url)
+          {:keys [status body]} (parse-response resp)]
+      (when (= 200 status)
+        (let [count (get-in body [:result :points_count] 0)]
+          {:points-count count})))
+    (catch Exception _ nil)))
+
+;; ---------------------------------------------------------------------------
+;; Scroll all points (payload only, no vectors)
+;; ---------------------------------------------------------------------------
+
+(defn- scroll-points
+  [cfg limit offset]
+  (let [url (str (collection-url cfg) "/points/scroll")
+        body {:limit limit
+              :offset offset
+              :with_payload true
+              :with_vector false}
+        resp (http-post url body)
+        {:keys [status body]} (parse-response resp)]
+    (if (= 200 status)
+      {:points (get body :points [])
+       :next-page-offset (get body :next_page_offset)}
+      (throw (ex-info "Qdrant scroll failed"
+               {:status status :body body :url url})))))
+
+(defn scroll-all
+  [cfg]
+  (try
+    (let [batch-size 100]
+      (loop [offset nil
+             chunks []]
+        (let [{:keys [points next-page-offset]} (scroll-points cfg batch-size offset)]
+          (if (empty? points)
+            chunks
+            (let [new-chunks (mapv point->chunk points)]
+              (recur next-page-offset (into chunks new-chunks)))))))
+    (catch Exception _ nil)))
 
 (defn search
   [cfg embedding top-k]

@@ -159,6 +159,24 @@
 ;; search — Qdrant unavailable
 ;; ---------------------------------------------------------------------------
 
+;; ---------------------------------------------------------------------------
+;; collection-info — Qdrant unavailable
+;; ---------------------------------------------------------------------------
+
+(deftest collection-info-returns-nil-when-qdrant-unavailable
+  (let [cfg (assoc test-config :qdrant/port 19999)]
+    (is (nil? (sut/collection-info cfg))
+        "Should return nil when Qdrant is unreachable")))
+
+;; ---------------------------------------------------------------------------
+;; scroll-all — Qdrant unavailable
+;; ---------------------------------------------------------------------------
+
+(deftest scroll-all-returns-nil-when-qdrant-unavailable
+  (let [cfg (assoc test-config :qdrant/port 19999)]
+    (is (nil? (sut/scroll-all cfg))
+        "Should return nil when Qdrant is unreachable")))
+
 (deftest search-fails-when-qdrant-unavailable
   (let [cfg (assoc test-config :qdrant/port 19999)]
     (is (thrown? Exception (sut/search cfg [0.1 0.2 0.3] 10))

@@ -1,6 +1,7 @@
 (ns mcp.watcher
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as s]
             [mcp.parser :as parser]
             [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]
@@ -43,8 +44,8 @@
 
 (defn- should-watch?
   [^String path-str extensions exclude-regexes]
-  (let [lc (.toLowerCase path-str)
-        has-ext (some #(.endsWith lc %) extensions)]
+  (let [lc (s/lower-case path-str)
+        has-ext (some #(s/ends-with? lc %) extensions)]
     (when (and has-ext (not-any? #(re-find % path-str) exclude-regexes))
       true)))
 
@@ -369,7 +370,7 @@
     (reduce (fn [acc ^File f]
               (let [path (.getPath f)]
                 (if (and (.isFile f)
-                         (some #(.endsWith (.toLowerCase path) %) extensions)
+                         (some #(s/ends-with? (s/lower-case path) %) extensions)
                          (not-any? #(re-find % path) excludes))
                   (let [h (sha-256-file path)]
                     (if h

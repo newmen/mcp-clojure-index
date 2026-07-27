@@ -31,20 +31,20 @@
 
 (defn clojure-file?
   [path]
-  (let [s (if (instance? java.io.File path)
-            (.getPath ^java.io.File path)
-            path)
-        lc (s/lower-case ^String s)]
+  (let [path-str (if (instance? java.io.File path)
+                   (.getPath ^java.io.File path)
+                   path)
+        lc (s/lower-case ^String path-str)]
     (or (s/ends-with? lc ".clj")
         (s/ends-with? lc ".cljc")
         (s/ends-with? lc ".cljs"))))
 
 (defn edn-file?
   [path]
-  (let [s (if (instance? java.io.File path)
-            (.getPath ^java.io.File path)
-            path)]
-    (s/ends-with? (s/lower-case ^String s) ".edn")))
+  (let [path-str (if (instance? java.io.File path)
+                   (.getPath ^java.io.File path)
+                   path)]
+    (s/ends-with? (s/lower-case ^String path-str) ".edn")))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level form matching
@@ -120,7 +120,7 @@
 
 (defn- container-tag?
   [tag]
-  (contains? (conj top-level-form-tags :fn) tag))
+  (contains? top-level-form-tags tag))
 
 (defn- top-level-forms-cst
   [^String source-str]

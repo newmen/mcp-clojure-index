@@ -95,11 +95,14 @@
   [cfg]
   (or (:ollama/reranker-model cfg) "qllama/bce-reranker-base_v1"))
 
+(def ^:private batch-size 50)
+(def ^:private embedding-timeout 300000)
+
 (defn- http-post-json
   [url body-map]
   (let [response (http/post url {:content-type "application/json"
                                  :body (json/write-str body-map)
-                                 :socket-timeout 60000
+                                 :socket-timeout embedding-timeout
                                  :connection-timeout 10000})]
     (update response :body #(json/read-str % :key-fn keyword))))
 
@@ -108,6 +111,11 @@
 ;; Architecture interface: (generate texts) -> seq of vectors
 ;; ---------------------------------------------------------------------------
 
+(defn- extract-embeddings
+  [data]
+  (when-let [items (:data data)]
+    (mapv (fn [item] (mapv double (:embedding item))) items)))
+
 (defn generate
   ([texts]
    (generate texts (get-config)))
@@ -115,13 +123,17 @@
    (when (seq texts)
      (let [url (ollama-embed-url cfg)
            model (embedding-model cfg)
-           response (http-post-json url {:model model :input (vec texts)})
-           data (:body response)
-           embeddings (:embeddings data)
-           _ (when (nil? embeddings)
-               (throw (ex-info "Ollama returned no embeddings"
-                        {:url url :model model :response data})))]
-       (mapv (fn [v] (mapv double v)) embeddings)))))
+           batcher (fn [batch]
+                     (let [response (http-post-json url {:model model :input (vec batch)})
+                           data (:body response)
+                           embeddings (extract-embeddings data)]
+                       (when (nil? embeddings)
+                         (throw (ex-info "Ollama returned no embeddings"
+                                  {:url url :model model :response data})))
+                       embeddings))
+           batches (partition-all batch-size texts)
+           results (mapcat batcher batches)]
+       (vec results)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Generate embeddings from chunks with hash-based caching

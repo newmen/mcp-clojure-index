@@ -339,12 +339,14 @@
         embeddings (mapv second pairs)
         chunks (mapv first pairs)
         _ (println "[watcher] Generated" (count embeddings) "embeddings")
-        _ (println "[watcher] Uploading to Qdrant...")]
+        _ (println "[watcher] Creating Qdrant collection if needed...")]
     (try
+      (qdrant/create-collection! cfg)
+      (println "[watcher] Uploading to Qdrant...")
       (qdrant/upsert! cfg chunks embeddings)
       (println "[watcher] Full re-index complete")
       (catch Exception e
-        (println "[watcher] Qdrant upload failed:" (.getMessage e))))
+        (println "[watcher] Qdrant operation failed:" (.getMessage e))))
     {:index index :graph graph}))
 
 ;; ---------------------------------------------------------------------------

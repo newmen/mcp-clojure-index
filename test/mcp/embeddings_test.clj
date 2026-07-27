@@ -182,7 +182,7 @@
 ;; generate-from-chunks — mixed cache: some cached, some not
 ;; ---------------------------------------------------------------------------
 
-(deftest generate-from-chunks-mixed-cache-throws-on-uncached
+(deftest generate-from-chunks-mixed-cache-works
   (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache5")
         chunks [(make-chunk {:chunk/hash "pre-cached-1" :chunk/name "a"
                              :chunk/source "(defn a [x] x)"})
@@ -193,9 +193,11 @@
     (try
       (sut/cache-embedding! cfg "pre-cached-1" [0.1 0.2])
       (sut/cache-embedding! cfg "pre-cached-2" [0.3 0.4])
-      (is (thrown? Throwable
-            (sut/generate-from-chunks cfg chunks))
-          "Should throw when Ollama is unreachable for uncached chunks")
+      (let [result (sut/generate-from-chunks cfg chunks)]
+        (is (= 3 (count result)) "Should return 3 pairs")
+        (is (= [0.1 0.2] (second (first result))) "First chunk uses cached")
+        (is (= [0.3 0.4] (second (nth result 2))) "Third chunk uses cached")
+        (is (vector? (second (second result))) "Second chunk generates real embedding"))
       (finally
         (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache5"))]
           (io/delete-file f true))

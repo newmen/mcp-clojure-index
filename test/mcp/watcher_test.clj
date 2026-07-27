@@ -411,6 +411,15 @@
   (is (#'sut/should-watch? "/project/Src.CLJC" [".cljc"] []))
   (is (#'sut/should-watch? "/project/source.ClJs" [".cljs"] [])))
 
+(deftest should-watch-excludes-mcp-dir
+  (let [excludes [#"\.mcp"]]
+    (is (nil? (#'sut/should-watch? "/project/.mcp/embedding-cache/hash.edn" [".edn"] excludes))
+        ".mcp directory must be excluded from watching")
+    (is (nil? (#'sut/should-watch? "/project/.mcp/some-file.clj" [".clj"] excludes))
+        ".mcp .clj files must be excluded from watching")
+    (is (some? (#'sut/should-watch? "/project/src/core.clj" [".clj"] excludes))
+        "source files outside .mcp must still be watched")))
+
 (deftest should-watch-multiple-exclude-patterns
   (is (nil? (#'sut/should-watch? "/project/target/classes/core.clj" [".clj"]
                                    [#"target" #"classes"])))

@@ -119,6 +119,39 @@
   (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-miss")]
     (is (nil? (sut/cached-embedding cfg "nonexistent-hash")))))
 
+(deftest cache-works-with-root-path-format
+  (let [root-path "/tmp/mcp-embedding-root-test"
+        cache-dir (str root-path "/.mcp/embedding-cache")
+        cfg (assoc config/defaults :embedding/cache-dir cache-dir)
+        hash-str "diroottest123"
+        embedding [0.42 0.99]]
+    (try
+      (sut/cache-embedding! cfg hash-str embedding)
+      (is (some? (sut/cached-embedding cfg hash-str)))
+      (is (= embedding (sut/cached-embedding cfg hash-str)))
+      (finally
+        (let [mcp-dir (io/file root-path ".mcp")]
+          (when (.exists mcp-dir)
+            (doseq [f (reverse (file-seq mcp-dir))]
+              (io/delete-file f true))))))))
+
+(deftest cache-embedding-roundtrip
+  (let [root-path "/tmp/mcp-embedding-roundtrip"
+        cache-dir (str root-path "/.mcp/embedding-cache")
+        cfg (assoc config/defaults :embedding/cache-dir cache-dir)
+        hash-str "roundtriphash001"
+        embedding [0.1 0.2 0.3 0.4 0.5]]
+    (try
+      (sut/cache-embedding! cfg hash-str embedding)
+      (is (= embedding (sut/cached-embedding cfg hash-str)))
+      (sut/cache-embedding! cfg hash-str [0.9 0.8])
+      (is (= [0.9 0.8] (sut/cached-embedding cfg hash-str)))
+      (finally
+        (let [mcp-dir (io/file root-path ".mcp")]
+          (when (.exists mcp-dir)
+            (doseq [f (reverse (file-seq mcp-dir))]
+              (io/delete-file f true))))))))
+
 (deftest cache-uses-consistent-filenames
   (let [cfg1 (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache2")
         cfg2 (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache2")

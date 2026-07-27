@@ -2,6 +2,8 @@
   :dependencies [[org.clojure/clojure "1.12.5"]
                   [org.clojure/data.json "2.5.2"]
                   [org.clojure/core.async "1.9.865"]
+                  [org.clojure/tools.logging "1.3.1"]
+                  [ch.qos.logback/logback-classic "1.5.38"]
                   [clj-http "3.13.1"]
                   [rewrite-clj "1.2.55"]
                   [aysylu/loom "1.0.2"]]

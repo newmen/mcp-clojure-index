@@ -1,5 +1,6 @@
 (ns mcp.server
   (:require [clojure.data.json :as json]
+            [clojure.tools.logging :as log]
             [mcp.config :as config]
             [mcp.tools :as tools]
             [mcp.watcher :as watcher])
@@ -80,7 +81,7 @@
   (when-let [st @server-state-atom]
     (watcher/stop-watching! (:watcher st))
     (reset! server-state-atom nil)
-    (println "[server] Server stopped")))
+    (log/info "Server stopped")))
 
 (defn- process-message
   [^String line state]
@@ -93,7 +94,7 @@
   [cfg]
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
-        _ (println "[server] Starting MCP server with" (:server/transport cfg) "transport")
+        _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
         initial (tools/make-initial-state cfg)
         index-ref (:index-ref initial)
         graph-ref (:graph-ref initial)
@@ -106,7 +107,7 @@
                                   :graph-state @graph-ref
                                   :watcher watcher-map))]
     (reset! server-state-atom @server-state)
-    (println "[server] MCP server ready on stdio")
+    (log/info "MCP server ready on stdio")
     (try
       (loop [line (.readLine reader)]
         (when line
@@ -117,8 +118,8 @@
               (reset! server-state new-server-state))
             (recur (.readLine reader)))))
       (catch Exception e
-        (println "[server] Error:" (.getMessage e))
-        (println "[server] Stopping..."))
+        (log/error e "Error:" (.getMessage e))
+        (log/warn "Stopping..."))
       (finally
         (stop)))))
 

@@ -52,19 +52,19 @@
                 (:ns/requires ns-rec))))))
 
 (defn- resolve-symbol
-  [sym ^String ns-name index]
+  [ref-sym ^String ns-name index]
   (let [ns-sym (when ns-name (symbol ns-name))]
-    (if-let [rec (get (:index/by-qname index) sym)]
+    (if-let [rec (get (:index/by-qname index) ref-sym)]
       (:sym/name rec)
-      (if-let [ns-part (namespace sym)]
-        (let [simple (name sym)
+      (if-let [ns-part (namespace ref-sym)]
+        (let [simple (name ref-sym)
               records (get (:index/by-simple index) (symbol simple))]
           (when (seq records)
             (if-let [actual-ns (resolve-require-alias ns-part ns-name index)]
               (let [preferred (filter #(= actual-ns (:sym/ns %)) records)]
                 (:sym/name (first (or (seq preferred) records))))
               (:sym/name (first records)))))
-        (let [records (get (:index/by-simple index) sym)]
+        (let [records (get (:index/by-simple index) ref-sym)]
           (when (seq records)
             (let [same-ns (filter #(= ns-sym (:sym/ns %)) records)]
               (if (seq same-ns)

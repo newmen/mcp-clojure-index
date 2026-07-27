@@ -84,7 +84,7 @@
           after-open (s/triml after-paren)
           parts (s/split after-open #"\s+" 3)]
       (when (>= (count parts) 2)
-        (let [second ^String (nth parts 1)]
+        (let [second ^String (second parts)]
           (when-not (s/blank? second)
             (if (s/starts-with? second "^")
               ;; metadata prefix — find the name by skipping meta patterns
@@ -206,14 +206,6 @@
         tag (assoc :tag tag)))
     (catch Exception _ {})))
 
-(defn- extract-form-metadata
-  [^String source-str ftype]
-  (try
-    (let [top-children (get-top-children source-str)
-          form-node (first top-children)]
-      (extract-form-metadata-from-node form-node ftype))
-    (catch Exception _ {})))
-
 ;; ---------------------------------------------------------------------------
 ;; Referenced symbol extraction from body
 ;; ---------------------------------------------------------------------------
@@ -239,14 +231,6 @@
   (try
     (->> (walk-container-nodes (n/children cst-node))
          (into #{}))
-    (catch Exception _ #{})))
-
-(defn- extract-referenced-symbols
-  [^String source-str]
-  (try
-    (let [top-children (get-top-children source-str)
-          form-node (first top-children)]
-      (extract-referenced-symbols-from-node form-node))
     (catch Exception _ #{})))
 
 ;; ---------------------------------------------------------------------------
@@ -282,13 +266,9 @@
                         vis (form-visibility form-str)
                         cst-node (:cst-node form)
                         meta-data (when ftype
-                                    (if cst-node
-                                      (extract-form-metadata-from-node cst-node ftype)
-                                      (extract-form-metadata form-str ftype)))
+                                    (extract-form-metadata-from-node cst-node ftype))
                         symbols (when (and ftype (not= :ns ftype))
-                                  (if cst-node
-                                    (extract-referenced-symbols-from-node cst-node)
-                                    (extract-referenced-symbols form-str)))]
+                                  (extract-referenced-symbols-from-node cst-node))]
                     (recur (rest remaining)
                            (conj chunks
                                  {:chunk/id        (UUID/randomUUID)
@@ -358,6 +338,7 @@
                :sym/tag        (:tag meta)
                :sym/chunk-id   (:chunk/id chunk)
                :sym/visibility (:chunk/visibility chunk)
+               :sym/hash       (:chunk/hash chunk)
                :sym/aliases    #{}}
         (or (= :protocol ftype) (= :record ftype))
         (assoc :sym/protocol-name

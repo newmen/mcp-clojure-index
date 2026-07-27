@@ -8,7 +8,7 @@
 (set! *warn-on-reflection* true)
 
 (defonce ^:private file-cache-atom (atom {}))
-(defonce ^:private cache-max-size 50)
+(def ^:private cache-max-size 50)
 
 (defn- default-top-k
   [cfg]

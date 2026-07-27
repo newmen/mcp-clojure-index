@@ -58,7 +58,8 @@
     (is (= "6d0b9d7..." (get p "hash")))
     (is (= "(defn create-user [name] ...)" (get p "text")))
     (is (= "clojure" (get p "language")))
-    (is (some? (get p "id")))))
+    (is (some? (get p "id")))
+    (is (= [] (get p "symbols")))))
 
 (deftest chunk->payload-type-is-correct-for-each-definition-type
   (is (= "function" (get (#'sut/chunk->payload (make-chunk {:chunk/type :fn})) "type")))
@@ -112,6 +113,22 @@
     (is (= (:chunk/start-line chunk) (:chunk/start-line roundtripped)))
     (is (= (:chunk/end-line chunk) (:chunk/end-line roundtripped)))
     (is (= (:chunk/hash chunk) (:chunk/hash roundtripped)))))
+
+(deftest point->chunk-roundtrip-preserves-symbols
+  (let [symbols #{'clojure.string/join 'bank.user/get-user 'mapv}
+        chunk (make-chunk {:chunk/name "create-user"
+                           :chunk/symbols symbols})
+        embedding [0.1 -0.2 0.3]
+        point (#'sut/make-point chunk embedding)
+        roundtripped (#'sut/point->chunk point)]
+    (is (= symbols (:chunk/symbols roundtripped)))))
+
+(deftest point->chunk-roundtrip-with-nil-symbols
+  (let [chunk (dissoc (make-chunk {:chunk/name "no-sym"}) :chunk/symbols)
+        embedding [0.1 -0.2 0.3]
+        point (#'sut/make-point chunk embedding)
+        roundtripped (#'sut/point->chunk point)]
+    (is (= #{} (:chunk/symbols roundtripped)))))
 
 ;; ---------------------------------------------------------------------------
 ;; make-point

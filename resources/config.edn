@@ -1,11 +1,9 @@
 {:qdrant/host       "localhost"
  :qdrant/port       6333
- :qdrant/collection "clojure-code-index"
  :qdrant/recreate?  false
  :ollama/url        "http://localhost:11434/v1"
  :ollama/embedding-model "vishalraj/nomic-embed-code"
  :ollama/reranker-model  "qllama/bce-reranker-base_v1"
  :server/transport  :stdio
- :index/root-path   "/Users/alfa/projects/clojure/mcp"
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
  :index/exclude     ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo" ".mcp"]}

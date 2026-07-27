@@ -52,6 +52,10 @@
 (def ^:private name-type-map
   (into {} (map (fn [[k v]] [v k]) type-name-map)))
 
+(defn- symbols->payload
+  [symbols]
+  (mapv str (or symbols [])))
+
 (defn- chunk->payload
   [chunk]
   {"id"         (str (:chunk/id chunk))
@@ -65,7 +69,8 @@
    "start_line" (:chunk/start-line chunk)
    "end_line"   (:chunk/end-line chunk)
    "hash"       (:chunk/hash chunk)
-   "file_hash"  (:chunk/file-hash chunk)})
+   "file_hash"  (:chunk/file-hash chunk)
+   "symbols"    (symbols->payload (:chunk/symbols chunk))})
 
 ;; ---------------------------------------------------------------------------
 ;; HTTP helpers
@@ -188,6 +193,10 @@
   [m k]
   (or (get m k) (get m (name k))))
 
+(defn- payload->symbols
+  [v]
+  (into #{} (keep (fn [s] (try (symbol s) (catch Exception _ nil))) (or v []))))
+
 (defn- point->chunk
   [point]
   (let [p (:payload point)]
@@ -206,7 +215,8 @@
      :chunk/start-line (pget p :start_line)
      :chunk/end-line   (pget p :end_line)
      :chunk/hash      (pget p :hash)
-     :chunk/file-hash (pget p :file_hash)}))
+     :chunk/file-hash (pget p :file_hash)
+     :chunk/symbols   (payload->symbols (pget p :symbols))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Search

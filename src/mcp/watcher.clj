@@ -153,7 +153,8 @@
             (try (qdrant/delete! cfg file-path) (catch Exception _ nil))
             {:index (si/remove-file! index file-path)
              :graph (graph/remove-file! graph file-path)})
-        (let [pairs (embeddings/generate-from-chunks cfg chunks)
+        (let [pairs (binding [embeddings/*config* cfg]
+                      (embeddings/generate-from-chunks cfg chunks))
               embeddings (mapv second pairs)
               new-chunks (mapv first pairs)
               new-index (-> index
@@ -335,7 +336,8 @@
         _ (println "[watcher] Built symbol index:" (count all-symbols) "symbols")
         graph (graph/build-graph all-chunks index)
         _ (println "[watcher] Built dependency graph:" (count (:edges graph)) "edges")
-        pairs (embeddings/generate-from-chunks cfg all-chunks)
+        pairs (binding [embeddings/*config* cfg]
+                      (embeddings/generate-from-chunks cfg all-chunks))
         embeddings (mapv second pairs)
         chunks (mapv first pairs)
         _ (println "[watcher] Generated" (count embeddings) "embeddings")

@@ -2,8 +2,7 @@
   (:require [clojure.string :as s]
             [mcp.search :as search]
             [mcp.symbol-index :as si]
-            [mcp.graph :as graph])
-  (:import))
+            [mcp.graph :as graph]))
 
 (set! *warn-on-reflection* true)
 
@@ -155,13 +154,13 @@
   [_ params {:keys [index]}]
   (let [macro-name (or (:name params) "")
         all-macros (find-all-macros index)
-        results (if (and macro-name (not (s/blank? macro-name)))
-                  (filter #(= (str (:sym/simple %)) macro-name) all-macros)
-                  all-macros)]
+        results (if (s/blank? macro-name)
+                  all-macros
+                  (filter #(= (str (:sym/simple %)) macro-name) all-macros))]
     (if (empty? results)
-      {:content [{:type "text" :text (if (and macro-name (not (s/blank? macro-name)))
-                                        (str "Macro '" macro-name "' not found.")
-                                        "No macros found in index.")}]}
+      {:content [{:type "text" :text (if (s/blank? macro-name)
+                                       "No macros found in index."
+                                       (str "Macro '" macro-name "' not found."))}]}
       {:content [{:type "text" :text (s/join "\n---\n" (mapv (comp map->text symbol->result) results))}]})))
 
 (defn make-initial-state

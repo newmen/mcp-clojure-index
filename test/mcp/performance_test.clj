@@ -3,7 +3,6 @@
             [mcp.parser :as parser]
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
-            [mcp.config :as config]
             [mcp.embeddings :as embeddings]))
 
 (set! *warn-on-reflection* true)

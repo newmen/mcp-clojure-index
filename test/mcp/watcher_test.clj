@@ -358,22 +358,22 @@
                    :index/root-path "test-resources/fixtures/multi_ns"
                    :index/exclude (config/compile-exclude-patterns (:index/exclude config/defaults))
                    :qdrant/port 19999
-                   :embedding/cache-dir "/tmp/mcp-test-restore-state-recreate")]
-    (let [result (sut/restore-state! cfg)]
-      (is (map? result))
-      (is (contains? result :index))
-      (is (contains? result :graph)))))
+                   :embedding/cache-dir "/tmp/mcp-test-restore-state-recreate")
+        result (sut/restore-state! cfg)]
+    (is (map? result))
+    (is (contains? result :index))
+    (is (contains? result :graph))))
 
 (deftest restore-state-fallback-on-missing-collection
   (let [cfg (assoc config/defaults :qdrant/recreate? false
                    :index/root-path "test-resources/fixtures/multi_ns"
                    :index/exclude (config/compile-exclude-patterns (:index/exclude config/defaults))
                    :qdrant/port 19999
-                   :embedding/cache-dir "/tmp/mcp-test-restore-state-fallback")]
-    (let [result (sut/restore-state! cfg)]
-      (is (map? result))
-      (is (contains? result :index))
-      (is (contains? result :graph)))))
+                   :embedding/cache-dir "/tmp/mcp-test-restore-state-fallback")
+        result (sut/restore-state! cfg)]
+    (is (map? result))
+    (is (contains? result :index))
+    (is (contains? result :graph))))
 
 ;; ---------------------------------------------------------------------------
 ;; sha-256-file edge cases

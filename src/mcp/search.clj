@@ -1,5 +1,5 @@
 (ns mcp.search
-  (:require [clojure.string :as str]
+  (:require [clojure.string :as s]
             [clojure.set :as set]
             [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]
@@ -125,14 +125,14 @@
   [file-path start-line end-line]
   (try
     (let [lines (or (get @file-cache-atom file-path)
-                    (let [lines (vec (str/split-lines (slurp file-path)))]
+                    (let [lines (vec (s/split-lines (slurp file-path)))]
                       (swap! file-cache-atom
                              (fn [c]
                                (if (>= (count c) cache-max-size)
                                  (assoc (into {} (drop 1 c)) file-path lines)
                                  (assoc c file-path lines))))
                       lines))]
-      (str/join "\n" (subvec lines (dec start-line) end-line)))
+      (s/join "\n" (subvec lines (dec start-line) end-line)))
     (catch Exception _ nil)))
 
 (defn- enrich-result-chunks

@@ -217,3 +217,62 @@
     (is (number? (get p "start_line")))
     (is (number? (get p "end_line")))
     (is (string? (get p "hash")))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: payload with nil fields
+;; ---------------------------------------------------------------------------
+
+(deftest chunk->payload-with-nil-ns
+  (let [chunk (make-chunk {:chunk/ns nil :chunk/name nil})
+        p (#'sut/chunk->payload chunk)]
+    (is (nil? (get p "namespace")))
+    (is (nil? (get p "symbol")))))
+
+(deftest chunk->payload-with-all-type-mappings
+  (is (= "function" (get (#'sut/chunk->payload (make-chunk {:chunk/type :fn})) "type")))
+  (is (= "macro" (get (#'sut/chunk->payload (make-chunk {:chunk/type :macro})) "type")))
+  (is (= "protocol" (get (#'sut/chunk->payload (make-chunk {:chunk/type :protocol})) "type")))
+  (is (= "record" (get (#'sut/chunk->payload (make-chunk {:chunk/type :record})) "type")))
+  (is (= "val" (get (#'sut/chunk->payload (make-chunk {:chunk/type :val})) "type")))
+  (is (= "ns" (get (#'sut/chunk->payload (make-chunk {:chunk/type :ns})) "type")))
+  (is (= "top-level" (get (#'sut/chunk->payload (make-chunk {:chunk/type :top-level})) "type")))
+  (is (= "multimethod" (get (#'sut/chunk->payload (make-chunk {:chunk/type :multimethod})) "type"))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: point->chunk roundtrip for different types
+;; ---------------------------------------------------------------------------
+
+(deftest point->chunk-roundtrip-all-types
+  (doseq [type [:fn :macro :protocol :record :val :ns :top-level]]
+    (let [chunk (make-chunk {:chunk/type type})
+          embedding [0.1 0.2 0.3]
+          point (#'sut/make-point chunk embedding)
+          roundtripped (#'sut/point->chunk point)]
+      (is (= (:chunk/type chunk) (:chunk/type roundtripped))
+          (str "Type mismatch for " type)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: partition-all behavior for upsert
+;; ---------------------------------------------------------------------------
+
+(deftest upsert-partitions-into-correct-number-of-batches
+  (let [cfg (assoc test-config :qdrant/port 19999)
+        chunks (repeatedly 320 #(make-chunk {}))
+        embeddings (repeatedly 320 #(vector (rand) (rand) (rand)))]
+    (is (thrown? Exception (sut/upsert! cfg chunks embeddings))
+        "Should attempt 4 HTTP calls (320 / 100 = 4 batches)")))
+
+(deftest upsert-single-chunk
+  (let [cfg (assoc test-config :qdrant/port 19999)
+        chunks [(make-chunk {})]
+        embeddings [[0.1 0.2 0.3]]]
+    (is (thrown? Exception (sut/upsert! cfg chunks embeddings))
+        "Should throw when Qdrant is unreachable even for single chunk")))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: update-file-path! with nil/new paths
+;; ---------------------------------------------------------------------------
+
+(deftest update-file-path-throws-on-qdrant-error
+  (let [cfg (assoc test-config :qdrant/port 19999)]
+    (is (thrown? Exception (sut/update-file-path! cfg "/old.clj" "/new.clj")))))

@@ -275,3 +275,146 @@
     (doseq [^java.io.File f (.listFiles (io/file cache-dir))]
       (io/delete-file f true))
     (io/delete-file (io/file cache-dir) true)))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: rename with different content
+;; ---------------------------------------------------------------------------
+
+(deftest process-rename-different-content-reindexes
+  (let [^java.io.File d (temp-dir)
+        f-src (io/file d "old.clj")
+        f-dst (io/file d "new.clj")]
+    (spit f-src "(ns old-ns) (defn foo [x] x)")
+    (spit f-dst "(ns new-ns) (defn bar [x] (* x 2))")
+    (let [cfg (assoc config/defaults :qdrant/port 19999
+                     :embedding/cache-dir "/tmp/mcp-test-watcher-cache-rename-diff")
+          idx (si/empty-index)
+          gr (graph/empty-graph)
+          result (sut/process-rename cfg idx gr (.getPath f-src) (.getPath f-dst))]
+      (is (map? result))
+      (is (contains? result :index))
+      (is (contains? result :graph)))
+    (io/delete-file f-src true)
+    (io/delete-file f-dst true)
+    (io/delete-file d true)))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: process-modify on file with syntax error
+;; ---------------------------------------------------------------------------
+
+(deftest process-modify-syntax-error-cleanup
+  (let [^java.io.File d (temp-dir)
+        f (io/file d "syntax_error.clj")
+        fixtures-dir "test-resources/fixtures"]
+    (io/copy (io/file fixtures-dir "syntax_error.clj") f)
+    (let [cfg (assoc config/defaults :qdrant/port 19999
+                     :index/root-path (.getPath d)
+                     :embedding/cache-dir "/tmp/mcp-test-watcher-cache-syntax")
+          sym (make-symbol 'old-func (.getPath f))
+          idx (si/add-file! (si/empty-index) [sym])
+          gr (graph/empty-graph)
+          result (sut/process-modify cfg idx gr (.getPath f))]
+      (is (map? result))
+      (is (empty? (get-in result [:index :index/by-qname])))
+      (is (empty? (get-in result [:graph :by-file]))))
+    (io/delete-file f true)
+    (io/delete-file d true)))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: process-delete removes from all indexes
+;; ---------------------------------------------------------------------------
+
+(deftest process-delete-removes-from-graph-by-file
+  (let [file-path "/tmp/test-delete-graph.clj"
+        cfg (assoc config/defaults :qdrant/port 19999)
+        from-id (java.util.UUID/randomUUID)
+        sym (make-symbol 'test-func file-path)
+        idx (si/add-file! (si/empty-index) [sym])
+        e (make-edge 'test.ns/test-func 'test.ns/other file-path from-id (java.util.UUID/randomUUID))
+        gr (graph/add-file! (graph/empty-graph) [e])
+        result (sut/process-delete cfg idx gr file-path)]
+    (is (not (contains? (get-in result [:graph :by-file]) file-path)))
+    (is (empty? (get-in result [:graph :edges])))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: coalesce-events edge cases
+;; ---------------------------------------------------------------------------
+
+(deftest coalesce-values-stale-events-skipped
+  (let [old-time (- (System/currentTimeMillis) 5000)
+        queue {:pending [(assoc (#'sut/make-pending :ENTRY_CREATE "/tmp/old.clj")
+                               :timestamp old-time)]
+               :last-event old-time}
+        result (#'sut/coalesce-events queue)]
+    (is (empty? (:actions result)))
+    (is (= 1 (count (:pending result))))))
+
+;; ---------------------------------------------------------------------------
+;; restore-state! stub tests (unit-test level)
+;; ---------------------------------------------------------------------------
+
+(deftest restore-state-recreate-full-reindex
+  (let [cfg (assoc config/defaults :qdrant/recreate? true
+                   :index/root-path "test-resources/fixtures/multi_ns"
+                   :index/exclude (config/compile-exclude-patterns (:index/exclude config/defaults))
+                   :qdrant/port 19999
+                   :embedding/cache-dir "/tmp/mcp-test-restore-state-recreate")]
+    (let [result (sut/restore-state! cfg)]
+      (is (map? result))
+      (is (contains? result :index))
+      (is (contains? result :graph)))))
+
+(deftest restore-state-fallback-on-missing-collection
+  (let [cfg (assoc config/defaults :qdrant/recreate? false
+                   :index/root-path "test-resources/fixtures/multi_ns"
+                   :index/exclude (config/compile-exclude-patterns (:index/exclude config/defaults))
+                   :qdrant/port 19999
+                   :embedding/cache-dir "/tmp/mcp-test-restore-state-fallback")]
+    (let [result (sut/restore-state! cfg)]
+      (is (map? result))
+      (is (contains? result :index))
+      (is (contains? result :graph)))))
+
+;; ---------------------------------------------------------------------------
+;; sha-256-file edge cases
+;; ---------------------------------------------------------------------------
+
+(deftest sha-256-file-zero-length-file
+  (let [d (temp-dir)
+        f (io/file d "empty.clj")]
+    (spit f "")
+    (let [hash (#'sut/sha-256-file (.getPath f))]
+      (is (string? hash))
+      (is (= 64 (count hash))))
+    (io/delete-file f true)
+    (io/delete-file d true)))
+
+(deftest sha-256-file-binary-content
+  (let [d (temp-dir)
+        f (io/file d "binary.clj")]
+    (.createNewFile f)
+    (let [^java.io.FileOutputStream os (java.io.FileOutputStream. f)]
+      (.write os (byte-array [0 0xFF 0x00 0x7F]))
+      (.close os))
+    (let [hash (#'sut/sha-256-file (.getPath f))]
+      (is (string? hash))
+      (is (= 64 (count hash))))
+    (io/delete-file f true)
+    (io/delete-file d true)))
+
+;; ---------------------------------------------------------------------------
+;; should-watch? edge cases
+;; ---------------------------------------------------------------------------
+
+(deftest should-watch-case-insensitive-extensions
+  (is (#'sut/should-watch? "/project/SRC.CLJ" [".clj"] []))
+  (is (#'sut/should-watch? "/project/Src.CLJC" [".cljc"] []))
+  (is (#'sut/should-watch? "/project/source.ClJs" [".cljs"] [])))
+
+(deftest should-watch-multiple-exclude-patterns
+  (is (nil? (#'sut/should-watch? "/project/target/classes/core.clj" [".clj"]
+                                   [#"target" #"classes"])))
+  (is (nil? (#'sut/should-watch? "/project/.git/objects/core.clj" [".clj"]
+                                   [#"target" #"\.git"])))
+  (is (some? (#'sut/should-watch? "/project/src/core.clj" [".clj"]
+                                   [#"target" #"\.git"]))))

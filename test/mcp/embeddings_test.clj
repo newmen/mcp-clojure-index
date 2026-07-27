@@ -232,3 +232,78 @@
   (let [cfg (assoc config/defaults :ollama/url "http://localhost:29999")]
     (is (thrown? Throwable (sut/generate ["hello"] cfg))
         "Should attempt to connect to explicit config URL")))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: build-embedding-text with various chunk configurations
+;; ---------------------------------------------------------------------------
+
+(deftest build-embedding-text-handles-long-docstring
+  (let [long-doc (apply str (repeat 1000 "Lorem ipsum dolor sit amet. "))
+        text (sut/build-embedding-text
+               (make-chunk {:chunk/metadata {:doc long-doc}}))]
+    (is (.contains text "Docstring:"))
+    (is (.contains text long-doc))))
+
+(deftest build-embedding-text-handles-empty-source
+  (let [text (sut/build-embedding-text (make-chunk {:chunk/source ""}))]
+    (is (.contains text "Code:"))
+    (is (not (nil? text)))))
+
+(deftest build-embedding-text-handles-special-chars
+  (let [text (sut/build-embedding-text
+               (make-chunk {:chunk/ns "a.b"
+                            :chunk/name "x->y"
+                            :chunk/source "(defn x->y [z] z)"}))]
+    (is (.contains text "a.b"))
+    (is (.contains text "x->y"))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: cache with concurrent access simulation
+;; ---------------------------------------------------------------------------
+
+(deftest cache-handles-concurrent-writes
+  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-concurrent")
+        hashes (mapv #(str "concurrent-" %) (range 50))
+        embeddings (mapv (fn [i] [(double i) (double (* i 2))]) (range 50))]
+    (try
+      (run! (fn [[h e]] (sut/cache-embedding! cfg h e)) (map vector hashes embeddings))
+      (doseq [[h e] (map vector hashes embeddings)]
+        (is (= e (sut/cached-embedding cfg h))
+            (str "Cache mismatch for " h)))
+      (finally
+        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache-concurrent"))]
+          (io/delete-file f true))
+        (io/delete-file (io/file "/tmp/mcp-test-cache-concurrent") true)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: generate with empty chunks list returns nil
+;; ---------------------------------------------------------------------------
+
+(deftest generate-from-chunks-empty-chunks-returns-empty
+  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-empty")]
+    (is (= [] (sut/generate-from-chunks cfg [])))))
+
+(deftest generate-from-chunks-nil-hash-skipped
+  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-nil-hash")
+        chunks [(make-chunk {:chunk/hash nil :chunk/source "(defn a [x] x)"})]]
+    (try
+      (let [result (sut/generate-from-chunks cfg chunks)]
+        (is (= 1 (count result)))
+        (is (vector? (second (first result)))))
+      (finally
+        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache-nil-hash"))]
+          (io/delete-file f true))
+        (io/delete-file (io/file "/tmp/mcp-test-cache-nil-hash") true)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: rerank with single candidate
+;; ---------------------------------------------------------------------------
+
+(deftest rerank-single-candidate-works
+  (let [candidates [{:text "some code" :score 0.9}]]
+    (is (= 1 (count (sut/rerank "test" candidates))))))
+
+(deftest rerank-very-long-query
+  (let [long-query (apply str (repeat 100 "query "))
+        candidates [{:text "short code" :score 0.5} {:text "longer code" :score 0.4}]]
+    (is (= 2 (count (sut/rerank long-query candidates))))))

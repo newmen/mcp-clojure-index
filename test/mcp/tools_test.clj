@@ -224,3 +224,86 @@
       (let [result (sut/handle-tool "semantic_search" {:query "nothing"} state)
             text (:text (first (:content result)))]
         (is (s/includes? text "No results"))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: tools with nil/empty arguments
+;; ---------------------------------------------------------------------------
+
+(deftest find-symbol-with-nil-name
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_symbol" {:name nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "not found"))))
+
+(deftest find-namespace-with-empty-string
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_namespace" {:name ""} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "not found"))))
+
+(deftest find-callers-with-nil-symbol
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_callers" {:symbol nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "No callers"))))
+
+(deftest find-callees-with-nil-symbol
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_callees" {:symbol nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "No callees"))))
+
+(deftest find-protocol-with-nil-name
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_protocol" {:name nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "not found"))))
+
+(deftest find-record-with-nil-name
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_record" {:name nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "not found"))))
+
+(deftest semantic-search-with-nil-query
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "semantic_search" {:query nil} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "empty"))))
+
+(deftest find-macro-with-specific-name
+  (let [cid (UUID/randomUUID)
+        sym (make-sym 'my-macro "/f.clj" cid :ftype :macro)
+        index (si/add-file! (si/empty-index) [sym])
+        state {:config test-config :index index :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_macro" {:name "my-macro"} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "my-macro"))))
+
+(deftest find-macro-specific-name-not-found
+  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_macro" {:name "nonexistent"} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "not found"))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: tools with fully populated index
+;; ---------------------------------------------------------------------------
+
+(deftest find-protocol-with-qualified-name
+  (let [cid (UUID/randomUUID)
+        sym (make-sym 'MyProtocol "/f.clj" cid :ftype :protocol)
+        index (si/add-file! (si/empty-index) [sym])
+        state {:config test-config :index index :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_protocol" {:name "test.ns/MyProtocol"} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "MyProtocol"))))
+
+(deftest find-record-with-qualified-name
+  (let [cid (UUID/randomUUID)
+        sym (make-sym 'MyRecord "/f.clj" cid :ftype :record)
+        index (si/add-file! (si/empty-index) [sym])
+        state {:config test-config :index index :graph-state (graph/empty-graph)}
+        result (sut/handle-tool "find_record" {:name "test.ns/MyRecord"} state)
+        text (:text (first (:content result)))]
+    (is (s/includes? text "MyRecord"))))

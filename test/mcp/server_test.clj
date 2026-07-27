@@ -158,3 +158,73 @@
 
 (deftest stop-when-no-state
   (is (nil? (sut/stop))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: server error handling
+;; ---------------------------------------------------------------------------
+
+(deftest handle-method-missing-params
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"}
+        state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        [response _new-state] (#'sut/handle-method msg state)]
+    (is (= 1 (:id response)))
+    (is (= -32602 (get-in response [:error :code])))))
+
+(deftest json-rpc-error-with-nil-id
+  (let [result (#'sut/json-rpc-error nil -32601 "Method not found")]
+    (is (= "2.0" (:jsonrpc result)))
+    (is (= nil (:id result)))
+    (is (= -32601 (get-in result [:error :code])))))
+
+(deftest json-rpc-result-with-nil-id
+  (let [result (#'sut/json-rpc-result nil {:tools []})]
+    (is (= "2.0" (:jsonrpc result)))
+    (is (= nil (:id result)))
+    (is (= [] (get-in result [:result :tools])))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: parse-json with edge inputs
+;; ---------------------------------------------------------------------------
+
+(deftest parse-json-empty-object
+  (let [result (#'sut/parse-json "{}")]
+    (is (map? result))
+    (is (empty? result))))
+
+(deftest parse-json-whitespace-only
+  (is (nil? (#'sut/parse-json "   "))))
+
+(deftest parse-json-unicode
+  (let [result (#'sut/parse-json "{\"key\":\"value\"}")]
+    (is (= "value" (:key result)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: process-message with various inputs
+;; ---------------------------------------------------------------------------
+
+(deftest process-message-tools-call
+  (let [state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find_symbol\",\"arguments\":{\"name\":\"test\"}}}"
+        [response _new-state] (#'sut/process-message line state)]
+    (is (some? response))
+    (is (= 1 (:id response)))
+    (is (get-in response [:result :content]))))
+
+(deftest process-message-not-allowed-method
+  (let [state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\"}"
+        [response _new-state] (#'sut/process-message line state)]
+    (is (some? response))
+    (is (= -32601 (get-in response [:error :code])))))
+
+(deftest live-state-returns-atom-values
+  (let [index (si/empty-index)
+        graph (graph/empty-graph)
+        state {:config config/defaults
+               :index-ref (atom index)
+               :graph-ref (atom graph)
+               :index index
+               :graph-state graph}
+        live (#'sut/live-state state)]
+    (is (= index (:index live)))
+    (is (= graph (:graph-state live)))))

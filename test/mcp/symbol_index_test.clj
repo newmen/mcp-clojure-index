@@ -3,6 +3,8 @@
             [mcp.symbol-index :as sut]
             [mcp.parser :as parser]))
 
+(set! *warn-on-reflection* true)
+
 (def fixtures-dir "test-resources/fixtures")
 
 (defn fixture-path
@@ -291,3 +293,66 @@
         sym (get (:index/by-qname idx) 'fixtures.valid-defs/create-user)]
     (is (= "Creates a new user in the system." (:sym/doc sym)))
     (is (seq (:sym/arglists sym)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: large project index
+;; ---------------------------------------------------------------------------
+
+(deftest build-index-from-large-file
+  (let [result (parser/parse-file (fixture-path "large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        idx (sut/build-index symbols chunks)]
+    (is (pos? (count (:index/by-qname idx))))
+    (is (pos? (count (:index/by-simple idx))))
+    (is (= 1 (count (:index/by-file idx))))
+    (is (pos? (count (get (:index/by-type idx) :fn))))
+    (is (some? (get (:index/by-qname idx) 'fixtures.large-file/func-1)))
+    (is (some? (get (:index/by-qname idx) 'fixtures.large-file/aggregate)))
+    (is (some? (get (:index/by-qname idx) 'fixtures.large-file/Serializer)))
+    (is (some? (get (:index/by-qname idx) 'fixtures.large-file/UserRecord)))))
+
+(deftest build-index-large-file-no-gaps
+  (let [result (parser/parse-file (fixture-path "large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        idx (sut/build-index symbols chunks)]
+    (is (= (count symbols) (count (:index/by-qname idx))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: namespace extraction
+;; ---------------------------------------------------------------------------
+
+(deftest find-namespace-extracts-requires
+  (let [result (parser/parse-file (fixture-path "valid_defs.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        idx (sut/build-index symbols chunks)
+        ns-rec (sut/find-namespace idx 'fixtures.valid-defs)]
+    (is (some? ns-rec))
+    (is (= 'fixtures.valid-defs (:ns/name ns-rec)))
+    (is (seq (:ns/requires ns-rec)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: remove-file! idempotency
+;; ---------------------------------------------------------------------------
+
+(deftest remove-file-twice-idempotent
+  (let [idx (parse-and-index "valid_defs.clj")
+        file-path (-> idx :index/by-file keys first)
+        removed1 (sut/remove-file! idx file-path)
+        removed2 (sut/remove-file! removed1 file-path)]
+    (is (= removed1 removed2))))
+
+(deftest find-by-type-returns-correct-types-from-large-file
+  (let [result (parser/parse-file (fixture-path "large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        idx (sut/build-index symbols chunks)]
+    (is (pos? (count (sut/find-by-type idx :fn))))
+    (is (some? (first (sut/find-by-type idx :protocol))))
+    (is (some? (first (sut/find-by-type idx :record))))))

@@ -2,6 +2,8 @@
   (:require [clojure.test :refer :all]
             [mcp.parser :as sut]))
 
+(set! *warn-on-reflection* true)
+
 (def fixtures-dir "test-resources/fixtures")
 
 (defn fixture-path
@@ -269,3 +271,68 @@
     (is (seq (:chunk/symbols transform)))
     (is (contains? (:chunk/symbols transform) 'assoc))
     (is (contains? (:chunk/symbols transform) 'enrich))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases — large file (10000+ lines)
+;; ---------------------------------------------------------------------------
+
+(deftest parse-large-file-no-crash
+  (let [result (sut/parse-file (fixture-path "large_file.clj"))]
+    (is (seq (:result/chunks result)))
+    (is (empty? (:result/errors result)))
+    (is (> (count (:result/chunks result)) 1800)
+        (str "Expected 1800+ chunks, got " (count (:result/chunks result))))))
+
+(deftest parse-large-file-all-chunks-have-valid-types
+  (let [result (sut/parse-file (fixture-path "large_file.clj"))
+        types (set (map :chunk/type (:result/chunks result)))]
+    (is (every? #{:ns :fn :macro :protocol :record :val :top-level} types))))
+
+(deftest parse-large-file-no-overlapping-chunks
+  (let [chunks (:result/chunks (sut/parse-file (fixture-path "large_file.clj")))
+        sorted (sort-by :chunk/start-line chunks)]
+    (doseq [[a b] (partition 2 1 sorted)]
+      (is (<= (:chunk/end-line a) (:chunk/start-line b))
+          (str "Chunks overlap: " (:chunk/name a) " ends at " (:chunk/end-line a)
+               " but " (:chunk/name b) " starts at " (:chunk/start-line b))))))
+
+(deftest parse-large-file-all-hashes-64-chars
+  (let [chunks (:result/chunks (sut/parse-file (fixture-path "large_file.clj")))]
+    (is (every? #(= 64 (count (:chunk/hash %))) chunks))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases — parse-project with exclude patterns
+;; ---------------------------------------------------------------------------
+
+(deftest parse-project-excludes-target-dir
+  (let [result (sut/parse-project (str fixtures-dir "/multi_ns") [#"nonexistent"])]
+    (is (seq (:chunks result)))
+    (let [files (map :chunk/file (:chunks result))]
+      (is (some #(.endsWith % "core.clj") files))
+      (is (some #(.endsWith % "utils.clj") files)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases — non-existent file
+;; ---------------------------------------------------------------------------
+
+(deftest parse-nonexistent-file-returns-error
+  (let [result (sut/parse-file "/nonexistent/path.clj")]
+    (is (some? result))
+    (is (empty? (:result/chunks result)))
+    (is (seq (:result/errors result)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases — metadata extraction for defrecord and deftype
+;; ---------------------------------------------------------------------------
+
+(deftest parse-record-has-no-docstring
+  (let [result (sut/parse-file (fixture-path "valid_defs.clj"))
+        enriched (sut/enrich-chunks-with-ns result)
+        user-record (first (filter #(= "User" (:chunk/name %)) (:result/chunks enriched)))]
+    (is (some? (:chunk/metadata user-record)))
+    (is (nil? (:doc (:chunk/metadata user-record))))))
+
+(deftest parse-defonce-creates-val-chunk
+  (let [result (sut/parse-file (fixture-path "cljs_file.cljs"))
+        defonce-chunks (filter #(= :val (:chunk/type %)) (:result/chunks result))]
+    (is (some #(= "app-state" (:chunk/name %)) defonce-chunks))))

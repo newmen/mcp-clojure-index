@@ -4,6 +4,8 @@
             [mcp.symbol-index :as si]
             [mcp.graph :as sut]))
 
+(set! *warn-on-reflection* true)
+
 (def fixtures-dir "test-resources/fixtures")
 
 (defn fixture-path
@@ -245,3 +247,91 @@
 (deftest graph-all-edges-have-type-call
   (let [{:keys [graph]} (parse-project-and-build-graph "graph_project")]
     (is (every? #(= :call (:edge/type %)) (:edges graph)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: large file graph
+;; ---------------------------------------------------------------------------
+
+(deftest build-graph-from-large-file
+  (let [fixtures-dir "test-resources/fixtures"
+        result (parser/parse-file (str fixtures-dir "/large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        index (si/build-index symbols chunks)
+        graph (sut/build-graph chunks index)]
+    (is (sequential? (:edges graph)))
+    (is (map? (:callers graph)))
+    (is (map? (:callees graph)))
+    (is (map? (:by-chunk graph)))
+    (is (map? (:by-file graph)))))
+
+(deftest large-file-graph-no-self-loops
+  (let [fixtures-dir "test-resources/fixtures"
+        result (parser/parse-file (str fixtures-dir "/large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        index (si/build-index symbols chunks)
+        graph (sut/build-graph chunks index)]
+    (is (not-any? #(= (:edge/from %) (:edge/to %)) (:edges graph))
+        "Large file graph should not contain self-loops")))
+
+(deftest large-file-graph-all-edges-have-from-id
+  (let [fixtures-dir "test-resources/fixtures"
+        result (parser/parse-file (str fixtures-dir "/large_file.clj"))
+        enriched (parser/enrich-chunks-with-ns result)
+        symbols (parser/extract-symbols enriched)
+        chunks (:result/chunks enriched)
+        index (si/build-index symbols chunks)
+        graph (sut/build-graph chunks index)]
+    (doseq [e (:edges graph)]
+      (is (some? (:edge/from-id e))
+          (str "Missing from-id for edge: " (:edge/from e) " -> " (:edge/to e))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: graph remove-file! then add-file! roundtrip
+;; ---------------------------------------------------------------------------
+
+(deftest remove-then-add-file-roundtrip
+  (let [{:keys [graph chunks]} (parse-project-and-build-graph "multi_ns")]
+    (is (pos? (count (:edges graph))))
+    (let [file-path (first (keys (:by-file graph)))
+          original-count (count (:edges graph))
+          removed (sut/remove-file! graph file-path)
+          edges-for-file (filter #(= (:edge/file %) file-path) (:edges graph))]
+      (is (< (count (:edges removed)) original-count))
+      (let [re-added (sut/add-file! removed edges-for-file)]
+        (is (= original-count (count (:edges re-added)))
+            "Remove then add should restore original edge count")))))
+
+(deftest graph-remove-non-existent-file-then-add
+  (let [{:keys [graph]} (parse-project-and-build-graph "multi_ns")
+        original (count (:edges graph))
+        after-remove (sut/remove-file! graph "/nonexistent.clj")]
+    (is (= original (count (:edges after-remove)))
+        "Remove non-existent file should not change graph")))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: chunk->edges for ns and unnamed chunks
+;; ---------------------------------------------------------------------------
+
+(deftest chunk->edges-returns-empty-for-ns-chunk
+  (let [idx (si/empty-index)
+        ns-chunk {:chunk/type :ns :chunk/name "test.ns" :chunk/ns "test"
+                  :chunk/id (java.util.UUID/randomUUID)
+                  :chunk/source "(ns test)" :chunk/file "/f.clj"
+                  :chunk/start-line 1 :chunk/end-line 1
+                  :chunk/symbols #{}}
+        edges (sut/chunk->edges ns-chunk idx)]
+    (is (empty? edges))))
+
+(deftest chunk->edges-returns-empty-for-nil-name
+  (let [idx (si/empty-index)
+        chunk {:chunk/type :fn :chunk/name nil :chunk/ns "test"
+               :chunk/id (java.util.UUID/randomUUID)
+               :chunk/source "(defn [x] x)" :chunk/file "/f.clj"
+               :chunk/start-line 1 :chunk/end-line 1
+               :chunk/symbols #{'foo}}
+        edges (sut/chunk->edges chunk idx)]
+    (is (empty? edges))))

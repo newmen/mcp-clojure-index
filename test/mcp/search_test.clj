@@ -268,3 +268,77 @@ cg1 (make-chunk {:chunk/id cid-1 :chunk/name "create-user"
         extra-ids (map :chunk/id extra)]
     (is (= 1 (count extra-ids)))
     (is (= cid-2 (first extra-ids)))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: search with various configs
+;; ---------------------------------------------------------------------------
+
+(deftest search-with-zero-top-k
+  (let [cfg (assoc test-config :search/top-k 0)]
+    (is (nil? (sut/search-simple cfg "test")))))
+
+(deftest search-with-zero-rerank-top
+  (let [cfg (assoc test-config :search/re-rank-top 0)]
+    (is (nil? (sut/search-simple cfg "test")))))
+
+(deftest search-with-very-long-query
+  (let [long-query (apply str (repeat 500 "search term "))]
+    (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
+                  qdrant/search (fn [_cfg _emb _k] [])
+                  embeddings/rerank (fn [_query candidates _cfg]
+                                      (mapv #(assoc % :re-rank (:score %)) candidates))]
+      (let [result (sut/search-simple test-config long-query)]
+        (is (or (nil? result) (vector? result))
+            "Long query should either return nil or a vector")))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: search-simple returns vector on success
+;; ---------------------------------------------------------------------------
+
+(deftest search-simple-returns-correct-structure
+  (let [cg (make-chunk {:chunk/name "test-func"})]
+    (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
+                  qdrant/search (fn [_cfg _emb _k]
+                                  [{:chunk cg :score 0.9}])
+                  embeddings/rerank (fn [_query candidates _cfg]
+                                      (mapv (fn [c i]
+                                              (assoc c :re-rank (float (- 1.0 (* i 0.1)))))
+                                            (sort-by :score > candidates)
+                                            (range)))]
+      (let [results (sut/search-simple test-config "search query")]
+        (is (vector? results))
+        (is (pos? (count results)))
+        (doseq [r results]
+          (is (contains? r :chunk))
+          (is (contains? r :score))
+          (is (contains? r :re-rank)))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: search-full with empty index and graph
+;; ---------------------------------------------------------------------------
+
+(deftest search-full-empty-index
+  (let [index (si/empty-index)
+        gr (graph/empty-graph)]
+    (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
+                  qdrant/search (fn [_cfg _emb _k]
+                                  [{:chunk (make-chunk {:chunk/name "result"}) :score 0.9}])
+                  embeddings/rerank (fn [_query candidates _cfg]
+                                      (mapv #(assoc % :re-rank (:score %)) candidates))]
+      (let [results (sut/search-full test-config "query" index gr)]
+        (is (vector? results))
+        (is (pos? (count results)))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases: qdrant-candidates formatting
+;; ---------------------------------------------------------------------------
+
+(deftest qdrant-candidates-format-correctly
+  (let [cg (make-chunk {:chunk/source "(defn foo [x] x)"})]
+    (with-redefs [qdrant/search (fn [_cfg _emb _k]
+                                  [{:chunk cg :score 0.95}])]
+      (let [candidates (#'sut/qdrant-candidates test-config [0.1 0.2 0.3] 10)]
+        (is (= 1 (count candidates)))
+        (is (= "(defn foo [x] x)" (:text (first candidates))))
+        (is (= 0.95 (:score (first candidates))))
+        (is (= cg (:chunk (first candidates))))))))

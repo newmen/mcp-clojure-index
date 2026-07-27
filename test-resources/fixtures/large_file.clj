@@ -1,6 +1,5 @@
 (ns fixtures.large-file
-  (:require [clojure.string :as str]
-            [clojure.set :as set]))
+  (:require [clojure.string :as str]))
 
 (defn func-1
   [x]

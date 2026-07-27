@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as s]
+            [clojure.tools.logging :as log]
             [mcp.parser :as parser]
             [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]
@@ -151,7 +152,7 @@
           chunks (mapv #(assoc % :chunk/file-hash file-hash) (:result/chunks enriched))
           symbols (parser/extract-symbols {:result/chunks chunks :result/errors (:result/errors enriched)})]
       (if (empty? chunks)
-        (do (println "[watcher] No chunks found in" file-path)
+        (do (log/warn "No chunks found in" file-path)
             (try (qdrant/delete! cfg file-path) (catch Exception _ nil))
             {:index (si/remove-file! index file-path)
              :graph (graph/remove-file! graph file-path)})
@@ -170,11 +171,11 @@
             (qdrant/delete! cfg file-path)
             (qdrant/upsert! cfg new-chunks embeddings)
             (catch Exception e
-              (println "[watcher] Error updating Qdrant for" file-path ":" (.getMessage e))))
-          (println "[watcher] Re-indexed" file-path)
+              (log/error e "Error updating Qdrant for" file-path ":" (.getMessage e))))
+          (log/info "Re-indexed" file-path)
           {:index new-index :graph new-graph})))
     (catch Exception e
-      (println "[watcher] Error processing" file-path ":" (.getMessage e))
+      (log/error e "Error processing" file-path ":" (.getMessage e))
       {:index index :graph graph})))
 
 (defn process-delete
@@ -183,9 +184,9 @@
         new-graph (graph/remove-file! graph file-path)]
     (try
       (qdrant/delete! cfg file-path)
-      (println "[watcher] Removed" file-path "from index")
+      (log/info "Removed" file-path "from index")
       (catch Exception e
-        (println "[watcher] Error deleting from Qdrant" file-path ":" (.getMessage e))))
+        (log/error e "Error deleting from Qdrant" file-path ":" (.getMessage e))))
     {:index new-index :graph new-graph}))
 
 (defn process-rename-same-content
@@ -194,9 +195,9 @@
         new-graph (graph/update-file-path! graph old-path new-path)]
     (try
       (qdrant/update-file-path! cfg old-path new-path)
-      (println "[watcher] Renamed" old-path "->" new-path "(same content)")
+      (log/info "Renamed" old-path "->" new-path "(same content)")
       (catch Exception e
-        (println "[watcher] Error updating Qdrant rename" old-path "->" new-path ":" (.getMessage e))))
+        (log/error e "Error updating Qdrant rename" old-path "->" new-path ":" (.getMessage e))))
     {:index new-index :graph new-graph}))
 
 (defn process-rename
@@ -260,7 +261,7 @@
                                       (.pollEvents key))
                               (catch Exception _ queue))]
               (when-not (.reset key)
-                (println "[watcher] WatchKey no longer valid for" dir))
+                (log/warn "WatchKey no longer valid for" dir))
               (let [pending (drain-queue new-queue cfg index-ref graph-ref)]
                 (recur {:pending pending :last-event (System/currentTimeMillis)})))))))))
 
@@ -285,7 +286,7 @@
                                         StandardWatchEventKinds/ENTRY_DELETE
                                         StandardWatchEventKinds/ENTRY_MODIFY]))
                 (catch Exception e
-                  (println "[watcher] Could not register" p-str ":" (.getMessage e)))))))))))
+                  (log/warn "Could not register" p-str ":" (.getMessage e)))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
@@ -301,7 +302,7 @@
         excludes (:index/exclude cfg)
         stop-atom (atom nil)]
     (register-recursive watcher root-path excludes)
-    (println "[watcher] Watching" root-path "for changes")
+    (log/info "Watching" root-path "for changes")
     (future (watcher-loop watcher cfg index-ref graph-ref stop-atom))
     {:watcher watcher :stop-atom stop-atom}))
 
@@ -312,7 +313,7 @@
       (reset! stop-atom true))
     (when-let [^WatchService ws (:watcher watcher-map)]
       (try (.close ws) (catch Exception _ nil)))
-    (println "[watcher] Stopped")))
+    (log/info "Stopped")))
 
 ;; ---------------------------------------------------------------------------
 ;; Initial full index
@@ -324,7 +325,7 @@
   [cfg]
   (let [root-path (:index/root-path cfg)
         excludes (:index/exclude cfg)
-        _ (println "[watcher] Full re-index of" root-path "starting...")
+        _ (log/info "Full re-index of" root-path "starting...")
         raw (parser/parse-project root-path excludes)
         enriched (parser/enrich-project-chunks raw)
         by-file (group-by :chunk/file (:chunks enriched))
@@ -340,22 +341,22 @@
                           by-file)
         all-chunks all-chunks-with-hash
         index (si/build-index all-symbols all-chunks)
-        _ (println "[watcher] Built symbol index:" (count all-symbols) "symbols")
+        _ (log/info "Built symbol index:" (count all-symbols) "symbols")
         graph (graph/build-graph all-chunks index)
-        _ (println "[watcher] Built dependency graph:" (count (:edges graph)) "edges")
+        _ (log/info "Built dependency graph:" (count (:edges graph)) "edges")
         pairs (binding [embeddings/*config* cfg]
                       (embeddings/generate-from-chunks cfg all-chunks))
         embeddings (mapv second pairs)
         chunks (mapv first pairs)
-        _ (println "[watcher] Generated" (count embeddings) "embeddings")
-        _ (println "[watcher] Creating Qdrant collection if needed...")]
+        _ (log/info "Generated" (count embeddings) "embeddings")
+        _ (log/info "Creating Qdrant collection if needed...")]
     (try
       (qdrant/create-collection! cfg)
-      (println "[watcher] Uploading to Qdrant...")
+      (log/info "Uploading to Qdrant...")
       (qdrant/upsert! cfg chunks embeddings)
-      (println "[watcher] Full re-index complete")
+      (log/info "Full re-index complete")
       (catch Exception e
-        (println "[watcher] Qdrant operation failed:" (.getMessage e))))
+        (log/error e "Qdrant operation failed:" (.getMessage e))))
     {:index index :graph graph}))
 
 ;; ---------------------------------------------------------------------------
@@ -404,23 +405,23 @@
 (defn restore-state!
   [cfg]
   (if (:qdrant/recreate? cfg)
-    (do (println "[watcher] :qdrant/recreate? is true, performing full re-index")
+    (do (log/info ":qdrant/recreate? is true, performing full re-index")
         (reindex-all! cfg))
     (let [info (qdrant/collection-info cfg)]
       (if (or (nil? info) (zero? (:points-count info 0)))
-        (do (println "[watcher] Qdrant collection is empty or does not exist, performing full re-index")
+        (do (log/info "Qdrant collection is empty or does not exist, performing full re-index")
             (reindex-all! cfg))
         (let [chunks (qdrant/scroll-all cfg)]
           (if (nil? chunks)
-            (do (println "[watcher] scroll-all returned nil, performing full re-index")
+            (do (log/warn "scroll-all returned nil, performing full re-index")
                 (reindex-all! cfg))
             (let [chunks-vec (vec chunks)]
-              (println "[watcher] Restored" (count chunks-vec) "chunks from Qdrant")
+              (log/info "Restored" (count chunks-vec) "chunks from Qdrant")
               (let [symbols (chunks->symbols chunks-vec)
                     index (si/build-index symbols chunks-vec)
                     graph (graph/build-graph chunks-vec index)
-                    _ (println "[watcher] Built symbol index:" (count symbols) "symbols")
-                    _ (println "[watcher] Built dependency graph:" (count (:edges graph)) "edges")
+                    _ (log/info "Built symbol index:" (count symbols) "symbols")
+_ (log/info "Built dependency graph:" (count (:edges graph)) "edges")
                     stored-hashes (file->hash-map chunks-vec)
                     fs-hashes (collect-project-files cfg)
                     all-fs-paths (set (keys fs-hashes))
@@ -431,7 +432,7 @@
                                    (set/intersection all-fs-paths all-stored-paths))
                     new-files (set/difference all-fs-paths all-stored-paths)
                     deleted (set/difference all-stored-paths all-fs-paths)
-                    _ (println "[watcher] Syncing:" (count changed) "changed,"
+                    _ (log/info "Syncing:" (count changed) "changed,"
                                (count new-files) "new," (count deleted) "deleted files")
                     index-atom (atom index)
                     graph-atom (atom graph)]
@@ -443,5 +444,5 @@
                   (let [result (process-modify cfg @index-atom @graph-atom file-path)]
                     (reset! index-atom (:index result))
                     (reset! graph-atom (:graph result))))
-                (println "[watcher] State restoration complete")
+                (log/info "State restoration complete")
                 {:index @index-atom :graph @graph-atom}))))))))

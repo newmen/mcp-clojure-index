@@ -52,14 +52,22 @@
   [^String s]
   (when (and s (not (s/blank? s))) s))
 
+(defn- non-root-path
+  "Return the path if it is a non-blank string and not the root directory."
+  [^String path]
+  (when (and path
+             (not (s/blank? path))
+             (not= path "/"))
+    path))
+
 (defn resolve-config
   "Resolve computed config fields by applying the priority chain.
    Must be called after load-config.
 
    Priority for :index/root-path:
      1. Explicit value from config.edn
-     2. QD_PROJECT_ROOT env
-     3. VSCODE_CWD env
+     2. QD_PROJECT_ROOT env (must be a real directory, not root)
+     3. VSCODE_CWD env (must be a real directory, not root)
      4. user.dir system property
      5. \".\" (fallback)
 
@@ -76,8 +84,8 @@
   [cfg]
   (let [get-env *getenv*
         root-path (or (:index/root-path cfg)
-                      (not-blank (get-env "QD_PROJECT_ROOT"))
-                      (not-blank (get-env "VSCODE_CWD"))
+                      (non-root-path (get-env "QD_PROJECT_ROOT"))
+                      (non-root-path (get-env "VSCODE_CWD"))
                       (*user-dir-fn*)
                       ".")
         norm-root (s/replace root-path #"/$" "")

@@ -1,4 +1,4 @@
-# Code Guidelines
+# Clojure Code Guidelines
 
 ## 1. Clojure Core API over Java Interop
 

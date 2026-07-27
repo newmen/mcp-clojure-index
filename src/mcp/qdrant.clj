@@ -109,7 +109,7 @@
 
 (defn collection-exists?
   [cfg]
-  (let [resp (http-put (str (collection-url cfg) "/exists") {})]
+  (let [resp (http-get (collection-url cfg))]
     (= 200 (:status resp))))
 
 (defn create-collection!
@@ -188,24 +188,28 @@
 ;; Point -> Chunk conversion (used by search)
 ;; ---------------------------------------------------------------------------
 
+(defn- pget
+  [m k]
+  (or (get m k) (get m (name k))))
+
 (defn- point->chunk
   [point]
   (let [p (:payload point)]
-    {:chunk/id        (when-let [id-str (get p "id")]
+    {:chunk/id        (when-let [id-str (pget p :id)]
                         (try (UUID/fromString id-str)
                              (catch Exception _ (UUID/randomUUID))))
-     :chunk/source    (get p "text")
-     :chunk/language  (get p "language")
-     :chunk/ns        (get p "namespace")
-     :chunk/name      (get p "symbol")
-     :chunk/type      (when-let [t (get p "type")]
+     :chunk/source    (pget p :text)
+     :chunk/language  (pget p :language)
+     :chunk/ns        (pget p :namespace)
+     :chunk/name      (pget p :symbol)
+     :chunk/type      (when-let [t (pget p :type)]
                         (get name-type-map (keyword t) (keyword t)))
-     :chunk/visibility (when-let [v (get p "visibility")]
+     :chunk/visibility (when-let [v (pget p :visibility)]
                          (keyword v))
-     :chunk/file      (get p "file")
-     :chunk/start-line (get p "start_line")
-     :chunk/end-line   (get p "end_line")
-     :chunk/hash      (get p "hash")}))
+     :chunk/file      (pget p :file)
+     :chunk/start-line (pget p :start_line)
+     :chunk/end-line   (pget p :end_line)
+     :chunk/hash      (pget p :hash)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Search
@@ -233,15 +237,20 @@
 (defn- scroll-points
   [cfg limit offset]
   (let [url (str (collection-url cfg) "/points/scroll")
-        body {:limit limit
-              :offset offset
-              :with_payload true
-              :with_vector false}
-        resp (http-post url body)
+        body (merge {:limit limit
+                     :with_payload true
+                     :with_vector false}
+                    (when offset {:offset offset}))
+        resp (http/post url {:content-type "application/json"
+                             :body (json/write-str body)
+                             :socket-timeout 60000
+                             :connection-timeout 10000
+                             :throw-exceptions false})
         {:keys [status body]} (parse-response resp)]
     (if (= 200 status)
-      {:points (get body :points [])
-       :next-page-offset (get body :next_page_offset)}
+      (let [result (:result body)]
+        {:points (get result :points [])
+         :next-page-offset (get result :next_page_offset)})
       (throw (ex-info "Qdrant scroll failed"
                {:status status :body body :url url})))))
 
@@ -252,8 +261,8 @@
       (loop [offset nil
              chunks []]
         (let [{:keys [points next-page-offset]} (scroll-points cfg batch-size offset)]
-          (if (empty? points)
-            chunks
+          (if (or (empty? points) (nil? next-page-offset))
+            (into chunks (mapv point->chunk points))
             (let [new-chunks (mapv point->chunk points)]
               (recur next-page-offset (into chunks new-chunks)))))))
     (catch Exception _ nil)))

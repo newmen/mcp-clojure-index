@@ -5,6 +5,7 @@
                   [clj-http "3.13.1"]
                   [rewrite-clj "1.2.55"]
                   [aysylu/loom "1.0.2"]]
+  :main mcp.server
   :repl-options {:init-ns mcp.server}
   :profiles {:dev {:dependencies [[criterium "0.4.6"]]
                    :plugins [[lambdaisland/kaocha "1.91.1392"]]}}

@@ -7,6 +7,9 @@
 
 (set! *warn-on-reflection* true)
 
+(defonce ^:private file-cache-atom (atom {}))
+(defonce ^:private cache-max-size 50)
+
 (defn- default-top-k
   [cfg]
   (or (:search/top-k cfg) 100))
@@ -115,9 +118,6 @@
              :score (:score r)
              :re-rank (:re-rank r)})
           reranked)))
-
-(defonce ^:private file-cache-atom (atom {}))
-(defonce ^:private cache-max-size 50)
 
 (defn- read-chunk-source
   "Try to read source code for a chunk from the file system.

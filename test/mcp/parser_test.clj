@@ -1,5 +1,6 @@
 (ns mcp.parser-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.string :as s]
+            [clojure.test :refer :all]
             [mcp.parser :as sut]))
 
 (set! *warn-on-reflection* true)
@@ -308,8 +309,8 @@
   (let [result (sut/parse-project (str fixtures-dir "/multi_ns") [#"nonexistent"])]
     (is (seq (:chunks result)))
     (let [files (map :chunk/file (:chunks result))]
-      (is (some #(.endsWith % "core.clj") files))
-      (is (some #(.endsWith % "utils.clj") files)))))
+      (is (some #(s/ends-with? % "core.clj") files))
+      (is (some #(s/ends-with? % "utils.clj") files)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases — non-existent file

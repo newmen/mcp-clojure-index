@@ -23,8 +23,8 @@
    :result result})
 
 (defn- parse-json
-  [s]
-  (try (json/read-str s :key-fn keyword)
+  [^String json-str]
+  (try (json/read-str json-str :key-fn keyword)
        (catch Exception _ nil)))
 
 (defn- write-json

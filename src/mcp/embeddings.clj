@@ -18,6 +18,9 @@
 
 (defonce ^:dynamic *config* nil)
 
+(def ^:private batch-size 50)
+(def ^:private embedding-timeout 300000)
+
 (defn- get-config
   []
   (or *config* config/defaults))
@@ -94,9 +97,6 @@
 (defn- reranker-model
   [cfg]
   (or (:ollama/reranker-model cfg) "qllama/bce-reranker-base_v1"))
-
-(def ^:private batch-size 50)
-(def ^:private embedding-timeout 300000)
 
 (defn- http-post-json
   [url body-map]

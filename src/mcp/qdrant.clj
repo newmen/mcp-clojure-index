@@ -64,7 +64,8 @@
    "file"       (:chunk/file chunk)
    "start_line" (:chunk/start-line chunk)
    "end_line"   (:chunk/end-line chunk)
-   "hash"       (:chunk/hash chunk)})
+   "hash"       (:chunk/hash chunk)
+   "file_hash"  (:chunk/file-hash chunk)})
 
 ;; ---------------------------------------------------------------------------
 ;; HTTP helpers
@@ -106,11 +107,6 @@
   []
   {:size 768
    :distance "Cosine"})
-
-(defn collection-exists?
-  [cfg]
-  (let [resp (http-get (collection-url cfg))]
-    (= 200 (:status resp))))
 
 (defn create-collection!
   [cfg]
@@ -209,7 +205,8 @@
      :chunk/file      (pget p :file)
      :chunk/start-line (pget p :start_line)
      :chunk/end-line   (pget p :end_line)
-     :chunk/hash      (pget p :hash)}))
+     :chunk/hash      (pget p :hash)
+     :chunk/file-hash (pget p :file_hash)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Search

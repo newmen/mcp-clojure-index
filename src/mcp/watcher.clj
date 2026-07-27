@@ -144,10 +144,11 @@
 (defn process-modify
   [cfg index graph file-path]
   (try
-    (let [parse-result (parser/parse-file file-path)
+    (let [file-hash (sha-256-file file-path)
+          parse-result (parser/parse-file file-path)
           enriched (parser/enrich-chunks-with-ns parse-result)
-          chunks (:result/chunks enriched)
-          symbols (parser/extract-symbols enriched)]
+          chunks (mapv #(assoc % :chunk/file-hash file-hash) (:result/chunks enriched))
+          symbols (parser/extract-symbols {:result/chunks chunks :result/errors (:result/errors enriched)})]
       (if (empty? chunks)
         (do (println "[watcher] No chunks found in" file-path)
             (try (qdrant/delete! cfg file-path) (catch Exception _ nil))
@@ -326,12 +327,17 @@
         raw (parser/parse-project root-path excludes)
         enriched (parser/enrich-project-chunks raw)
         by-file (group-by :chunk/file (:chunks enriched))
+        all-chunks-with-hash (into []
+                                    (mapcat (fn [[file chunks]]
+                                              (let [file-hash (sha-256-file file)]
+                                                (mapv #(assoc % :chunk/file-hash file-hash) chunks))))
+                                    by-file)
         all-symbols (into []
                           (mapcat (fn [[_ chunks]]
                                     (let [ns-name (:chunk/ns (first chunks))]
                                       (keep #(parser/chunk->symbol-record % ns-name) chunks))))
                           by-file)
-        all-chunks (:chunks enriched)
+        all-chunks all-chunks-with-hash
         index (si/build-index all-symbols all-chunks)
         _ (println "[watcher] Built symbol index:" (count all-symbols) "symbols")
         graph (graph/build-graph all-chunks index)
@@ -367,7 +373,7 @@
                          (not-any? #(re-find % path) excludes))
                   (let [h (sha-256-file path)]
                     (if h
-                      (assoc acc path #{h})
+                      (assoc acc path h)
                       acc))
                   acc)))
             {}
@@ -378,8 +384,10 @@
   (persistent!
     (reduce (fn [acc chunk]
               (let [f (:chunk/file chunk)
-                    h (:chunk/hash chunk)]
-                (assoc! acc f (conj (get acc f #{}) h))))
+                    h (:chunk/file-hash chunk)]
+                (if h
+                  (assoc! acc f h)
+                  acc)))
             (transient {})
             chunks)))
 

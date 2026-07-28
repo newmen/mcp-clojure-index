@@ -1,4 +1,5 @@
 (ns mcp.server
+  (:gen-class)
   (:require [clojure.data.json :as json]
             [clojure.tools.logging :as log]
             [mcp.config :as config]
@@ -98,16 +99,22 @@
         initial (tools/make-initial-state cfg)
         index-ref (:index-ref initial)
         graph-ref (:graph-ref initial)
-        restore-result (watcher/restore-state! cfg)
-        _ (reset! index-ref (:index restore-result))
-        _ (reset! graph-ref (:graph restore-result))
         watcher-map (watcher/start-watching! cfg index-ref graph-ref)
         server-state (atom (assoc initial
-                                  :index @index-ref
-                                  :graph-state @graph-ref
                                   :watcher watcher-map))]
     (reset! server-state-atom @server-state)
-    (log/info "MCP server ready on stdio")
+    (log/info "MCP server ready on stdio (indexing in background)")
+    (future
+      (try
+        (let [restore-result (watcher/restore-state! cfg)]
+          (reset! index-ref (:index restore-result))
+          (reset! graph-ref (:graph restore-result))
+          (swap! server-state assoc
+                 :index @index-ref
+                 :graph-state @graph-ref)
+          (log/info "Background indexing complete"))
+        (catch Exception e
+          (log/error e "Background indexing failed:" (.getMessage e)))))
     (try
       (loop [line (.readLine reader)]
         (when line

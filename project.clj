@@ -8,7 +8,9 @@
                   [rewrite-clj "1.2.55"]
                   [aysylu/loom "1.0.2"]]
   :main mcp.server
+  :aot [mcp.server]
   :repl-options {:init-ns mcp.server}
   :profiles {:dev {:dependencies [[criterium "0.4.6"]]
-                   :plugins [[lambdaisland/kaocha "1.91.1392"]]}}
+                   :plugins [[lambdaisland/kaocha "1.91.1392"]]}
+             :uberjar {:aot :all}}
   :test-paths ["test"])

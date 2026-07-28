@@ -421,19 +421,19 @@
                     index (si/build-index symbols chunks-vec)
                     graph (graph/build-graph chunks-vec index)
                     _ (log/info "Built symbol index:" (count symbols) "symbols")
-_ (log/info "Built dependency graph:" (count (:edges graph)) "edges")
+                    _ (log/info "Built dependency graph:" (count (:edges graph)) "edges")
                     stored-hashes (file->hash-map chunks-vec)
                     fs-hashes (collect-project-files cfg)
                     all-fs-paths (set (keys fs-hashes))
                     all-stored-paths (set (keys stored-hashes))
                     changed (filter (fn [path]
-                                     (not= (get fs-hashes path)
-                                           (get stored-hashes path)))
-                                   (set/intersection all-fs-paths all-stored-paths))
+                                      (not= (get fs-hashes path)
+                                            (get stored-hashes path)))
+                                    (set/intersection all-fs-paths all-stored-paths))
                     new-files (set/difference all-fs-paths all-stored-paths)
                     deleted (set/difference all-stored-paths all-fs-paths)
                     _ (log/info "Syncing:" (count changed) "changed,"
-                               (count new-files) "new," (count deleted) "deleted files")
+                                (count new-files) "new," (count deleted) "deleted files")
                     index-atom (atom index)
                     graph-atom (atom graph)]
                 (doseq [file-path deleted]

@@ -7,4 +7,4 @@
  :server/transport  :stdio
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
  :index/exclude     ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo" ".mcp"
-                     "test-resources"]}
+                     "dev" "test-resources"]}

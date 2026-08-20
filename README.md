@@ -1,6 +1,6 @@
 # MCP Clojure Code Index
 
-MCP server for semantic indexing and analysis of Clojure code. Provides LLM agents (Kilo Code) with intelligent access to source code through search, navigation, and dependency analysis.
+MCP server for semantic indexing and analysis of Clojure code. Provides LLM agents with intelligent access to source code through search, navigation, and dependency analysis.
 
 ## Features
 

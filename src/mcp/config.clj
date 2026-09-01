@@ -32,7 +32,7 @@
    :server/transport  :stdio
    :server/port       8080
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
-   :index/exclude     ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo" ".mcp"]
+   :index/exclude     []
    :search/top-k      100
    :search/re-rank-top 10})
 
@@ -44,9 +44,13 @@
 (defn load-config
   [config-path]
   (with-open [r (io/reader config-path)]
-    (let [file-config (edn/read (PushbackReader. r))
-          merged (merge defaults file-config)]
-      (update merged :index/exclude compile-exclude-patterns))))
+    (let [file-config (edn/read (PushbackReader. r))]
+      (-> (merge defaults file-config)
+          (update :index/exclude conj
+                  ".calva" ".clj-kondo" ".cpcache" ".git"
+                  ".kilo" ".lsp" ".mcp" "logs" "target" "tmp")
+          (update :index/exclude set)
+          (update :index/exclude compile-exclude-patterns)))))
 
 (defn- not-blank
   [^String s]

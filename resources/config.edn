@@ -6,5 +6,4 @@
  :ollama/reranker-model  "qllama/bce-reranker-base_v1"
  :server/transport  :stdio
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
- :index/exclude     ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo" ".mcp"
-                     "dev" "test-resources"]}
+ :index/exclude     ["dev" "test-resources"]}

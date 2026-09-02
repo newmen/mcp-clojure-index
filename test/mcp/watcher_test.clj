@@ -108,18 +108,22 @@
     (is (= [] (:actions result)))))
 
 (deftest coalesce-returns-modify-for-delete-then-create-on-same-path
-  (let [now (System/currentTimeMillis)
-        queue {:pending [(#'sut/make-pending :ENTRY_DELETE "/tmp/test.clj")
-                         (#'sut/make-pending :ENTRY_CREATE "/tmp/test.clj")]
-               :last-event now}
+  (let [old-time (- (System/currentTimeMillis) 5000)
+        queue {:pending [(assoc (#'sut/make-pending :ENTRY_DELETE "/tmp/test.clj")
+                                :timestamp old-time)
+                         (assoc (#'sut/make-pending :ENTRY_CREATE "/tmp/test.clj")
+                                :timestamp old-time)]
+               :last-event old-time}
         result (#'sut/coalesce-events queue)]
     (is (some #(= :modify (:action %)) (:actions result)))))
 
 (deftest coalesce-returns-rename-for-cross-path-events
-  (let [now (System/currentTimeMillis)
-        queue {:pending [(#'sut/make-pending :ENTRY_DELETE "/tmp/old.clj")
-                         (#'sut/make-pending :ENTRY_CREATE "/tmp/new.clj")]
-               :last-event now}
+  (let [old-time (- (System/currentTimeMillis) 5000)
+        queue {:pending [(assoc (#'sut/make-pending :ENTRY_DELETE "/tmp/old.clj")
+                                :timestamp old-time)
+                         (assoc (#'sut/make-pending :ENTRY_CREATE "/tmp/new.clj")
+                                :timestamp old-time)]
+               :last-event old-time}
         result (#'sut/coalesce-events queue)]
     (is (some #(= :rename (:action %)) (:actions result)))
     (let [rename (first (filter #(= :rename (:action %)) (:actions result)))]
@@ -340,14 +344,35 @@
 ;; Edge cases: coalesce-events edge cases
 ;; ---------------------------------------------------------------------------
 
-(deftest coalesce-values-stale-events-skipped
+(deftest coalesce-values-stale-events-processed
   (let [old-time (- (System/currentTimeMillis) 5000)
         queue {:pending [(assoc (#'sut/make-pending :ENTRY_CREATE "/tmp/old.clj")
-                               :timestamp old-time)]
+                                :timestamp old-time)]
                :last-event old-time}
+        result (#'sut/coalesce-events queue)]
+    (is (= 1 (count (:actions result))))
+    (is (empty? (:pending result)))))
+
+(deftest coalesce-values-fresh-events-wait-for-debounce
+  (let [now (System/currentTimeMillis)
+        queue {:pending [(#'sut/make-pending :ENTRY_CREATE "/tmp/fresh.clj")]
+               :last-event now}
         result (#'sut/coalesce-events queue)]
     (is (empty? (:actions result)))
     (is (= 1 (count (:pending result))))))
+
+(deftest coalesce-keeps-fresh-event-on-same-path-as-consumed
+  (let [now (System/currentTimeMillis)
+        old-time (- now 5000)
+        queue {:pending [(assoc (#'sut/make-pending :ENTRY_MODIFY "/tmp/test.clj")
+                                :timestamp old-time)
+                         (#'sut/make-pending :ENTRY_MODIFY "/tmp/test.clj")]
+               :last-event now}
+        result (#'sut/coalesce-events queue)]
+    ;; The old event is processed; the fresh one stays pending for the next debounce window.
+    (is (= 1 (count (:actions result))))
+    (is (= 1 (count (:pending result))))
+    (is (= now (:timestamp (first (:pending result)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; restore-state! stub tests (unit-test level)

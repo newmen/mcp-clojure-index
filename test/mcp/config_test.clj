@@ -24,7 +24,7 @@
   (is (= [".clj" ".cljc" ".cljs" ".edn"] (:index/include-extensions sut/defaults))))
 
 (deftest defaults-exclude-are-strings
-  (is (= ["target" ".git" ".lsp" ".clj-kondo" ".calva" ".kilo" ".mcp"] (:index/exclude sut/defaults)))
+  (is (= [] (:index/exclude sut/defaults)))
   (is (every? string? (:index/exclude sut/defaults))))
 
 ;; ---------------------------------------------------------------------------
@@ -82,10 +82,12 @@
       (is (some #(re-find % path) excludes)))))
 
 (deftest load-config-preserves-overrides
-  (let [cfg (sut/load-config (fixture-path "config.edn"))]
+  (let [cfg (sut/load-config (fixture-path "config.edn"))
+        exclude-strs (set (map #(.pattern ^java.util.regex.Pattern %) (:index/exclude cfg)))]
     (is (= "/Users/altermn/projects/clojure/mcp" (:index/root-path cfg)))
-    (is (= ["target" "\\.git" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"]
-           (mapv str (map #(.pattern ^java.util.regex.Pattern %) (:index/exclude cfg)))))))
+    (is (= #{"target" "\\.git" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"
+             "\\.cpcache" "logs" "tmp"}
+           exclude-strs))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-config

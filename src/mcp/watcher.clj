@@ -105,7 +105,7 @@
   (let [events (:pending queue [])
         now (System/currentTimeMillis)
         window-ms 100
-        old-enough (filter #(<= (- now (:timestamp %)) debounce-ms) events)]
+        old-enough (filter #(>= (- now (:timestamp %)) debounce-ms) events)]
     (if (empty? old-enough)
       {:actions [] :pending events}
       (let [renames (find-cross-renames old-enough window-ms)
@@ -128,8 +128,10 @@
                           (cond
                             (= kind :ENTRY_CREATE) {:action :modify :file (:path e)}
                             (= kind :ENTRY_DELETE) {:action :delete :file (:path e)}
-                            (= kind :ENTRY_MODIFY) {:action :modify :file (:path e)}))))]
-        {:actions (vec actions) :pending (vec (remove (set (map :path old-enough)) events))}))))
+                            (= kind :ENTRY_MODIFY) {:action :modify :file (:path e)}))))
+            consumed-set (set old-enough)]
+        {:actions (vec actions)
+         :pending (vec (remove #(contains? consumed-set %) events))}))))
 
 (defn- file-exists?
   [^String path]
@@ -213,6 +215,8 @@
 ;; Main watcher loop
 ;; ---------------------------------------------------------------------------
 
+(declare register-recursive)
+
 (defn- process-action
   [cfg index-ref graph-ref action]
   (let [idx @index-ref
@@ -237,6 +241,13 @@
     (run! (partial process-action cfg index-ref graph-ref) actions)
     pending))
 
+(defn- drain-or-empty
+  "Drain the queue if it has pending events; otherwise return an empty pending list."
+  [queue cfg index-ref graph-ref]
+  (if (seq (:pending queue))
+    (drain-queue queue cfg index-ref graph-ref)
+    []))
+
 (defn- watcher-loop
   [^WatchService watcher cfg index-ref graph-ref stop-atom]
   (let [extensions (into #{} (:index/include-extensions cfg))
@@ -248,7 +259,7 @@
                               (.poll watcher poll-timeout-ms TimeUnit/MILLISECONDS)
                               (catch Exception _ nil))]
           (if (nil? key)
-            (let [pending (drain-queue queue cfg index-ref graph-ref)]
+            (let [pending (drain-or-empty queue cfg index-ref graph-ref)]
               (recur {:pending pending :last-event (System/currentTimeMillis)}))
             (let [^Path dir (.watchable key)
                   new-queue (try
@@ -261,32 +272,41 @@
                                       (.pollEvents key))
                               (catch Exception _ queue))]
               (when-not (.reset key)
-                (log/warn "WatchKey no longer valid for" dir))
-              (let [pending (drain-queue new-queue cfg index-ref graph-ref)]
+                (log/warn "WatchKey no longer valid for" dir)
+                (register-recursive watcher (str dir) excludes))
+              (let [pending (drain-or-empty new-queue cfg index-ref graph-ref)]
                 (recur {:pending pending :last-event (System/currentTimeMillis)})))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Register directory for watching (recursive)
 ;; ---------------------------------------------------------------------------
 
+(defn- register-dir
+  "Register a single directory for watching. Returns false if the directory
+   is excluded or does not exist."
+  [^WatchService watcher ^Path p excludes]
+  (let [p-str (str p)]
+    (when (and (.isDirectory (io/file p-str))
+               (not-any? #(re-find % p-str) excludes))
+      (try
+        (.register p watcher
+                   (into-array java.nio.file.WatchEvent$Kind
+                               [StandardWatchEventKinds/ENTRY_CREATE
+                                StandardWatchEventKinds/ENTRY_DELETE
+                                StandardWatchEventKinds/ENTRY_MODIFY]))
+        true
+        (catch Exception e
+          (log/warn "Could not register" p-str ":" (.getMessage e))
+          false)))))
+
 (defn- register-recursive
+  "Register the root directory and all its subdirectories, skipping excluded dirs."
   [^WatchService watcher ^String root-path excludes]
   (let [root (io/file root-path)]
     (when (.exists root)
       (doseq [^File f (file-seq root)]
         (when (.isDirectory f)
-          (let [p (.toPath f)
-                p-str (.getPath ^File f)]
-            ;; Skip excluded directories
-            (when (not-any? #(re-find % p-str) excludes)
-              (try
-                (.register p watcher
-                           (into-array java.nio.file.WatchEvent$Kind
-                                       [StandardWatchEventKinds/ENTRY_CREATE
-                                        StandardWatchEventKinds/ENTRY_DELETE
-                                        StandardWatchEventKinds/ENTRY_MODIFY]))
-                (catch Exception e
-                  (log/warn "Could not register" p-str ":" (.getMessage e)))))))))))
+          (register-dir watcher (.toPath f) excludes))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API

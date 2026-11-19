@@ -1,7 +1,7 @@
 (ns mcp.server-test
   (:require [clojure.java.io :as io]
             [clojure.string :as s]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.server :as sut]
             [mcp.config :as config]
@@ -52,7 +52,9 @@
     (is (<= 4 (count (s/split-lines instructions)) 6))
     (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
                     "path:line" "size limit" "get_source"]]
-      (is (s/includes? instructions phrase) phrase))))
+      (is (s/includes? instructions phrase) phrase))
+    (testing "says only what the spec lists"
+      (is (not (s/includes? instructions "find_definition"))))))
 
 (deftest handle-method-tools-call-find-definition-without-qdrant
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"

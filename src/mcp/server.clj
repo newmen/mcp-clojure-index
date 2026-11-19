@@ -19,7 +19,6 @@
   (str "Use this server instead of grep and reading files for questions about this Clojure code base.\n"
        "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
        "Answers are compact `path:line` lines with a hard size limit; page with `offset` when an answer says it is truncated.\n"
-       "Start with find_definition for where a name is defined.\n"
        "Use get_source for a definition's body instead of reading the whole file."))
 (defonce ^:private server-state-atom (atom nil))
 

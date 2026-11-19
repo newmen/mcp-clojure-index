@@ -186,8 +186,9 @@ Answer: header   ns name  path  first docstring line
 
 ```
 Input:  name (string, required) — simple, alias-qualified or fully qualified
+        limit, offset — in lines of the body (or in candidates of an ambiguous name)
 Answer: a `path:start-end` header line, then the source of exactly one Definition;
-        a body longer than :output/max-chars is cut with a note giving the lines not shown
+        a body over the Output budget ends with a truncation note, pass offset for the rest
 ```
 
 ### find_implementations
@@ -207,6 +208,7 @@ Input:  query (string, required) — what the code does, in natural language
 Search: query embedding → Qdrant top :search/top-k → reranker → top :search/re-rank-top
 Answer: one line per hit, no source bodies
         score  path:line  kind  ns/name  first docstring line
+        (score: the reranker's relevance score; left out when the reranker is unavailable)
         ends with `embeddings stale for N files` while recent edits are being embedded
 ```
 

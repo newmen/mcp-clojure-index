@@ -1,8 +1,7 @@
 (ns mcp.tools.find-definition
   "`find_definition`: where a name is defined, resolved like the compiler
    resolves it (ADR-0002), as Compact answer lines (ADR-0006)."
-  (:require [clojure.string :as s]
-            [mcp.code-index :as code-index]
+  (:require [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]))
 
@@ -29,43 +28,12 @@
                                     tool/paging-properties)
                  :required ["name"]}})
 
-(defn definition->line
-  "Compact answer line of a Definition:
-   `path:line  kind  ns/name  [arglists]  first docstring line`."
-  [root {:keys [filename row kind arglists doc] :as definition}]
-  (->> [(str (output/relative-path root filename) ":" row)
-        kind
-        (code-index/qualified-name definition)
-        (s/join " " arglists)
-        (output/first-line doc)]
-       (remove s/blank?)
-       (s/join "  ")))
-
-(defn not-found
-  "Answer for a name that resolves to no Definition, saying what was searched."
-  [index name-str]
-  (str "not found: " name-str
-       " (checked " (count (code-index/files index)) " files"
-       (when (some (partial code-index/test-file? index) (code-index/files index))
-         ", including tests")
-       ")"))
-
-(defn ambiguous
-  "Answer for a name that resolves to several Definitions: a header and the
-   candidate `lines` within the Output budget."
-  [config params name-str lines]
-  (let [header (str "ambiguous: " (count lines) " definitions named " name-str
-                    ", pass a qualified name")
-        budget (update config :output/max-chars - (inc (count header)))]
-    (str header "\n" (output/render budget params lines))))
-
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (s/trim (str (:name params)))
-        lines (mapv (partial definition->line (:root code-index))
-                    (code-index/resolve-name code-index name-str))]
+  (let [name-str (str (:name params))
+        definitions (code-index/resolve-name code-index name-str)]
     (tool/text-result
-     (case (count lines)
-       0 (not-found code-index name-str)
-       1 (output/render config params lines)
-       (ambiguous config params name-str lines)))))
+     (case (count definitions)
+       0 (output/not-found code-index name-str)
+       1 (output/render config params (mapv (partial output/definition->line code-index) definitions))
+       (output/ambiguous config params code-index "definitions" name-str definitions)))))

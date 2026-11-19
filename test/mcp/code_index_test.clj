@@ -17,7 +17,7 @@
 
 (deftest resolves-simple-alias-qualified-and-fully-qualified-names
   (let [idx (project/code-index)
-        expected #{["mcp.output/relative-path" 25]}]
+        expected #{["mcp.output/relative-path" 26]}]
     (testing "simple name"
       (is (= expected (located (sut/resolve-name idx "relative-path")))))
     (testing "alias-qualified name, as written in mcp.tools"
@@ -131,6 +131,19 @@
     (is (not-any? #(re-find #"^test-resources/" %) files))
     (is (sut/test-file? idx (str project/root "/test/mcp/output_test.clj")))
     (is (not (sut/test-file? idx (str project/root "/src/mcp/output.clj"))))))
+
+(deftest test-files-are-under-a-test-path-or-named-like-tests-only-in-the-fallback
+  (let [usages-root (.getCanonicalPath (File. "test-resources/usages"))
+        build #(sut/build (assoc project/config :index/root-path (str usages-root "/" %)))]
+    (testing "declared Test paths (project.clj :test-paths [\"spec\"])"
+      (let [idx (build "lein_project")]
+        (is (sut/test-file? idx (str usages-root "/lein_project/spec/app/core_spec.clj")))
+        (is (not (sut/test-file? idx (str usages-root "/lein_project/src/app/core_test.clj"))))))
+    (testing "fallback: test/ and *_test files"
+      (let [idx (build "plain_project")]
+        (is (sut/test-file? idx (str usages-root "/plain_project/test/plain/b.clj")))
+        (is (sut/test-file? idx (str usages-root "/plain_project/src/plain/c_test.clj")))
+        (is (not (sut/test-file? idx (str usages-root "/plain_project/src/plain/a.clj"))))))))
 
 (deftest does-not-index-agent-worktrees-under-dot-claude
   (is (not-any? #(re-find #"/\\.claude/" (subs % (count project/root)))

@@ -32,13 +32,3 @@
     (let [schema (:inputSchema t)]
       (is (= "object" (:type schema))))))
 
-(deftest handle-tools-list-returns-all-tools
-  (let [state {:config test-config}
-        result (sut/handle-tools-list state)
-        tool-names (set (map :name (:tools result)))]
-    (is (contains? tool-names "semantic_search"))
-    (is (contains? tool-names "find_definition"))
-    (is (contains? tool-names "find_usages"))
-    (is (not (contains? tool-names "find_callers")))
-    (is (contains? tool-names "find_implementations"))
-    (is (not (contains? tool-names "find_protocol")))))

@@ -46,20 +46,17 @@
 ;; Positions
 ;; ---------------------------------------------------------------------------
 
-(defn- contains-position?
-  "True when the form range of `entry` contains the start of `inner`.
-   `:end-col` is exclusive."
+(defn- contains-start?
+  "True when the form range of `entry` contains the start of `inner`."
   [entry inner]
-  (let [position (juxt :row :col)]
-    (and (= (:filename entry) (:filename inner))
-         (neg? (compare (position entry) (position inner)))
-         (neg? (compare (position inner) ((juxt :end-row :end-col) entry))))))
+  (and (= (:filename entry) (:filename inner))
+       (code-index/contains-position? entry [(:row inner) (:col inner)])))
 
 (defn- innermost
   "The entry with the smallest range among `ranged` that contains `inner`."
   [ranged inner]
   (->> ranged
-       (filter #(contains-position? % inner))
+       (filter #(contains-start? % inner))
        (sort-by (juxt :row :col))
        last))
 
@@ -125,10 +122,9 @@
 
 (defn- implementing-type
   [index {:keys [defined-by] :as impl}]
-  (case (name defined-by)
-    ("defrecord" "deftype") (type-definition index impl)
-    ("extend-type" "extend-protocol") (extend-type-name index impl)
-    "reify" (reify-name index impl)))
+  (cond (record-or-type-forms defined-by) (type-definition index impl)
+        (extend-forms defined-by) (extend-type-name index impl)
+        :else (reify-name index impl)))
 
 ;; ---------------------------------------------------------------------------
 ;; Implementations
@@ -172,49 +168,29 @@
   [root {:keys [filename row label method]}]
   (str (output/relative-path root filename) ":" row "  " label "  " method))
 
-(defn- definition->line
-  [root {:keys [filename row kind] :as definition}]
-  (str (output/relative-path root filename) ":" row "  " kind "  "
-       (code-index/qualified-name definition)))
-
-(defn- not-found
-  [index name-str]
-  (str "not found: " name-str
-       " (checked " (count (code-index/files index)) " files"
-       (when (some (partial code-index/test-file? index) (code-index/files index))
-         ", including tests")
-       ")"))
-
 (defn- not-implementable
   [name-str definitions]
   (str "not a protocol or multimethod: " name-str " ("
        (s/join ", " (map #(str (code-index/qualified-name %) " " (:kind %)) definitions))
        ")"))
 
-(defn- ambiguous
-  [config params name-str lines]
-  (let [header (str "ambiguous: " (count lines) " protocols or multimethods named " name-str
-                    ", pass a qualified name")
-        budget (update config :output/max-chars - (inc (count header)))]
-    (str header "\n" (output/render budget params lines))))
-
 (defn- no-implementations
   [index definition]
-  (str "no implementations of " (code-index/qualified-name definition)
-       " (checked " (count (code-index/files index)) " files)"))
+  (str "no implementations of " (code-index/qualified-name definition) " "
+       (output/checked index)))
 
 (defmethod tool/call :find_implementations
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (s/trim (str (:name params)))
-        root (:root code-index)
+  (let [name-str (str (:name params))
         definitions (code-index/resolve-name code-index name-str)
-        implementable (filterv (comp implementable-kinds :kind) definitions)]
+        implementable (filterv (comp implementable-kinds :kind) definitions)
+        root (code-index/root code-index)]
     (tool/text-result
      (cond
-       (empty? definitions) (not-found code-index name-str)
+       (empty? definitions) (output/not-found code-index name-str)
        (empty? implementable) (not-implementable name-str definitions)
-       (next implementable) (ambiguous config params name-str
-                                       (mapv (partial definition->line root) implementable))
+       (next implementable) (output/ambiguous config params code-index
+                                              "protocols or multimethods" name-str implementable)
        :else (let [lines (mapv (partial implementation->line root)
                                (implementations code-index (first implementable)))]
                (if (seq lines)

@@ -25,8 +25,12 @@ _Avoid_: caller, parent
 **Implementation**:
 A Definition that fulfils a protocol method or a multimethod dispatch value.
 
+**Target**:
+What `find_usages` searches the Usages of: a Definition, a namespace, or a keyword (which needs no Definition).
+_Avoid_: query, symbol
+
 **Test path**:
-A source directory the project declares for tests; Usages under it are test Usages.
+A source directory the project declares for tests; Usages under it are test Usages. When the project declares none, the fallback is `test/` plus every `*_test.clj*` file.
 
 ### Answers
 

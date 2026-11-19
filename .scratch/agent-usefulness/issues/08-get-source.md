@@ -8,5 +8,5 @@
 
 - [x] Returns the source of one Definition with its line range header.
 - [x] Ambiguous name returns candidates only.
-- [x] A body larger than `:output/max-chars` is cut with a Truncation note giving the line range that was not shown.
+- [x] A body over the Output budget ends with a Truncation note; `offset` (in lines of the body) and `limit` page through it, and `limit`/`offset` also apply to ambiguous candidates.
 - [x] Tested on this code base.

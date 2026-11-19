@@ -46,7 +46,7 @@
                 (output/relative-path root filename)
                 (output/first-line doc)]))
 
-(defn- definition->line
+(defn- summary-line
   [{:keys [row kind arglists doc private] :as definition}]
   (join-fields [(str row)
                 (if private "private" "public")
@@ -68,13 +68,13 @@
 (defn- summary
   [config params index ns-def]
   (let [ns-sym (:name ns-def)
-        head (header (:root index) ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
                    (sort-by (juxt :filename :row :col))
-                   (mapv definition->line))
-        budget (update config :output/max-chars - (inc (count head)))]
-    (str head "\n" (output/render budget params (conj lines (required-by-line index ns-sym))))))
+                   (mapv summary-line))]
+    (output/render-framed config params
+                          {:header (header (code-index/root index) ns-def)}
+                          (conj lines (required-by-line index ns-sym)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Unknown namespace
@@ -115,15 +115,10 @@
 
 (defn- not-found
   [index asked-str]
-  (let [files (code-index/files index)
-        close (candidates index asked-str)]
-    (str "not found: namespace " asked-str
-         (if (seq close)
-           (str "; close: " (s/join ", " close))
-           (str " (checked " (count files) " files"
-                (when (some (partial code-index/test-file? index) files)
-                  ", including tests")
-                ")")))))
+  (let [close (candidates index asked-str)]
+    (if (seq close)
+      (str "not found: namespace " asked-str "; close: " (s/join ", " close))
+      (output/not-found index (str "namespace " asked-str)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool

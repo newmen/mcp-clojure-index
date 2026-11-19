@@ -8,8 +8,7 @@
      each Target type has its own `usages` method.
    - `var-usage-kind-rules` classifies a var-usage into a Usage kind; the
      first rule whose predicate holds wins."
-  (:require [clojure.java.io :as io]
-            [clojure.string :as s]
+  (:require [clojure.string :as s]
             [mcp.code-index :as code-index]
             [rewrite-clj.zip :as z]))
 
@@ -41,12 +40,6 @@
   [entry]
   [(or (:name-row entry) (:row entry)) (or (:name-col entry) (:col entry))])
 
-(defn- encloses?
-  "True when the form range of `entry` contains `pos` (`:end-col` exclusive)."
-  [entry pos]
-  (and (<= (compare [(:row entry) (:col entry)] pos) 0)
-       (neg? (compare pos [(:end-row entry) (:end-col entry)]))))
-
 (defn- core-macro-usages
   "Usages of `clojure.core/<macro-name>` in the file of `ctx`: the ranges of
    those forms."
@@ -69,8 +62,7 @@
   {:index index
    :filename filename
    :file-usages (code-index/file-entries index filename :var-usages)
-   :lines (delay (with-open [reader (io/reader (io/file ^String filename))]
-                   (vec (line-seq reader))))})
+   :lines (delay (code-index/file-lines filename))})
 
 ;; ---------------------------------------------------------------------------
 ;; Usage kinds
@@ -87,12 +79,12 @@
   "`#'name` or `(var name)`."
   [ctx var-usage]
   (or (preceded-by-var-quote? ctx var-usage)
-      (some #(encloses? % (position var-usage)) (core-macro-usages ctx 'var))))
+      (some #(code-index/contains-position? % (position var-usage)) (core-macro-usages ctx 'var))))
 
 (defn- in-comment?
   "Inside a `(comment ...)` form."
   [ctx var-usage]
-  (some #(encloses? % (position var-usage)) (core-macro-usages ctx 'comment)))
+  (some #(code-index/contains-position? % (position var-usage)) (core-macro-usages ctx 'comment)))
 
 (defn- redef-key-positions
   "[row col] of each binding key of the `with-redefs` form starting at
@@ -112,7 +104,7 @@
    files with an enclosing `with-redefs` (usually tests) are parsed."
   [{:keys [lines] :as ctx} var-usage]
   (let [pos (position var-usage)]
-    (when-let [forms (seq (filter #(encloses? % pos) (core-macro-usages ctx 'with-redefs)))]
+    (when-let [forms (seq (filter #(code-index/contains-position? % pos) (core-macro-usages ctx 'with-redefs)))]
       (let [source (s/join "\n" @lines)]
         (some #(some #{pos} (redef-key-positions source %)) forms)))))
 
@@ -179,11 +171,7 @@
    to in the project."
   [index keyword-str]
   (let [auto-resolved? (s/starts-with? keyword-str "::")
-        [ns-part keyword-name] (let [bare (s/replace keyword-str #"^::?" "")
-                                     slash (s/index-of bare "/")]
-                                 (if (and slash (pos? slash))
-                                   [(subs bare 0 slash) (subs bare (inc slash))]
-                                   [nil bare]))]
+        [ns-part keyword-name] (code-index/split-name (s/replace keyword-str #"^::?" ""))]
     (cond
       (s/blank? keyword-name) {}
       (not auto-resolved?) {:target (keyword-target (some-> ns-part symbol) keyword-name)}
@@ -250,7 +238,7 @@
   "True when a keyword entry lies inside the `ns` form of its file
    (`:require`, `:as`, ...)."
   [index keyword-entry]
-  (some #(encloses? % (position keyword-entry))
+  (some #(code-index/contains-position? % (position keyword-entry))
         (code-index/file-entries index (:filename keyword-entry) :namespace-definitions)))
 
 (defn- keyword-kind

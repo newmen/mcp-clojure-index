@@ -20,6 +20,8 @@
 ;;
 ;; {:root       "/abs/project"            ; no trailing slash
 ;;  :test-paths ["/abs/project/test" ...] ; absolute Test path directories
+;;  :test-names? true                     ; no Test path declared: `*_test` files
+;;                                        ;  are tests too (fallback)
 ;;  :files      {"/abs/file.clj" {:mtime    1700000000000
 ;;                                :analysis {:var-definitions [...]
 ;;                                           :var-usages [...]
@@ -110,16 +112,21 @@
          (mapcat (comp :extra-paths val))
          seq)))
 
+(defn- canonical-paths
+  [root paths]
+  (mapv #(.getCanonicalPath (io/file ^String root (str %))) paths))
+
 (defn- detect-test-paths
-  "Test paths from `project.clj` `:test-paths` or the `:extra-paths` of
-   `deps.edn` aliases whose name contains `test`; fallback `test`."
+  "{:test-paths :test-names?}: Test paths from `project.clj` `:test-paths`
+   or the `:extra-paths` of `deps.edn` aliases whose name contains `test`;
+   fallback `test` and `*_test` files."
   [root]
-  (->> (or (try (lein-test-paths (io/file root "project.clj"))
-                (catch Exception _ nil))
-           (try (deps-test-paths (io/file root "deps.edn"))
-                (catch Exception _ nil))
-           ["test"])
-       (mapv #(.getCanonicalPath (io/file root (str %))))))
+  (if-let [declared (or (try (lein-test-paths (io/file root "project.clj"))
+                             (catch Exception _ nil))
+                        (try (deps-test-paths (io/file root "deps.edn"))
+                             (catch Exception _ nil)))]
+    {:test-paths (canonical-paths root declared) :test-names? false}
+    {:test-paths (canonical-paths root ["test"]) :test-names? true}))
 
 ;; ---------------------------------------------------------------------------
 ;; Analysis
@@ -168,9 +175,9 @@
   "Build the index of the project at `:index/root-path` from scratch."
   [cfg]
   (let [root (.getCanonicalPath (io/file ^String (:index/root-path cfg)))]
-    (update-files {:root root
-                   :test-paths (detect-test-paths root)
-                   :files {}}
+    (update-files (assoc (detect-test-paths root)
+                         :root root
+                         :files {})
                   (source-files cfg root))))
 
 ;; ---------------------------------------------------------------------------
@@ -204,18 +211,51 @@
 ;; Files
 ;; ---------------------------------------------------------------------------
 
+(defn root
+  "Absolute path of the project root, without a trailing slash."
+  [index]
+  (:root index))
+
 (defn files
   "Absolute paths of all indexed files."
   [index]
   (keys (:files index)))
 
+(defn file-mtimes
+  "{absolute file path -> modification time it was indexed at}."
+  [index]
+  (update-vals (:files index) :mtime))
+
+(defn select-files
+  "`index` restricted to the files `file-paths` (absolute)."
+  [index file-paths]
+  (update index :files select-keys file-paths))
+
+(defn file-lines
+  "The source lines of the file `file-path` (absolute)."
+  [^String file-path]
+  (with-open [reader (io/reader file-path)]
+    (vec (line-seq reader))))
+
+(defn form-lines
+  "The lines of the form spanning `row:col` to `end-row:end-col` (1-based,
+   `end-col` exclusive) cut out of a file's `lines`; nil when the range
+   lies outside them."
+  [lines {:keys [row col end-row end-col]}]
+  (let [form (->> lines (drop (dec row)) (take (inc (- end-row row))) vec)
+        last-index (dec (count form))]
+    (when (seq form)
+      (-> form
+          (update last-index #(subs % 0 (min (count %) (dec end-col))))
+          (update 0 #(subs % (min (count %) (dec col))))))))
+
 (defn test-file?
-  "True when `file-path` (absolute) lies under a Test path or is named
-   like a test file."
+  "True when `file-path` (absolute) lies under a Test path or, when the
+   project declares none (fallback), is named like a test file."
   [index ^String file-path]
   (boolean
    (or (some #(s/starts-with? file-path (str % "/")) (:test-paths index))
-       (re-find test-file-pattern file-path))))
+       (and (:test-names? index) (re-find test-file-pattern file-path)))))
 
 (defn entries
   "All clj-kondo analysis entries of kind `entry-key` (e.g. `:var-usages`)
@@ -268,8 +308,9 @@
   (-> (select-keys ns-def [:name :filename :row :col :end-row :end-col :doc])
       (assoc :kind "ns")))
 
-(defn- contains-position?
-  "True when the form range of `entry` contains `position` [row col]."
+(defn contains-position?
+  "True when the form range of `entry` (`:row` `:col` `:end-row`
+   `:end-col`, `:end-col` exclusive) contains `position` [row col]."
   [{:keys [row col end-row end-col]} position]
   (and row end-row
        (<= (compare [row col] position) 0)
@@ -381,7 +422,9 @@
        (filter (comp #{alias-str} str :alias))
        (into #{} (map :to))))
 
-(defn- split-name
+(defn split-name
+  "[ns-part simple-name] of `name-str` (`a/b` -> [\"a\" \"b\"]); ns-part is nil
+   for a simple name."
   [name-str]
   (let [slash (s/index-of name-str "/")]
     (if (and slash (pos? slash) (< slash (dec (count name-str))))

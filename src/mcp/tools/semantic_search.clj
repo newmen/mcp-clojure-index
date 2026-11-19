@@ -4,6 +4,7 @@
    precise tools keep working (ADR-0003)."
   (:require [clojure.string :as s]
             [clojure.tools.logging :as log]
+            [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.search :as search]
             [mcp.semantic-index :as semantic-index]
@@ -15,7 +16,7 @@
   (str "Find Clojure Definitions (functions, macros, tests, multimethods, specs, records, namespaces) "
        "and top-level EDN config entries by meaning, when you do not know their names. "
        "Unlike grep, matches intent rather than text (vector search plus a reranker). "
-       "Answer: one line per hit (score  path:line  kind  ns/name  first docstring line), "
+       "Answer: one line per hit (relevance score  path:line  kind  ns/name  first docstring line), "
        "no source bodies, at most :output/limit lines and :output/max-chars characters; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
        "Use find_definition for known names and get_source for bodies."))
@@ -39,9 +40,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- hit->line
-  "`score  path:line  kind  ns/name  first docstring line`."
-  [root {:keys [unit re-rank score]}]
-  (->> [(format "%.2f" (double (or re-rank score 0.0)))
+  "`score  path:line  kind  ns/name  first docstring line`. The score is
+   the reranker's relevance score (ADR-0006); without the reranker there
+   is none, never a raw vector score."
+  [root {:keys [unit re-rank]}]
+  (->> [(some->> re-rank double (format "%.2f"))
         (str (output/relative-path root (:file unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
@@ -63,14 +66,6 @@
     (when (pos? stale-count)
       (str "embeddings stale for " stale-count " files"))))
 
-(defn- with-note
-  "`render` the findings so that `note`, when given, fits after them."
-  [config params lines note]
-  (if note
-    (str (output/render (update config :output/max-chars - (inc (count note))) params lines)
-         "\n" note)
-    (output/render config params lines)))
-
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
   (let [query (s/trim (str (:query params)))]
@@ -80,10 +75,12 @@
        (try
          (let [hits (search/search (search-config config params) query)
                note (some-> semantic-index (stale-note code-index))
-               lines (mapv (partial hit->line (:root code-index)) hits)]
+               lines (mapv (partial hit->line (code-index/root code-index)) hits)]
            (if (empty? lines)
-             (cond-> (str "no results for: " query) note (str "\n" note))
-             (with-note config params lines note)))
+             (->> [(str "no results for: " query " " (output/checked code-index)) note]
+                  (remove nil?)
+                  (s/join "\n"))
+             (output/render-framed config params {:footer note} lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))
            unavailable-answer))))))

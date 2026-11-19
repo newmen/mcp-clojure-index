@@ -35,3 +35,6 @@
 (defmethod render :circle [_] "o")
 
 (defmethod render [:sq :rect] [_] "[]")
+
+(defprotocol Unused
+  (nothing [this]))

@@ -52,8 +52,12 @@
          (answer {:name "make-shape"}))))
 
 (deftest miss-reports-what-was-searched
-  (is (= "not found: Nope (checked 2 files)"
-         (answer {:name "Nope"}))))
+  (testing "unknown name"
+    (is (= "not found: Nope (checked 2 files, including tests)"
+           (answer {:name "Nope"}))))
+  (testing "protocol nobody implements"
+    (is (= "no implementations of impl.shapes/Unused (checked 2 files, including tests)"
+           (answer {:name "Unused"})))))
 
 (deftest answer-respects-output-budget
   (let [cfg (assoc fixture-config :output/limit 2)
@@ -65,7 +69,7 @@
     (is (<= (count text) (:output/max-chars cfg)))))
 
 (deftest replaces-old-protocol-record-and-macro-tools
-  (let [tool-specs (:tools (tools/handle-tools-list {}))
+  (let [tool-specs (tools/tool-definitions)
         names (set (map :name tool-specs))
         spec (some #(when (= "find_implementations" (:name %)) %) tool-specs)]
     (is (contains? names "find_implementations"))

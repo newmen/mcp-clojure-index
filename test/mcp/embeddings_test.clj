@@ -87,13 +87,10 @@
 (deftest rerank-empty-candidates
   (is (= [] (sut/rerank "test" []))))
 
-(deftest rerank-fallback-on-error
+(deftest rerank-unavailable-keeps-candidates-without-relevance-score
   (let [candidates [{:text "hello" :score 0.5} {:text "world" :score 0.3}]]
     (binding [sut/*config* (assoc config/defaults :ollama/url "http://localhost:19999")]
-      (let [result (sut/rerank "test query" candidates)]
-        (is (= 2 (count result)))
-        (is (every? #(contains? % :re-rank) result))
-        (is (every? #(= (:score %) (:re-rank %)) result))))))
+      (is (= candidates (sut/rerank "test query" candidates))))))
 
 ;; ---------------------------------------------------------------------------
 ;; dynamic *config* binding works

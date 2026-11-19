@@ -89,7 +89,7 @@
         "initialize" (initialize-handler msg state)
         "notifications/initialized" [nil state]
         "tools/list"
-        (let [result (tools/handle-tools-list fresh)]
+        (let [result {:tools (tools/tool-definitions)}]
           [(json-rpc-result id result) state])
         "tools/call"
         (if-let [tool-name (get params :name)]

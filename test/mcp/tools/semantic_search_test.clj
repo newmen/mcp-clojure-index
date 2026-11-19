@@ -34,7 +34,7 @@
   (let [state (semantic-index/make-state)]
     (swap! state assoc
            :prepared? true
-           :embedded (into {} (map (juxt key (comp :mtime val))) (:files @fixture-index)))
+           :embedded (code-index/file-mtimes @fixture-index))
     state))
 
 (defn- hit
@@ -69,6 +69,19 @@
               "0.50  resources/config.edn:1  edn  :db/connection-pool")
          (answer {:query "order total"}))))
 
+(deftest without-reranker-no-raw-vector-score-is-shown
+  (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
+                qdrant/search (fn [_cfg _vector _top-k] hits)
+                embeddings/rerank (fn [_query candidates _cfg] candidates)]
+    (is (= (str "src/shop/orders.clj:5  defn  shop.orders/order-total  "
+                "Sum of price times quantity over all line items of an order.\n"
+                "resources/config.edn:1  edn  :db/connection-pool")
+           (-> (tool/call :semantic_search {:query "order total"}
+                          {:config config
+                           :code-index @fixture-index
+                           :semantic-index (fresh-semantic-state)})
+               :content first :text)))))
+
 (deftest limit-and-offset-page-within-the-output-budget
   (let [many (mapv #(hit "src/shop/orders.clj" % "defn" (str "shop.orders/f" %) nil (- 1.0 (* % 0.01)))
                    (range 1 81))]
@@ -102,7 +115,8 @@
     (is (<= (count text) (:output/max-chars config)))))
 
 (deftest no-hits-says-so
-  (is (= "no results for: nothing" (answer {:query "nothing"} (fresh-semantic-state) []))))
+  (is (= "no results for: nothing (checked 6 files, including tests)"
+         (answer {:query "nothing"} (fresh-semantic-state) []))))
 
 (deftest blank-query-is-rejected
   (is (= "query is empty" (answer {:query "  "})))
@@ -135,7 +149,8 @@
   [text]
   (->> (s/split-lines text)
        (take 3)
-       (map #(nth (s/split % #"  ") 3 nil))))
+       ;; `[score]  path:line  kind  ns/name ...`: the score is absent without the reranker
+       (map #(nth (drop-while (partial re-matches #"\d+\.\d+") (s/split % #"  ")) 2 nil))))
 
 (defn- temp-cache-dir
   []

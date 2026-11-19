@@ -119,15 +119,15 @@
 
 (deftest finds-usages-on-own-code-base
   (testing (str "line and column numbers are left out: they move with every edit; "
-                "same-named private definition->line fns of other tools are not Usages")
-    (is (= ["mcp.tools.find-definition/definition->line: 2 usages"
+                "code inside a defmethod is enclosed by `multimethod dispatch-value`")
+    (is (= ["mcp.output/definition->line: 2 usages"
+            "src/mcp/output.clj:L:C  value  mcp.output/ambiguous"
             "src/mcp/tools/find_definition.clj:L:C  value  mcp.tool/call :find_definition"
-            "src/mcp/tools/get_source.clj:L:C  value  mcp.tool/call :get_source"
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
            (map #(s/replace % #":\d+:\d+  " ":L:C  ")
                 (answer-lines (project/code-index)
-                              {:targets ["mcp.tools.find-definition/definition->line"
+                              {:targets ["mcp.output/definition->line"
                                          "output/oversized-first-finding"]}))))))
 
 (deftest finds-plain-keyword-in-code-and-edn
@@ -187,14 +187,14 @@
 
 (deftest description-says-why-it-beats-grep
   (let [spec (some #(when (= "find_usages" (:name %)) %)
-                   (:tools (tools/handle-tools-list {})))]
+                   (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"max-chars" (:description spec)))
     (is (= #{:targets :kinds :include_tests :limit :offset}
            (set (keys (get-in spec [:inputSchema :properties])))))))
 
 (deftest old-caller-tools-are-gone
-  (let [names (set (map :name (:tools (tools/handle-tools-list {}))))]
+  (let [names (set (map :name (tools/tool-definitions)))]
     (is (contains? names "find_usages"))
     (is (not (contains? names "find_callers")))
     (is (not (contains? names "find_callees")))))

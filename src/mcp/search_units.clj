@@ -2,8 +2,7 @@
   "Search units: what semantic search embeds and returns. One unit per
    Definition of the precise index (`mcp.code-index`) and one per top-level
    entry of an EDN map. Pure: reads source files, never Qdrant or Ollama."
-  (:require [clojure.java.io :as io]
-            [clojure.string :as s]
+  (:require [clojure.string :as s]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [rewrite-clj.zip :as z])
@@ -62,26 +61,15 @@
              :hash (sha-256 text)}
       doc (assoc :doc doc))))
 
-(defn- file-lines
-  [^String file-path]
-  (with-open [reader (io/reader file-path)]
-    (vec (line-seq reader))))
-
 ;; ---------------------------------------------------------------------------
 ;; Definitions
 ;; ---------------------------------------------------------------------------
 
-(defn- definition-source
-  "Source of the form spanning `row:col` to `end-row:end-col` (1-based,
-   `end-col` exclusive) in `lines`."
-  [lines {:keys [row col end-row end-col]}]
-  (let [form-lines (->> lines (drop (dec row)) (take (inc (- end-row row))) vec)
-        last-index (dec (count form-lines))]
-    (when (seq form-lines)
-      (->> (-> form-lines
-               (update last-index #(subs % 0 (min (count %) (dec end-col))))
-               (update 0 #(subs % (min (count %) (dec col)))))
-           (s/join "\n")))))
+(defn- form-source
+  "Source of the form spanning `row:col` to `end-row:end-col` in `lines`."
+  [lines form-range]
+  (some->> (code-index/form-lines lines form-range)
+           (s/join "\n")))
 
 (defn definition-unit
   "Search unit of `definition`; `lines-by-file` maps absolute file paths
@@ -97,7 +85,7 @@
            :text-parts [qualified-name
                         (s/join " " arglists)
                         doc
-                        (some-> (definition-source (get lines-by-file filename) definition)
+                        (some-> (form-source (get lines-by-file filename) definition)
                                 truncate)]})))
 
 (defn- generated-constructor?
@@ -111,7 +99,7 @@
   [index]
   (let [definitions (remove generated-constructor? (code-index/definitions index))
         lines-by-file (into {}
-                            (map (juxt identity file-lines))
+                            (map (juxt identity code-index/file-lines))
                             (distinct (map :filename definitions)))]
     (map (partial definition-unit lines-by-file) definitions)))
 
@@ -131,8 +119,8 @@
   (let [[row col] (z/position key-loc)
         [_value-start [end-row end-col]] (z/position-span value-loc)
         key-str (z/string key-loc)
-        source (definition-source (file-lines file-path)
-                 {:row row :col col :end-row end-row :end-col end-col})]
+        source (form-source (code-index/file-lines file-path)
+                            {:row row :col col :end-row end-row :end-col end-col})]
     (unit {:file file-path
            :row row
            :kind "edn"
@@ -168,5 +156,4 @@
 (defn file-search-units
   "Search units of the files `file-paths` (absolute) in `index`."
   [index file-paths]
-  (let [wanted (set file-paths)]
-    (search-units (update index :files select-keys wanted))))
+  (search-units (code-index/select-files index file-paths)))

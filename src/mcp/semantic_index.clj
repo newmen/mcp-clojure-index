@@ -5,6 +5,7 @@
    are stale (`stale-files`). Qdrant and Ollama are optional (ADR-0003):
    when either is down nothing here throws, the files simply stay stale."
   (:require [clojure.tools.logging :as log]
+            [mcp.code-index :as code-index]
             [mcp.embeddings :as embeddings]
             [mcp.qdrant :as qdrant]
             [mcp.search-units :as search-units]))
@@ -41,8 +42,8 @@
    that are no longer indexed."
   [state index]
   (let [embedded (:embedded @state)
-        indexed (:files index)]
-    (vec (concat (remove #(= (get-in indexed [% :mtime]) (get embedded %)) (keys indexed))
+        indexed (code-index/file-mtimes index)]
+    (vec (concat (remove #(= (get indexed %) (get embedded %)) (keys indexed))
                  (remove (partial contains? indexed) (keys embedded))))))
 
 ;; ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@
 (defn- store-file!
   [cfg state index file-path units vectors]
   (qdrant/delete! cfg file-path)
-  (if-let [mtime (get-in index [:files file-path :mtime])]
+  (if-let [mtime (get (code-index/file-mtimes index) file-path)]
     (do (when (seq units)
           (qdrant/upsert! cfg units vectors mtime))
         (swap! state assoc-in [:embedded file-path] mtime))

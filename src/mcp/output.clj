@@ -1,6 +1,7 @@
 (ns mcp.output
   "Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
-  (:require [clojure.string :as s]))
+  (:require [clojure.string :as s]
+            [mcp.code-index :as code-index]))
 
 (set! *warn-on-reflection* true)
 
@@ -79,3 +80,56 @@
                      (map #(answer-text (take % page) offset total)))]
     (or (first (filter #(<= (count %) (:output/max-chars cfg)) answers))
         (oversized-first-finding cfg page offset total))))
+
+(defn render-framed
+  "`render` `findings` between an optional `header` line and an optional
+   `footer` line, the whole answer still within `:output/max-chars`."
+  [cfg args {:keys [header footer]} findings]
+  (let [frame-chars (+ (if header (inc (count header)) 0)
+                       (if footer (inc (count footer)) 0))
+        body (render (update cfg :output/max-chars - frame-chars) args findings)]
+    (->> [header body footer]
+         (remove s/blank?)
+         (s/join "\n"))))
+
+;; ---------------------------------------------------------------------------
+;; Shared answers
+;; ---------------------------------------------------------------------------
+
+(defn checked
+  "What an answer searched: `(checked N files, including tests)`, or
+   excluding tests (which are then not counted) when `include-tests?` is
+   false."
+  ([index] (checked index true))
+  ([index include-tests?]
+   (let [searched (cond->> (code-index/files index)
+                    (not include-tests?) (remove (partial code-index/test-file? index)))]
+     (str "(checked " (count searched) " files, "
+          (if include-tests? "including" "excluding") " tests)"))))
+
+(defn not-found
+  "Answer for `name-str` that resolves to nothing, saying what was searched."
+  [index name-str]
+  (str "not found: " name-str " " (checked index)))
+
+(defn definition->line
+  "Compact answer line of a Definition:
+   `path:line  kind  ns/name  [arglists]  first docstring line`."
+  [index {:keys [filename row kind arglists doc] :as definition}]
+  (->> [(str (relative-path (code-index/root index) filename) ":" row)
+        kind
+        (code-index/qualified-name definition)
+        (s/join " " arglists)
+        (first-line doc)]
+       (remove s/blank?)
+       (s/join "  ")))
+
+(defn ambiguous
+  "Answer for `name-str` that denotes several `definitions`: a header naming
+   what they are (`what`, e.g. \"definitions\"), then one line per
+   candidate within the Output budget."
+  [cfg args index what name-str definitions]
+  (render-framed cfg args
+                 {:header (str "ambiguous: " (count definitions) " " what " named " name-str
+                               ", pass a qualified name")}
+                 (mapv (partial definition->line index) definitions)))

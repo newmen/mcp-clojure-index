@@ -25,11 +25,6 @@
        (sort-by :name)
        vec))
 
-(defn handle-tools-list
-  "Answer `tools/list`."
-  [_state]
-  {:tools (tool-definitions)})
-
 (defn handle-tool
   "Answer `tools/call` of `tool-name` with `args` in `state`."
   [tool-name args state]

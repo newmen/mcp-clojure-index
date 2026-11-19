@@ -62,7 +62,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:38  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
+             :text "src/mcp/output.clj:39  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -81,7 +81,7 @@
                :code-index-ref (atom (project/code-index))
                :semantic-index (semantic-index/make-state)}]
     (is (s/starts-with? (tool-call state "find_definition" {:name "mcp.output/first-line"})
-                        "src/mcp/output.clj:38  defn  mcp.output/first-line"))
+                        "src/mcp/output.clj:39  defn  mcp.output/first-line"))
     (is (s/starts-with? (tool-call state "semantic_search" {:query "first line of a docstring"})
                         "semantic search unavailable"))))
 

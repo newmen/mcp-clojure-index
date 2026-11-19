@@ -15,7 +15,7 @@
        :content first :text)))
 
 (def ^:private first-line-source
-  (str "src/mcp/output.clj:38-44\n"
+  (str "src/mcp/output.clj:39-45\n"
        "(defn first-line\n"
        "  \"First non-blank line of `text` (e.g. a docstring), trimmed; nil if none.\"\n"
        "  [text]\n"
@@ -45,18 +45,36 @@
   (is (re-matches #"not found: no-such-definition \(checked \d+ files, including tests\)"
                   (answer {:name "no-such-definition"}))))
 
-(deftest body-over-budget-is-cut-with-note-giving-lines-not-shown
+(deftest body-over-budget-ends-with-truncation-note-and-pages-by-line
   (let [cfg (assoc project/config :output/max-chars 100)
         text (answer cfg {:name "mcp.output/first-line"})]
-    (is (= (str "src/mcp/output.clj:38-44\n"
+    (is (= (str "src/mcp/output.clj:39-45\n"
                 "(defn first-line\n"
-                "truncated: lines 39-44 not shown")
+                "truncated: shown 1 of 7, pass offset=1 or narrow the query")
            text))
-    (is (<= (count text) 100))))
+    (is (<= (count text) 100)))
+  (testing "offset skips lines of the body"
+    (is (= (str "src/mcp/output.clj:39-45\n"
+                "           (remove s/blank?)\n"
+                "           first))")
+           (answer {:name "mcp.output/first-line" :offset 5}))))
+  (testing "limit lowers the number of lines"
+    (is (= (str "src/mcp/output.clj:39-45\n"
+                "(defn first-line\n"
+                "  \"First non-blank line of `text` (e.g. a docstring), trimmed; nil if none.\"\n"
+                "truncated: shown 2 of 7, pass offset=2 or narrow the query")
+           (answer {:name "mcp.output/first-line" :limit 2})))))
+
+(deftest ambiguous-candidates-obey-limit-and-offset
+  (let [lines (s/split-lines (answer {:name "test-config" :limit 1 :offset 1}))]
+    (is (= 3 (count lines)))
+    (is (re-matches #"test/mcp/search_test.clj:\d+  def  mcp.search-test/test-config" (second lines)))
+    (is (= "truncated: shown 2 of 3, pass offset=2 or narrow the query" (last lines)))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "get_source" (:name %)) %)
-                   (:tools (tools/handle-tools-list {})))]
+                   (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"ambiguous" (:description spec)))
+    (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["name"] (get-in spec [:inputSchema :required])))))

@@ -17,7 +17,7 @@
        :content first :text)))
 
 (def ^:private relative-path-line
-  (str "src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  "
+  (str "src/mcp/output.clj:26  defn  mcp.output/relative-path  [root-path file-path]  "
        "Return `file-path` relative to the project root `root-path`; paths"))
 
 (deftest finds-definition-by-simple-alias-qualified-and-fully-qualified-name
@@ -81,7 +81,7 @@
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "find_definition" (:name %)) %)
-                   (:tools (tools/handle-tools-list {})))]
+                   (tools/tool-definitions))]
     (is (re-find #"alias" (:description spec)))
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"area :circle" (:description spec)))
@@ -89,7 +89,7 @@
     (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))))
 
 (deftest old-lookup-tools-are-gone
-  (let [names (set (map :name (:tools (tools/handle-tools-list {}))))]
+  (let [names (set (map :name (tools/tool-definitions)))]
     (is (contains? names "find_definition"))
     (is (not (contains? names "find_symbol")))
     (is (not (contains? names "find_namespace")))))

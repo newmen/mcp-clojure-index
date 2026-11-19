@@ -18,13 +18,18 @@
 
 (def ^:private output-definitions
   "Hand-checked Definitions of `src/mcp/output.clj`."
-  ["11  private  defn-  effective-limit  [cfg args]"
-   "16  private  defn-  truncation-note  [shown-until total]"
-   "25  public  defn  relative-path  [root-path file-path]  Return `file-path` relative to the project root `root-path`; paths"
-   "38  public  defn  first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
-   "50  private  defn-  answer-text  [shown offset total]  Join the `shown` findings of a page starting at `offset`, adding a"
-   "59  private  defn-  oversized-first-finding  [cfg page offset total]  Answer for a page whose first finding alone exceeds `:output/max-chars`:"
-   "70  public  defn  render  [cfg args findings]  Render `findings` (one string per finding) as an answer within the Output"])
+  ["12  private  defn-  effective-limit  [cfg args]"
+   "17  private  defn-  truncation-note  [shown-until total]"
+   "26  public  defn  relative-path  [root-path file-path]  Return `file-path` relative to the project root `root-path`; paths"
+   "39  public  defn  first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
+   "51  private  defn-  answer-text  [shown offset total]  Join the `shown` findings of a page starting at `offset`, adding a"
+   "60  private  defn-  oversized-first-finding  [cfg page offset total]  Answer for a page whose first finding alone exceeds `:output/max-chars`:"
+   "71  public  defn  render  [cfg args findings]  Render `findings` (one string per finding) as an answer within the Output"
+   "84  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  `render` `findings` between an optional `header` line and an optional"
+   "99  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
+   "110  public  defn  not-found  [index name-str]  Answer for `name-str` that resolves to nothing, saying what was searched."
+   "115  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  Compact answer line of a Definition:"
+   "127  public  defn  ambiguous  [cfg args index what name-str definitions]  Answer for `name-str` that denotes several `definitions`: a header naming"])
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added)."
@@ -102,7 +107,7 @@
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)
-                   (:tools (tools/handle-tools-list {})))]
+                   (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
     (is (= #{:ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["ns"] (get-in spec [:inputSchema :required])))))

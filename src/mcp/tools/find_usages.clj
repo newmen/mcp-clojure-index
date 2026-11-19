@@ -47,13 +47,6 @@
 ;; {:header "app.core/get-uuid: 11 usages"   ; or a not-found/ambiguous line
 ;;  :lines  ["src/app/other.clj:6:5  call  app.other/caller" ...]}
 
-(defn- searched
-  [index include-tests?]
-  (let [checked (cond->> (code-index/files index)
-                  (not include-tests?) (remove (partial code-index/test-file? index)))]
-    (str "(checked " (count checked) " files, "
-         (if include-tests? "including" "excluding") " tests)")))
-
 (defn- usage->line
   [root {:keys [filename row col kind enclosing]}]
   (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
@@ -73,15 +66,15 @@
       candidates {:header (str "ambiguous: " target-str " is any of "
                                (s/join ", " (sort (map code-index/qualified-name candidates)))
                                ", pass a qualified name")}
-      (nil? target) {:header (str "not found: " target-str " " (searched index (:include-tests? opts)))}
+      (nil? target) {:header (str "not found: " target-str " " (output/checked index (:include-tests? opts)))}
       (= :defmethod (:target/type target))
       {:header (str (:target/name target) " is a defmethod: it is called through its multimethod, "
                     "find usages of " (code-index/qualified-name (dissoc (:definition target) :dispatch)))}
       (empty? found) {:header (str "no usages of " (:target/name target) " "
-                                   (searched index (:include-tests? opts)))}
+                                   (output/checked index (:include-tests? opts)))}
       :else {:header (str (:target/name target) ": " (count found)
                           (if (= 1 (count found)) " usage" " usages"))
-             :lines (mapv (partial usage->line (:root index)) found)})))
+             :lines (mapv (partial usage->line (code-index/root index)) found)})))
 
 (defn- findings
   "One finding per Usage line; a group's header is joined to its first line

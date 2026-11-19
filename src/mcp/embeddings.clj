@@ -111,7 +111,7 @@
                            embeddings (extract-embeddings data)]
                        (when (nil? embeddings)
                          (throw (ex-info "Ollama returned no embeddings"
-                                  {:url url :model model :response data})))
+                                         {:url url :model model :response data})))
                        embeddings))
            batches (partition-all batch-size texts)
            results (mapcat batcher batches)]
@@ -136,6 +136,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Reranking
 ;; Architecture interface: (rerank query candidates) -> seq of {:text :score :re-rank}
+;; (:re-rank absent when the reranker is unavailable)
 ;;
 ;; NOTE: This is a temporary implementation that uses the embedding endpoint.
 ;; A proper cross-encoder should call Ollama's /api/generate with the BCE
@@ -154,11 +155,12 @@
        []
        (try
          (let [response (http-post-json url {:model model
-                                              :input (mapv (fn [_] (str "query: " query)) texts)
-                                              :input2 (mapv (fn [t] (str "passage: " t)) texts)})
+                                             :input (mapv (fn [_] (str "query: " query)) texts)
+                                             :input2 (mapv (fn [t] (str "passage: " t)) texts)})
                data (:body response)]
            (if-let [embeddings (:embeddings data)]
              (mapv (fn [c e] (assoc c :re-rank (float (first e)))) candidates embeddings)
-             (mapv #(assoc % :re-rank (:score %)) candidates)))
+             candidates))
+         ;; reranker unavailable: no relevance score, vector order kept
          (catch Exception _
-           (mapv #(assoc % :re-rank (:score %)) candidates)))))))
+           candidates))))))

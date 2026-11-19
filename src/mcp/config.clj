@@ -49,7 +49,7 @@
     (let [file-config (edn/read (PushbackReader. r))]
       (-> (merge defaults file-config)
           (update :index/exclude conj
-                  ".calva" ".clj-kondo" ".cpcache" ".git"
+                  ".calva" ".claude" ".clj-kondo" ".cpcache" ".git"
                   ".kilo" ".lsp" ".mcp" "logs" "target" "tmp")
           (update :index/exclude set)
           (update :index/exclude compile-exclude-patterns)))))

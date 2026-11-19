@@ -57,13 +57,9 @@
 
 (defn- required-by-line
   [index ns-sym]
-  (->> (code-index/entries index :namespace-usages)
-       (filter (comp #{ns-sym} :to))
-       (map :from)
-       (remove #{ns-sym})
-       (into (sorted-set-by #(compare (str %1) (str %2))))
-       (s/join ", ")
-       (#(str "required by: " (if (s/blank? %) "none" %)))))
+  (str "required by: "
+       (or (some->> (code-index/requiring-namespaces index ns-sym) (s/join ", "))
+           "none")))
 
 (defn- summary
   [config params index ns-def]
@@ -105,20 +101,19 @@
 
 (defn- candidates
   [index asked-str]
-  (->> (code-index/entries index :namespace-definitions)
-       (map (comp str :name))
-       distinct
+  (->> (code-index/namespace-names index)
        (keep #(some-> (candidate-distance asked-str %) (vector %)))
        sort
        (take max-candidates)
        (map second)))
 
-(defn- not-found
+(defn- unknown-namespace-answer
+  "`output/not-found` for the namespace `asked-str`, followed by the
+   close namespace names when there are any."
   [index asked-str]
   (let [close (candidates index asked-str)]
-    (if (seq close)
-      (str "not found: namespace " asked-str "; close: " (s/join ", " close))
-      (output/not-found index (str "namespace " asked-str)))))
+    (cond-> (output/not-found index (str "namespace " asked-str))
+      (seq close) (str "; close: " (s/join ", " close)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool
@@ -126,12 +121,8 @@
 
 (defmethod tool/call :namespace_summary
   [_tool-key params {:keys [config code-index]}]
-  (let [asked-str (s/trim (str (:ns params)))
-        ns-def (->> (code-index/entries code-index :namespace-definitions)
-                    (filter (comp #{asked-str} str :name))
-                    (sort-by (juxt :filename :row))
-                    first)]
+  (let [asked-str (s/trim (str (:ns params)))]
     (tool/text-result
-     (if ns-def
+     (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
        (summary config params code-index ns-def)
-       (not-found code-index asked-str)))))
+       (unknown-namespace-answer code-index asked-str)))))

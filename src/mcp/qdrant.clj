@@ -8,19 +8,19 @@
 
 ;; Point payload (string keys, as stored):
 ;;
-;; {"format" 2                        ; `payload-format`
-;;  "file"   "/abs/src/shop/orders.clj"
+;; {"format" 3                        ; `payload-format`
+;;  "filename" "/abs/src/shop/orders.clj"
 ;;  "mtime"  1700000000000            ; mtime of the file the unit was built from
 ;;  "row"    5
 ;;  "kind"   "defn"
 ;;  "name"   "shop.orders/order-total"
-;;  "doc"    "First docstring line."  ; absent when there is none
+;;  "doc"    "First line.\n More."   ; whole docstring, absent when there is none
 ;;  "text"   "..."}                   ; the embedding text, also fed to the reranker
 
 (def payload-format
   "Version of the point payload; a collection holding another version is
    dropped and recreated."
-  2)
+  3)
 
 (def ^:private vector-config
   {:size 768
@@ -102,9 +102,9 @@
   [cfg]
   (loop [page-offset nil
          mtimes-by-file {}]
-    (let [{:keys [points next]} (scroll cfg page-offset scroll-batch-size ["file" "mtime"])
-          mtimes-by-file (reduce (fn [acc {{:keys [file mtime]} :payload}]
-                                   (update acc file (fnil conj #{}) mtime))
+    (let [{:keys [points next]} (scroll cfg page-offset scroll-batch-size ["filename" "mtime"])
+          mtimes-by-file (reduce (fn [acc {{:keys [filename mtime]} :payload}]
+                                   (update acc filename (fnil conj #{}) mtime))
                                  mtimes-by-file
                                  points)]
       (if next
@@ -119,11 +119,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- unit->point
-  [mtime {:keys [id file row kind doc text] unit-name :name} unit-vector]
+  [mtime {:keys [id filename row kind doc text] unit-name :name} unit-vector]
   {:id (str id)
    :vector unit-vector
    :payload (cond-> {"format" payload-format
-                     "file" file
+                     "filename" filename
                      "mtime" mtime
                      "row" row
                      "kind" kind
@@ -133,7 +133,7 @@
 
 (defn- point->unit
   [{:keys [id payload]}]
-  (cond-> (select-keys payload [:file :row :kind :name :text])
+  (cond-> (select-keys payload [:filename :row :kind :name :text])
     true (assoc :id (str id))
     (:doc payload) (assoc :doc (:doc payload))))
 
@@ -148,7 +148,7 @@
   "Remove all points of `file-path`."
   [cfg file-path]
   (request! :post (str (collection-url cfg) "/points/delete?wait=true")
-            {:filter {:must [{:key "file" :match {:value file-path}}]}}
+            {:filter {:must [{:key "filename" :match {:value file-path}}]}}
             "delete" #{200}))
 
 (defn search

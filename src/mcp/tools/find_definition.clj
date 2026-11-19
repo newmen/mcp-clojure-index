@@ -30,10 +30,8 @@
 
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))
-        definitions (code-index/resolve-name code-index name-str)]
+  (let [name-str (str (:name params))]
     (tool/text-result
-     (case (count definitions)
-       0 (output/not-found code-index name-str)
-       1 (output/render config params (mapv (partial output/definition->line code-index) definitions))
-       (output/ambiguous config params code-index "definitions" name-str definitions)))))
+     (output/one-definition config params code-index name-str
+                            (code-index/resolve-name code-index name-str)
+                            #(output/render config params [(output/definition->line code-index %)])))))

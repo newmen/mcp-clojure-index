@@ -16,17 +16,9 @@
 
 ;; Candidate shape (what the reranker receives):
 ;;
-;; {:unit {:id "..." :file ... :name ... :text ...} ; Search unit, `:id` as a string
+;; {:unit {:id "..." :filename ... :name ... :text ...} ; Search unit, `:id` as a string
 ;;  :text "..."                                     ; the unit's embedding text
 ;;  :score 0.87}                                    ; vector similarity, only from Qdrant
-
-(defn- default-top-k
-  [cfg]
-  (or (:search/top-k cfg) 100))
-
-(defn- default-rerank-top
-  [cfg]
-  (or (:search/re-rank-top cfg) 10))
 
 (defn- candidate
   [unit]
@@ -46,7 +38,7 @@
        (take top-k)
        (mapv (fn [unit]
                (candidate (-> unit
-                              (select-keys [:id :file :row :kind :name :doc :text])
+                              (select-keys [:id :filename :row :kind :name :doc :text])
                               (update :id str)))))))
 
 (defn- fuse
@@ -66,20 +58,17 @@
 (defn search
   "Semantic search for `query`: vector search in Qdrant and lexical
    matching against `units` (all Search units of the project), fused,
-   then reranked. No expansion.
+   then reranked; at most `hit-count` hits. No expansion.
 
-   Parameters (in config):
-     :search/top-k       - candidates from each of Qdrant and the lexical
-                           matching, and fused candidates reranked (default 100)
-     :search/re-rank-top - number of hits kept after reranking (default 10)
+   `:search/top-k` in `cfg` is the number of candidates from each of
+   Qdrant and the lexical matching, and of fused candidates reranked.
 
    Returns a vector of {:unit SearchUnit :re-rank float}, best first, or
    nil for a blank query. Without the reranker hits have no `:re-rank`
    and keep the fused order."
-  [cfg query units]
-  (let [top-k (default-top-k cfg)
-        rerank-top (default-rerank-top cfg)]
-    (when (and (seq query) (pos? top-k) (pos? rerank-top))
+  [cfg query units hit-count]
+  (let [top-k (:search/top-k cfg)]
+    (when (and (seq query) (pos? top-k) (pos? hit-count))
       (when-let [embedding (first (embeddings/generate [query] cfg))]
         (let [candidates (->> (fuse [(qdrant-candidates cfg embedding top-k)
                                      (lexical-candidates query units top-k)])
@@ -87,5 +76,5 @@
                               vec)]
           (->> (when (seq candidates)
                  (embeddings/rerank query candidates cfg))
-               (take rerank-top)
+               (take hit-count)
                (mapv #(select-keys % [:unit :re-rank]))))))))

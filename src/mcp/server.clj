@@ -5,6 +5,7 @@
             [mcp.code-index :as code-index]
             [mcp.config :as config]
             [mcp.semantic-index :as semantic-index]
+            [mcp.tool :as tool]
             [mcp.tools :as tools])
   (:import (java.io BufferedReader InputStreamReader OutputStreamWriter)))
 
@@ -18,7 +19,7 @@
 (def ^:private instructions
   (str "Use this server instead of grep and reading files for questions about this Clojure code base.\n"
        "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
-       "Answers are compact `path:line` lines with a hard size limit; page with `offset` when an answer says it is truncated.\n"
+       "Answers are compact `path:line` lines under a hard size ceiling; page with `offset` when an answer says it is truncated.\n"
        "Use get_source for a definition's body instead of reading the whole file."))
 (defonce ^:private server-state-atom (atom nil))
 
@@ -94,7 +95,7 @@
         "tools/call"
         (if-let [tool-name (get params :name)]
           (let [arguments (get params :arguments {})
-                tool-result (tools/handle-tool tool-name arguments fresh)]
+                tool-result (tool/call (keyword tool-name) arguments fresh)]
             [(json-rpc-result id {:content (:content tool-result)}) state])
           [(json-rpc-error id -32602 "Missing tool name") state])
         [(json-rpc-error id -32601 (str "Method not found: " method)) state])
@@ -122,9 +123,9 @@
         code-index-ref (atom (code-index/build cfg))
         _ (log/info "Code index built:" (count (code-index/files @code-index-ref)) "files")
         semantic-state (semantic-index/make-state)
-        server-state (atom (assoc (tools/make-initial-state cfg)
-                                  :code-index-ref code-index-ref
-                                  :semantic-index semantic-state))]
+        server-state (atom {:config cfg
+                            :code-index-ref code-index-ref
+                            :semantic-index semantic-state})]
     (reset! server-state-atom @server-state)
     (semantic-index/sync-async! cfg semantic-state @code-index-ref)
     (log/info "MCP server ready on stdio (embeddings are computed in the background)")

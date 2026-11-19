@@ -40,7 +40,7 @@
 (defn- hit
   [relative-path row kind unit-name doc score]
   {:unit (cond-> {:id (str (random-uuid))
-                  :file (str fixture-root "/" relative-path)
+                  :filename (str fixture-root "/" relative-path)
                   :row row :kind kind :name unit-name
                   :text (str unit-name "\n(source)")}
            doc (assoc :doc doc))

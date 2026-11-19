@@ -100,8 +100,7 @@
   (when (.isFile project-clj)
     (some (fn [form]
             (when (and (seq? form) (= 'defproject (first form)))
-              (let [options (apply hash-map (drop 3 form))]
-                (or (:test-paths options) ["test"]))))
+              (seq (:test-paths (apply hash-map (drop 3 form))))))
           (read-forms project-clj))))
 
 (defn- deps-test-paths
@@ -268,6 +267,53 @@
    (`file-path` absolute)."
   [index file-path entry-key]
   (get-in index [:files file-path :analysis entry-key]))
+
+;; ---------------------------------------------------------------------------
+;; Namespaces
+;; ---------------------------------------------------------------------------
+
+(defn namespace-names
+  "Names (strings) of all namespaces defined in the project."
+  [index]
+  (->> (entries index :namespace-definitions)
+       (map (comp str :name))
+       distinct))
+
+(defn namespace-definition
+  "clj-kondo's namespace definition entry of `ns-str` (first by file and
+   row when several files define it), or nil."
+  [index ns-str]
+  (->> (entries index :namespace-definitions)
+       (filter (comp #{ns-str} str :name))
+       (sort-by (juxt :filename :row))
+       first))
+
+(defn requiring-namespaces
+  "Namespaces (symbols) that require `ns-sym`, sorted by name."
+  [index ns-sym]
+  (->> (entries index :namespace-usages)
+       (filter (comp #{ns-sym} :to))
+       (map :from)
+       (remove #{ns-sym})
+       (into (sorted-set-by #(compare (str %1) (str %2))))
+       seq))
+
+;; ---------------------------------------------------------------------------
+;; Implementations
+;; ---------------------------------------------------------------------------
+
+(defn protocol-impls
+  "clj-kondo's `:protocol-impls` entries of the protocol `protocol-ns`/`protocol-name`."
+  [index protocol-ns protocol-name]
+  (filter #(and (= protocol-ns (:protocol-ns %)) (= protocol-name (:protocol-name %)))
+          (entries index :protocol-impls)))
+
+(defn method-heads
+  "clj-kondo's usages of the multimethod `multi-ns`/`multi-name` that head
+   a `defmethod` (they carry `:dispatch-val-str`)."
+  [index multi-ns multi-name]
+  (filter #(and (:defmethod %) (= multi-ns (:to %)) (= multi-name (:name %)))
+          (entries index :var-usages)))
 
 ;; ---------------------------------------------------------------------------
 ;; Definitions

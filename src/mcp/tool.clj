@@ -24,7 +24,7 @@
 
 (def paging-properties
   "inputSchema properties shared by every tool that obeys the Output budget."
-  {:limit {:type "integer" :description "Maximum number of findings (can only lower the server limit)"}
+  {:limit {:type "integer" :description "Maximum number of findings (can only lower the server's Output budget)"}
    :offset {:type "integer" :description "Number of findings to skip, for paging"}})
 
 (defn text-result

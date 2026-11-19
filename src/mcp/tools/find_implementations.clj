@@ -134,8 +134,7 @@
 
 (defn- protocol-implementations
   [index {protocol-ns :ns protocol-name :name}]
-  (->> (code-index/entries index :protocol-impls)
-       (filter #(and (= protocol-ns (:protocol-ns %)) (= protocol-name (:protocol-name %))))
+  (->> (code-index/protocol-impls index protocol-ns protocol-name)
        (map (fn [impl]
               {:filename (:filename impl)
                :row (:row impl)
@@ -144,8 +143,7 @@
 
 (defn- multimethod-implementations
   [index {multi-ns :ns multi-name :name}]
-  (->> (code-index/entries index :var-usages)
-       (filter #(and (:defmethod %) (= multi-ns (:to %)) (= multi-name (:name %))))
+  (->> (code-index/method-heads index multi-ns multi-name)
        (map (fn [usage]
               {:filename (:filename usage)
                :row (:row usage)

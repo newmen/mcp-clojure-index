@@ -3,6 +3,7 @@
   (:require [clojure.string :as s]
             [clojure.test :refer [deftest is testing]]
             [mcp.test-project :as project]
+            [mcp.tool :as tool]
             [mcp.tools :as tools]))
 
 (set! *warn-on-reflection* true)
@@ -10,9 +11,9 @@
 (defn- answer
   ([args] (answer project/config args))
   ([cfg args]
-   (-> (tools/handle-tool "get_source" args
-                          {:config cfg :code-index (project/code-index)})
-       :content first :text)))
+   (project/answer-text cfg
+                        (tool/call :get_source args
+                                   {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private first-line-source
   (str "src/mcp/output.clj:39-45\n"

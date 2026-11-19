@@ -5,6 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
+            [mcp.tool :as tool]
             [mcp.tools :as tools])
   (:import (java.io File)))
 
@@ -20,9 +21,9 @@
 (defn- answer
   ([args] (answer fixture-config args))
   ([cfg args]
-   (-> (tools/handle-tool "find_implementations" args
-                          {:config cfg :code-index @fixture-index})
-       :content first :text)))
+   (project/answer-text cfg
+                        (tool/call :find_implementations args
+                                   {:config cfg :code-index @fixture-index}))))
 
 (deftest lists-protocol-implementations-with-implementing-type-and-method
   (let [expected ["src/impl/other.clj:8  impl.other/Triangle  area"

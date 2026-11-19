@@ -6,6 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
+            [mcp.tool :as tool]
             [mcp.tools :as tools])
   (:import (java.io File)))
 
@@ -25,8 +26,7 @@
 (defn- answer
   ([code-index args] (answer project/config code-index args))
   ([cfg code-index args]
-   (-> (tools/handle-tool "find_usages" args {:config cfg :code-index code-index})
-       :content first :text)))
+   (project/answer-text cfg (tool/call :find_usages args {:config cfg :code-index code-index}))))
 
 (defn- answer-lines
   [code-index args]
@@ -106,7 +106,9 @@
 (deftest unknown-and-ambiguous-targets
   (is (= "not found: no-such-fn (checked 4 files, including tests)"
          (answer @lein-project {:targets ["no-such-fn"]})))
-  (is (= "ambiguous: check is any of plain.b/check, plain.c-test/check, pass a qualified name"
+  (is (= (str "ambiguous: 2 definitions named check, pass a qualified name\n"
+              "src/plain/c_test.clj:4  defn  plain.c-test/check  []\n"
+              "test/plain/b.clj:4  defn  plain.b/check  []")
          (answer @plain-project {:targets ["check"]}))))
 
 (deftest defmethod-target-points-to-its-multimethod
@@ -120,9 +122,10 @@
 (deftest finds-usages-on-own-code-base
   (testing (str "line and column numbers are left out: they move with every edit; "
                 "code inside a defmethod is enclosed by `multimethod dispatch-value`")
-    (is (= ["mcp.output/definition->line: 2 usages"
+    (is (= ["mcp.output/definition->line: 3 usages"
             "src/mcp/output.clj:L:C  value  mcp.output/ambiguous"
-            "src/mcp/tools/find_definition.clj:L:C  value  mcp.tool/call :find_definition"
+            "src/mcp/tools/find_definition.clj:L:C  call  mcp.tool/call :find_definition"
+            "src/mcp/tools/find_usages.clj:L:C  value  mcp.tools.find-usages/target-group"
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
            (map #(s/replace % #":\d+:\d+  " ":L:C  ")

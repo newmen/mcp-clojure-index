@@ -4,6 +4,7 @@
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
+            [mcp.tool :as tool]
             [mcp.tools :as tools])
   (:import (java.io File)))
 
@@ -12,9 +13,9 @@
 (defn- answer
   ([args] (answer project/config args))
   ([cfg args]
-   (-> (tools/handle-tool "namespace_summary" args
-                          {:config cfg :code-index (project/code-index)})
-       :content first :text)))
+   (project/answer-text cfg
+                        (tool/call :namespace_summary args
+                                   {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private output-definitions
   "Hand-checked Definitions of `src/mcp/output.clj`."
@@ -29,7 +30,9 @@
    "99  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
    "110  public  defn  not-found  [index name-str]  Answer for `name-str` that resolves to nothing, saying what was searched."
    "115  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  Compact answer line of a Definition:"
-   "127  public  defn  ambiguous  [cfg args index what name-str definitions]  Answer for `name-str` that denotes several `definitions`: a header naming"])
+   "127  public  defn  ambiguous-header  [what name-str candidate-count]  Header line for `name-str` that denotes `candidate-count` candidates,"
+   "133  public  defn  ambiguous  [cfg args index what name-str definitions]  Answer for `name-str` that denotes several `definitions`: an"
+   "141  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  Answer for `name-str` that resolved to `definitions`: `not-found` for"])
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added)."
@@ -60,9 +63,9 @@
 
 (deftest unknown-namespace-returns-close-candidates
   (testing "misspelt"
-    (let [text (answer {:ns "mcp.outptu"})]
-      (is (s/starts-with? text "not found: namespace mcp.outptu"))
-      (is (s/includes? text "mcp.output"))))
+    (testing "says what was searched, then the close names"
+      (is (re-matches #"not found: namespace mcp\.outptu \(checked \d+ files, including tests\); close: .*mcp\.output.*"
+                      (answer {:ns "mcp.outptu"})))))
   (testing "partial name"
     (is (s/includes? (answer {:ns "find-definition"}) "mcp.tools.find-definition")))
   (testing "nothing close"
@@ -99,9 +102,9 @@
   (testing "the multimethod's namespace does not list defmethods written in other files"
     (is (not (s/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
   (testing "a defmethod of a local multimethod is named without its namespace"
-    (let [text (-> (tools/handle-tool "namespace_summary" {:ns "app.core"}
-                                      {:config definitions-fixture-config
-                                       :code-index (code-index/build definitions-fixture-config)})
+    (let [text (-> (tool/call :namespace_summary {:ns "app.core"}
+                              {:config definitions-fixture-config
+                               :code-index (code-index/build definitions-fixture-config)})
                    :content first :text)]
       (is (some #{"15  public  defmethod  area :circle"} (s/split-lines text))))))
 

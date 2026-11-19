@@ -1,6 +1,7 @@
 (ns mcp.tools
-  "Serves `tools/list` and `tools/call` from the tool registry (`mcp.tool`).
-   New tools live in their own `mcp.tools.*` namespace and are required here."
+  "Loads every tool of the registry (`mcp.tool`) and serves `tools/list`;
+   `tools/call` goes straight to `mcp.tool/call`. New tools live in their
+   own `mcp.tools.*` namespace and are required here."
   (:require [mcp.tool :as tool]
             [mcp.tools.find-definition]
             [mcp.tools.find-implementations]
@@ -11,11 +12,6 @@
 
 (set! *warn-on-reflection* true)
 
-(defn make-initial-state
-  "Handler state before the code index and the semantic index are attached."
-  [config]
-  {:config config})
-
 (defn tool-definitions
   "The `tools/list` entries of all registered tools, sorted by name."
   []
@@ -24,8 +20,3 @@
        (map tool/spec)
        (sort-by :name)
        vec))
-
-(defn handle-tool
-  "Answer `tools/call` of `tool-name` with `args` in `state`."
-  [tool-name args state]
-  (tool/call (keyword tool-name) args state))

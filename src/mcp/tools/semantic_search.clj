@@ -47,20 +47,22 @@
    is none, never a raw vector score."
   [root {:keys [unit re-rank]}]
   (->> [(some->> re-rank double (format "%.2f"))
-        (str (output/relative-path root (:file unit)) ":" (:row unit))
+        (str (output/relative-path root (:filename unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
-        (:doc unit)]
+        (output/first-line (:doc unit))]
        (remove s/blank?)
        (s/join "  ")))
 
-(defn- search-config
-  "Ask the search for enough hits to fill the requested page."
+(defn- hit-count
+  "How many hits to ask the search for: `:search/re-rank-top`, or more
+   when the requested page (the hits before `offset` and a page of `limit`
+   within the Output budget) reaches beyond them."
   [config params]
   (let [page-size (min (:output/limit config)
                        (or (:limit params) (:search/re-rank-top config)))]
-    (update config :search/re-rank-top
-            (fnil max 0) (+ (or (:offset params) 0) page-size))))
+    (max (:search/re-rank-top config)
+         (+ (max 0 (or (:offset params) 0)) page-size))))
 
 (defn- stale-note
   [semantic-state code-index]
@@ -75,8 +77,9 @@
      (if (s/blank? query)
        "query is empty"
        (try
-         (let [hits (search/search (search-config config params) query
-                                    (search-units/search-units code-index))
+         (let [hits (search/search config query
+                                   (search-units/search-units code-index)
+                                   (hit-count config params))
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line (code-index/root code-index)) hits)]
            (if (empty? lines)

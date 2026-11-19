@@ -2,7 +2,8 @@
   "Test support: this project's own code base as the indexed project,
    with the shipped `resources/config.edn`. The code index is built once
    per test run."
-  (:require [mcp.code-index :as code-index]
+  (:require [clojure.test :refer [is]]
+            [mcp.code-index :as code-index]
             [mcp.config :as config])
   (:import (java.io File)))
 
@@ -25,3 +26,12 @@
   "The code index of this project, built on first use."
   []
   @code-index-delay)
+
+(defn answer-text
+  "The text of the `tools/call` result `tool-result`, asserting that it
+   fits the Output budget of `cfg` (every acceptance case checks this)."
+  [cfg tool-result]
+  (let [text (-> tool-result :content first :text)]
+    (is (<= (count text) (:output/max-chars cfg))
+        (str "answer of " (count text) " characters exceeds the Output budget"))
+    text))

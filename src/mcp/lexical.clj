@@ -64,7 +64,7 @@
        (map stem)))
 
 (defn- unit-words
-  [{unit-name :name docstring :docstring}]
+  [{unit-name :name docstring :doc}]
   (words (str unit-name " " docstring)))
 
 ;; ---------------------------------------------------------------------------

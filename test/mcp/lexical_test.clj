@@ -1,6 +1,5 @@
 (ns mcp.lexical-test
-  (:require [clojure.string :as s]
-            [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is]]
             [mcp.lexical :as sut]))
 
 (set! *warn-on-reflection* true)
@@ -9,7 +8,7 @@
   ([unit-name] (unit unit-name nil))
   ([unit-name doc]
    (cond-> {:id unit-name :name unit-name}
-     doc (assoc :doc (first (s/split-lines doc)) :docstring doc))))
+     doc (assoc :doc doc))))
 
 (def ^:private units
   [(unit "shop.orders/order-total" "Sum of price times quantity over all line items of an order.")

@@ -85,7 +85,7 @@
     (let [stale (stale-files state index)
           units (search-units/file-search-units index stale)
           vectors (embeddings/embed-units cfg units)
-          by-file (group-by (comp :file first) (map vector units vectors))]
+          by-file (group-by (comp :filename first) (map vector units vectors))]
       (doseq [file-path stale
               :let [pairs (get by-file file-path)]]
         (store-file! cfg state index file-path (mapv first pairs) (mapv second pairs)))

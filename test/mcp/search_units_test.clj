@@ -21,7 +21,7 @@
 
 (defn- located
   [units]
-  (set (map (juxt (comp relative :file) :row :kind :name) units)))
+  (set (map (juxt (comp relative :filename) :row :kind :name) units)))
 
 (deftest search-units-cover-every-definition-and-top-level-edn-map-entry
   (is (= #{["src/shop/orders.clj" 1 "ns" "shop.orders"]
@@ -61,7 +61,7 @@
               "                      :timeout-ms 3000}")
          (:text (unit-named ":db/connection-pool")))))
 
-(deftest search-unit-carries-the-first-docstring-line
+(deftest search-unit-carries-the-docstring
   (is (= "Sum of price times quantity over all line items of an order."
          (:doc (unit-named "shop.orders/order-total")))))
 

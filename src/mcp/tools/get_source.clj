@@ -36,10 +36,8 @@
 
 (defmethod tool/call :get_source
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))
-        definitions (code-index/resolve-name code-index name-str)]
+  (let [name-str (str (:name params))]
     (tool/text-result
-     (case (count definitions)
-       0 (output/not-found code-index name-str)
-       1 (source-answer config params code-index (first definitions))
-       (output/ambiguous config params code-index "definitions" name-str definitions)))))
+     (output/one-definition config params code-index name-str
+                            (code-index/resolve-name code-index name-str)
+                            (partial source-answer config params code-index)))))

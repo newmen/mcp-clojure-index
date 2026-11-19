@@ -14,7 +14,7 @@
 
 (def ^:private unit
   {:id #uuid "00000000-0000-0000-0000-000000000001"
-   :file "/proj/src/shop/orders.clj"
+   :filename "/proj/src/shop/orders.clj"
    :row 5
    :kind "defn"
    :name "shop.orders/order-total"
@@ -26,7 +26,7 @@
   (is (= {:id "00000000-0000-0000-0000-000000000001"
           :vector [0.1 0.2]
           :payload {"format" sut/payload-format
-                    "file" "/proj/src/shop/orders.clj"
+                    "filename" "/proj/src/shop/orders.clj"
                     "mtime" 42
                     "row" 5
                     "kind" "defn"
@@ -38,7 +38,7 @@
 (deftest point-from-search-reads-back-as-a-search-unit
   (is (= (-> unit (dissoc :hash) (update :id str))
          (#'sut/point->unit {:id "00000000-0000-0000-0000-000000000001"
-                             :payload {:format 2 :file "/proj/src/shop/orders.clj" :mtime 42
+                             :payload {:format 3 :filename "/proj/src/shop/orders.clj" :mtime 42
                                        :row 5 :kind "defn" :name "shop.orders/order-total"
                                        :doc "Sum of line items."
                                        :text "shop.orders/order-total\n[order]"}}))))

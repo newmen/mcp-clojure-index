@@ -63,9 +63,8 @@
         found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
-      candidates {:header (str "ambiguous: " target-str " is any of "
-                               (s/join ", " (sort (map code-index/qualified-name candidates)))
-                               ", pass a qualified name")}
+      candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
+                  :lines (mapv (partial output/definition->line index) candidates)}
       (nil? target) {:header (str "not found: " target-str " " (output/checked index (:include-tests? opts)))}
       (= :defmethod (:target/type target))
       {:header (str (:target/name target) " is a defmethod: it is called through its multimethod, "

@@ -162,6 +162,16 @@
       (spit (io/file root relative-path) content))
     (.getCanonicalPath root)))
 
+(deftest project-clj-without-test-paths-falls-back-to-test-dir-and-test-names
+  (let [root (temp-project {"project.clj" "(defproject app \"0.1.0\" :dependencies [])"
+                            "src/app/core.clj" "(ns app.core)"
+                            "src/app/core_test.clj" "(ns app.core-test)"
+                            "test/app/helpers.clj" "(ns app.helpers)"})
+        idx (sut/build (assoc project/config :index/root-path root))]
+    (is (sut/test-file? idx (str root "/test/app/helpers.clj")))
+    (is (sut/test-file? idx (str root "/src/app/core_test.clj")))
+    (is (not (sut/test-file? idx (str root "/src/app/core.clj"))))))
+
 (defn- temp-config
   [root]
   (assoc config/defaults :index/root-path root))

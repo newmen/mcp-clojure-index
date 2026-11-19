@@ -4,7 +4,6 @@
    entry of an EDN map. Pure: reads source files, never Qdrant or Ollama."
   (:require [clojure.string :as s]
             [mcp.code-index :as code-index]
-            [mcp.output :as output]
             [rewrite-clj.zip :as z])
   (:import (java.nio.charset StandardCharsets)
            (java.security MessageDigest)
@@ -15,13 +14,12 @@
 ;; Search unit shape:
 ;;
 ;; {:id   #uuid "..."               ; stable for the same file, kind, name and row
-;;  :file "/abs/src/shop/orders.clj"
+;;  :filename "/abs/src/shop/orders.clj"
 ;;  :row  5
 ;;  :kind "defn"                    ; a Definition kind, or "edn"
 ;;  :name "shop.orders/order-total" ; qualified name, or the EDN key as written
-;;  :doc  "First docstring line."   ; absent when there is none
-;;  :docstring "First line.\n More."  ; the whole docstring, for lexical matching;
-;;                                  ; absent when there is none, never stored in Qdrant
+;;  :doc  "First line.\n More."     ; the whole docstring, as in a Definition;
+;;                                  ;  absent when there is none
 ;;  :text "..."                     ; the embedding text
 ;;  :hash "sha-256 of :text"}       ; embedding cache key
 
@@ -52,17 +50,16 @@
     (> (count text) max-source-chars) (subs 0 max-source-chars)))
 
 (defn- unit
-  [{:keys [file row kind unit-name doc docstring text-parts]}]
+  [{:keys [filename row kind unit-name doc text-parts]}]
   (let [text (->> text-parts (remove s/blank?) (s/join "\n"))]
-    (cond-> {:id (unit-id file kind unit-name row)
-             :file file
+    (cond-> {:id (unit-id filename kind unit-name row)
+             :filename filename
              :row row
              :kind kind
              :name unit-name
              :text text
              :hash (sha-256 text)}
-      doc (assoc :doc doc)
-      docstring (assoc :docstring docstring))))
+      doc (assoc :doc doc))))
 
 ;; ---------------------------------------------------------------------------
 ;; Definitions
@@ -80,12 +77,11 @@
    source truncated to about 2000 characters."
   [lines-by-file {:keys [filename row kind arglists doc] :as definition}]
   (let [qualified-name (code-index/qualified-name definition)]
-    (unit {:file filename
+    (unit {:filename filename
            :row row
            :kind kind
            :unit-name qualified-name
-           :doc (output/first-line doc)
-           :docstring doc
+           :doc doc
            :text-parts [qualified-name
                         (s/join " " arglists)
                         doc
@@ -125,7 +121,7 @@
         key-str (z/string key-loc)
         source (form-source (code-index/file-lines file-path)
                             {:row row :col col :end-row end-row :end-col end-col})]
-    (unit {:file file-path
+    (unit {:filename file-path
            :row row
            :kind "edn"
            :unit-name key-str
@@ -155,7 +151,7 @@
    top-level entry of an EDN map, in file order."
   [index]
   (->> (concat (definition-units index) (edn-units index))
-       (sort-by (juxt :file :row))))
+       (sort-by (juxt :filename :row))))
 
 (defn file-search-units
   "Search units of the files `file-paths` (absolute) in `index`."

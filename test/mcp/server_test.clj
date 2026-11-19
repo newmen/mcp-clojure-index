@@ -51,7 +51,7 @@
         instructions (get-in response [:result :instructions])]
     (is (<= 4 (count (s/split-lines instructions)) 6))
     (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
-                    "path:line" "size limit" "get_source"]]
+                    "path:line" "size ceiling" "get_source"]]
       (is (s/includes? instructions phrase) phrase))
     (testing "says only what the spec lists"
       (is (not (s/includes? instructions "find_definition"))))))
@@ -74,16 +74,21 @@
   [state tool-name arguments]
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
              :params {:name tool-name :arguments arguments}}]
-    (-> (#'sut/handle-method msg state) first :result :content first :text)))
+    (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
+
+(def ^:private first-line-definition
+  (str "src/mcp/output.clj:39  defn  mcp.output/first-line  [text]  "
+       "First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
   (let [state {:config services-down-config
                :code-index-ref (atom (project/code-index))
                :semantic-index (semantic-index/make-state)}]
-    (is (s/starts-with? (tool-call state "find_definition" {:name "mcp.output/first-line"})
-                        "src/mcp/output.clj:39  defn  mcp.output/first-line"))
-    (is (s/starts-with? (tool-call state "semantic_search" {:query "first line of a docstring"})
-                        "semantic search unavailable"))))
+    (is (= first-line-definition
+           (tool-call state "find_definition" {:name "mcp.output/first-line"})))
+    (is (= (str "semantic search unavailable (Qdrant or Ollama not reachable); "
+                "the precise tools (find_definition, get_source, ...) still work")
+           (tool-call state "semantic_search" {:query "first line of a docstring"})))))
 
 (deftest freshness-check-hands-the-refreshed-index-to-the-embeddings-sync
   (let [synced (atom nil)
@@ -98,9 +103,7 @@
 
 (defn- find-definition-call
   [state name-str]
-  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
-             :params {:name "find_definition" :arguments {:name name-str}}}]
-    (-> (#'sut/handle-method msg state) first :result :content first :text)))
+  (tool-call state "find_definition" {:name name-str}))
 
 (deftest tools-call-answer-reflects-an-edit-made-just-before-it
   (let [root (.getCanonicalPath (.toFile (Files/createTempDirectory "server-test" (make-array FileAttribute 0))))
@@ -113,7 +116,8 @@
     (spit file "(ns app.core)\n\n(defn beta [y] y)\n")
     (.setLastModified file (+ 2000 (System/currentTimeMillis)))
     (is (= "src/app/core.clj:3  defn  app.core/beta  [y]" (find-definition-call state "beta")))
-    (is (s/starts-with? (find-definition-call state "alpha") "not found: alpha"))))
+    (is (= "not found: alpha (checked 1 files, including tests)"
+           (find-definition-call state "alpha")))))
 
 (deftest handle-method-initialize
   (let [msg {:jsonrpc "2.0" :id 1 :method "initialize" :params {:clientInfo {:name "test" :version "1.0"}}}

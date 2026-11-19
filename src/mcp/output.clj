@@ -124,12 +124,26 @@
        (remove s/blank?)
        (s/join "  ")))
 
+(defn ambiguous-header
+  "Header line for `name-str` that denotes `candidate-count` candidates,
+   naming what they are (`what`, e.g. \"definitions\")."
+  [what name-str candidate-count]
+  (str "ambiguous: " candidate-count " " what " named " name-str ", pass a qualified name"))
+
 (defn ambiguous
-  "Answer for `name-str` that denotes several `definitions`: a header naming
-   what they are (`what`, e.g. \"definitions\"), then one line per
-   candidate within the Output budget."
+  "Answer for `name-str` that denotes several `definitions`: an
+   `ambiguous-header`, then one line per candidate within the Output budget."
   [cfg args index what name-str definitions]
   (render-framed cfg args
-                 {:header (str "ambiguous: " (count definitions) " " what " named " name-str
-                               ", pass a qualified name")}
+                 {:header (ambiguous-header what name-str (count definitions))}
                  (mapv (partial definition->line index) definitions)))
+
+(defn one-definition
+  "Answer for `name-str` that resolved to `definitions`: `not-found` for
+   none, `(answer-fn definition)` for exactly one, the `ambiguous`
+   candidates otherwise."
+  [cfg args index name-str definitions answer-fn]
+  (case (count definitions)
+    0 (not-found index name-str)
+    1 (answer-fn (first definitions))
+    (ambiguous cfg args index "definitions" name-str definitions)))

@@ -4,6 +4,7 @@
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
+            [mcp.tool :as tool]
             [mcp.tools :as tools])
   (:import (java.io File)))
 
@@ -12,9 +13,9 @@
 (defn- answer
   ([args] (answer project/config args))
   ([cfg args]
-   (-> (tools/handle-tool "find_definition" args
-                          {:config cfg :code-index (project/code-index)})
-       :content first :text)))
+   (project/answer-text cfg
+                        (tool/call :find_definition args
+                                   {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private relative-path-line
   (str "src/mcp/output.clj:26  defn  mcp.output/relative-path  [root-path file-path]  "
@@ -61,9 +62,9 @@
 
 (defn- fixture-answer
   [args]
-  (-> (tools/handle-tool "find_definition" args
-                         {:config project/config :code-index @definitions-fixture})
-      :content first :text))
+  (project/answer-text project/config
+                       (tool/call :find_definition args
+                                  {:config project/config :code-index @definitions-fixture})))
 
 (deftest finds-tests-methods-specs-and-project-macro-definitions
   (testing "deftest"

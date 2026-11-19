@@ -47,7 +47,7 @@
                  qdrant/create-collection! (fn [_cfg#] nil)
                  qdrant/embedded-files (fn [_cfg#] {})
                  qdrant/delete! (fn [_cfg# file-path#]
-                                  (swap! ~points #(into {} (remove (comp #{file-path#} :file val)) %)))
+                                  (swap! ~points #(into {} (remove (comp #{file-path#} :filename val)) %)))
                  qdrant/upsert! (fn [_cfg# units# _vectors# _mtime#]
                                   (swap! ~points into (map (juxt :id identity)) units#))]
      ~@body))
@@ -79,7 +79,7 @@
       (testing "the edited file is stale until its embeddings are recomputed"
         (is (= [inventory] (sut/stale-files state edited))))
       (with-redefs [qdrant/upsert! (fn [_cfg units _vectors _mtime]
-                                     (swap! upserted-files into (map :file units)))]
+                                     (swap! upserted-files into (map :filename units)))]
         (sut/sync! (services-config) state edited)))
     (is (= #{inventory} (set @upserted-files)))
     (is (= [] (sut/stale-files state edited)))))
@@ -94,7 +94,7 @@
       (is (= [inventory] (sut/stale-files state without-inventory)))
       (sut/sync! (services-config) state without-inventory))
     (is (= [] (sut/stale-files state without-inventory)))
-    (is (not-any? (comp #{inventory} :file) (vals @points)))))
+    (is (not-any? (comp #{inventory} :filename) (vals @points)))))
 
 (deftest sync-with-services-down-keeps-files-stale-and-does-not-throw
   (testing "Qdrant down"

@@ -4,9 +4,9 @@
 
 **Blocked by:** 03 (`find_usages` of Definitions)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Plain and namespaced keywords are found in code with kind `keyword`; `::k` resolves to its namespace.
-- [ ] Keywords inside `.edn` files are found with kind `edn` and correct line/column.
-- [ ] A call mixing keywords and Definition names returns one group per target.
-- [ ] Spec acceptance case 3 passes on this code base plus a fixture EDN file.
+- [x] Plain and namespaced keywords are found in code with kind `keyword`; `::k` resolves to its namespace.
+- [x] Keywords inside `.edn` files are found with kind `edn` and correct line/column.
+- [x] A call mixing keywords and Definition names returns one group per target.
+- [x] Spec acceptance case 3 passes on this code base plus a fixture EDN file.

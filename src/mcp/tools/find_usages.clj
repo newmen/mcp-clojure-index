@@ -10,7 +10,9 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private description
-  (str "Find every Usage of one or more Clojure vars, macros or namespaces in one call. "
+  (str "Find every Usage of one or more Clojure vars, macros, namespaces or keywords "
+       "(`:k`, `:ns/k`, `::k`, `::alias/k`) in one call. "
+       "Keywords are found in code and in the project's .edn files. "
        "More complete than grep: resolves aliases, `:refer`, `#'var` and `(var x)`, finds "
        "functions passed as values (`partial`, `comp`, `map` arguments), and has no false "
        "positives from other definitions with the same simple name. "
@@ -25,7 +27,7 @@
    :inputSchema {:type "object"
                  :properties (merge {:targets {:type "array"
                                                :items {:type "string"}
-                                               :description "Names: simple, alias-qualified or fully qualified"}
+                                               :description "Names (simple, alias-qualified or fully qualified) and/or keywords"}
                                      :kinds {:type "array"
                                              :items {:type "string" :enum (usages/kind-names)}
                                              :description "Only Usages of these kinds (default: all)"}
@@ -52,7 +54,8 @@
 
 (defn- usage->line
   [root {:keys [filename row col kind enclosing]}]
-  (str (output/relative-path root filename) ":" row ":" col "  " kind "  " enclosing))
+  (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
+    (not (s/blank? enclosing)) (str "  " enclosing)))
 
 (defn- wanted?
   [index {:keys [kinds include-tests?]} {:keys [filename kind]}]

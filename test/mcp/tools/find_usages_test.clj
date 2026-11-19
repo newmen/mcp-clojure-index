@@ -1,5 +1,5 @@
 (ns mcp.tools.find-usages-test
-  "Acceptance cases 1 (without `redef`/`in-comment`) and 2 of the spec, on
+  "Acceptance cases 1 (without `redef`/`in-comment`), 2 and 3 of the spec, on
    fixture projects under `test-resources/usages/` and on this project's
    own code base."
   (:require [clojure.string :as s]
@@ -20,6 +20,7 @@
 (def ^:private lein-project (delay (fixture-index "lein_project")))
 (def ^:private deps-project (delay (fixture-index "deps_project")))
 (def ^:private plain-project (delay (fixture-index "plain_project")))
+(def ^:private keyword-project (delay (fixture-index "keyword_project")))
 
 (defn- answer
   ([code-index args] (answer project/config code-index args))
@@ -111,6 +112,53 @@
                 (answer-lines (project/code-index)
                               {:targets ["mcp.tools.find-definition/definition->line"
                                          "output/oversized-first-finding"]}))))))
+
+(deftest finds-plain-keyword-in-code-and-edn
+  (is (= [":timeout: 5 usages"
+          "resources/config.edn:1:2  edn"
+          "resources/config.edn:3:11  edn"
+          "src/kw/core.clj:7:12  keyword  kw.core/read-opts"
+          "src/kw/core.clj:10:5  keyword  kw.core/read-opts"
+          "src/kw/other.clj:7:4  keyword  kw.other/caller"]
+         (answer-lines @keyword-project {:targets [":timeout"]}))))
+
+(def ^:private uuid-usages
+  [":kw.core/uuid: 4 usages"
+   "resources/config.edn:2:2  edn"
+   "src/kw/core.clj:8:5  keyword  kw.core/read-opts"
+   "src/kw/core.clj:9:5  keyword  kw.core/read-opts"
+   "src/kw/other.clj:6:4  keyword  kw.other/caller"])
+
+(deftest auto-resolved-and-qualified-keywords-denote-one-target
+  (testing "spec keyword, written qualified, auto-resolved or alias-qualified"
+    (doseq [written [":kw.core/uuid" "::uuid" "::c/uuid"]]
+      (is (= uuid-usages (answer-lines @keyword-project {:targets [written]})) written)))
+  (testing "keyword without a spec"
+    (is (= [":kw.other/local: 1 usage"
+            "src/kw/other.clj:8:4  keyword  kw.other/caller"]
+           (answer-lines @keyword-project {:targets ["::local"]})))
+    (is (= "no usages of :nowhere/at-all (checked 3 files, including tests)"
+           (answer @keyword-project {:targets [":nowhere/at-all"]})))
+    (is (= "not found: ::nowhere (checked 3 files, including tests)"
+           (answer @keyword-project {:targets ["::nowhere"]})))))
+
+(deftest keywords-and-definitions-mix-in-one-call
+  (let [lines (answer-lines @keyword-project {:targets [":timeout" "kw.core/read-opts"]})]
+    (is (= ":timeout: 5 usages" (first lines)))
+    (is (= "no usages of kw.core/read-opts (checked 3 files, including tests)" (last lines)))
+    (is (= 7 (count lines)))))
+
+(deftest kinds-separate-code-keywords-from-edn
+  (is (= [":timeout: 2 usages"
+          "resources/config.edn:1:2  edn"
+          "resources/config.edn:3:11  edn"]
+         (answer-lines @keyword-project {:targets [":timeout"] :kinds ["edn"]}))))
+
+(deftest finds-keyword-usages-on-own-code-base
+  (let [lines (answer-lines (project/code-index) {:targets [":output/max-chars"] :limit 50})]
+    (is (re-find #"^:output/max-chars: \d+ usages$" (first lines)))
+    (is (some #(re-matches #"resources/config\.edn:\d+:\d+  edn" %) lines))
+    (is (some #(re-matches #"src/mcp/output\.clj:\d+:\d+  keyword  mcp\.output/.+" %) lines))))
 
 (deftest answer-respects-output-budget
   (let [cfg (assoc project/config :output/limit 4)

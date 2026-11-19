@@ -9,15 +9,20 @@
    - `var-usage-kind-rules` classifies a var-usage into a Usage kind; the
      first rule whose predicate holds wins."
   (:require [clojure.java.io :as io]
+            [clojure.string :as s]
             [mcp.code-index :as code-index]))
 
 (set! *warn-on-reflection* true)
 
 ;; Target shape (from `resolve-target`):
 ;;
-;; {:target/type :var                ; or :namespace, :spec, :defmethod
+;; {:target/type :var                ; or :namespace, :spec, :defmethod, :keyword
 ;;  :target/name "app.core/get-uuid" ; how the answer names it
-;;  :definition  {...}}              ; a Definition, see mcp.code-index
+;;  :definition  {...}               ; a Definition, see mcp.code-index
+;;  :keyword     {:ns app.core       ; only for :keyword (no Definition);
+;;                :name "uuid"}}     ; :ns a symbol or nil
+;;
+;; A Usage in an EDN file has an empty :enclosing.
 ;;
 ;; Usage shape (from `usages`):
 ;;
@@ -121,14 +126,53 @@
         ns :var
         :else :namespace))
 
+(defn- keyword-target
+  [keyword-ns keyword-name]
+  {:target/type :keyword
+   :target/name (str (keyword (some-> keyword-ns str) keyword-name))
+   :keyword {:ns keyword-ns :name keyword-name}})
+
+(defn- auto-resolved-namespaces
+  "Namespaces that `::alias/name` (or `::name` when `alias-str` is nil)
+   resolves to somewhere in the project."
+  [index alias-str keyword-name]
+  (->> (code-index/entries index :keywords)
+       (filter #(and (:auto-resolved %) (:ns %) (= keyword-name (:name %))))
+       (filter #(if alias-str
+                  (contains? #{(str (:alias %)) (str (:ns %))} alias-str)
+                  (nil? (:alias %))))
+       (into (sorted-set) (map :ns))))
+
+(defn- resolve-keyword
+  "A keyword without a spec: `:name` and `:ns/name` always denote a
+   Target; `::name` and `::alias/name` denote the namespaces they resolve
+   to in the project."
+  [index keyword-str]
+  (let [auto-resolved? (s/starts-with? keyword-str "::")
+        [ns-part keyword-name] (let [bare (s/replace keyword-str #"^::?" "")
+                                     slash (s/index-of bare "/")]
+                                 (if (and slash (pos? slash))
+                                   [(subs bare 0 slash) (subs bare (inc slash))]
+                                   [nil bare]))]
+    (cond
+      (s/blank? keyword-name) {}
+      (not auto-resolved?) {:target (keyword-target (some-> ns-part symbol) keyword-name)}
+      :else (let [namespaces (auto-resolved-namespaces index ns-part keyword-name)]
+              (case (count namespaces)
+                0 {}
+                1 {:target (keyword-target (first namespaces) keyword-name)}
+                {:candidates (map #(hash-map :name (keyword (str %) keyword-name)) namespaces)})))))
+
 (defn resolve-target
   "Resolve a target as written by an agent. Returns {:target t} for one
    Target, {:candidates [Definition ...]} for an ambiguous name, or {} when
-   nothing matches."
+   nothing matches. A keyword without a spec is a Target of its own."
   [index target-str]
   (let [definitions (code-index/resolve-name index target-str)]
     (case (count definitions)
-      0 {}
+      0 (if (s/starts-with? (s/trim (or target-str "")) ":")
+          (resolve-keyword index (s/trim target-str))
+          {})
       1 (let [definition (first definitions)]
           {:target {:target/type (definition-target-type definition)
                     :target/name (code-index/qualified-name definition)
@@ -167,9 +211,40 @@
 
 (defmethod usages :default
   [_index _target]
-  ;; TODO: spec and defmethod Targets have no Usages until keyword targets
-  ;; (ticket 05) are supported
+  ;; TODO: a defmethod Target has no Usages: calls go through its multimethod
   [])
+
+(defn- in-ns-form?
+  "True when a keyword entry lies inside the `ns` form of its file
+   (`:require`, `:as`, ...)."
+  [index keyword-entry]
+  (some #(encloses? % (position keyword-entry))
+        (code-index/file-entries index (:filename keyword-entry) :namespace-definitions)))
+
+(defn- keyword-kind
+  [_ctx keyword-entry]
+  (if (s/ends-with? (:filename keyword-entry) ".edn") "edn" "keyword"))
+
+(defn- keyword-usages
+  "Usages of the keyword `:keyword-ns/keyword-name` (`keyword-ns` a symbol
+   or nil) in code and in EDN files; the `s/def` registering it is its
+   Definition, not a Usage."
+  [index keyword-ns keyword-name]
+  (->> (code-index/entries index :keywords)
+       (filter #(and (= keyword-name (:name %)) (= keyword-ns (:ns %))))
+       (remove #(and (:auto-resolved %) (nil? (:ns %)))) ; `::k` in EDN resolves nowhere
+       (remove (some-fn :reg :keys-destructuring-ns-modifier))
+       (remove (partial in-ns-form? index))
+       (file-usages index keyword-kind)
+       sorted-distinct))
+
+(defmethod usages :keyword
+  [index {{keyword-ns :ns keyword-name :name} :keyword}]
+  (keyword-usages index keyword-ns keyword-name))
+
+(defmethod usages :spec
+  [index {{spec-key :name} :definition}]
+  (keyword-usages index (some-> (namespace spec-key) symbol) (name spec-key)))
 
 (defmethod usages :var
   [index {{def-ns :ns def-name :name} :definition}]
@@ -190,4 +265,4 @@
 (defn kind-names
   "The Usage kinds `usages` can report."
   []
-  (mapv first var-usage-kind-rules))
+  (conj (mapv first var-usage-kind-rules) "keyword" "edn"))

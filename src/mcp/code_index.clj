@@ -184,6 +184,7 @@
   [index entry-key]
   (mapcat (comp entry-key :analysis) (vals (:files index))))
 
+
 ;; ---------------------------------------------------------------------------
 ;; Definitions
 ;; ---------------------------------------------------------------------------
@@ -191,13 +192,21 @@
 ;; Definition shape:
 ;;
 ;; {:ns       mcp.output            ; absent for a namespace Definition
-;;  :name     relative-path         ; symbol
-;;  :kind     "defn"                ; defining form, "ns", "protocol-method"
+;;  :name     relative-path         ; symbol; a keyword (:app.core/uuid) for a spec
+;;  :dispatch ":circle"             ; only for a defmethod, as written
+;;  :kind     "defn"                ; defining form ("deftest", "defmethod", "s/def",
+;;                                  ;  a lint-as project macro, ...), "ns", "protocol-method"
 ;;  :filename "/abs/src/mcp/output.clj"
 ;;  :row 25 :col 1 :end-row 33 :end-col 20   ; whole form, :end-col exclusive
 ;;  :arglists ["[root-path file-path]"]
 ;;  :doc      "Return ..."
 ;;  :private  true}                 ; only when private
+;;
+;; clj-kondo reports `defmethod` and `s/def` forms only as usages, so their
+;; Definitions are built from the usage of the defining macro, whose range
+;; spans the whole form.
+
+(def ^:private range-keys [:row :col :end-row :end-col])
 
 (defn- var-definition->definition
   [{:keys [defined-by protocol-name arglist-strs] :as var-def}]
@@ -212,21 +221,89 @@
   (-> (select-keys ns-def [:name :filename :row :col :end-row :end-col :doc])
       (assoc :kind "ns")))
 
-(defn definitions
-  "All Definitions of the project, one per defining form (a `.cljc` form
-   analysed for several languages appears once)."
-  [index]
-  (->> (concat (map var-definition->definition (entries index :var-definitions))
-               (map namespace-definition->definition (entries index :namespace-definitions)))
+(defn- contains-position?
+  "True when the form range of `entry` contains `position` [row col]."
+  [{:keys [row col end-row end-col]} position]
+  (and row end-row
+       (<= (compare [row col] position) 0)
+       (neg? (compare position [end-row end-col]))))
+
+(defn- defining-form
+  "The innermost usage of the macro `macro-ns`/`macro-name` in `analysis`
+   whose form contains the entry `inner`."
+  [analysis macro-ns macro-name inner]
+  (->> (:var-usages analysis)
+       (filter #(and (= macro-ns (:to %)) (= macro-name (:name %))))
+       (filter #(contains-position? % [(:row inner) (:col inner)]))
+       (sort-by (juxt :row :col))
+       last))
+
+(defn- defmethod-definitions
+  [analysis]
+  (for [method-head (:var-usages analysis)
+        :when (:defmethod method-head)]
+    (merge {:ns (:to method-head)
+            :name (:name method-head)
+            :dispatch (:dispatch-val-str method-head)
+            :kind "defmethod"
+            :filename (:filename method-head)}
+           (select-keys (or (defining-form analysis 'clojure.core 'defmethod method-head)
+                            method-head)
+                        range-keys))))
+
+(defn- spec-definitions
+  [analysis]
+  (for [spec-key (:keywords analysis)
+        :when (= 'clojure.spec.alpha/def (:reg spec-key))]
+    (merge {:ns (:ns spec-key)
+            :name (keyword (some-> (:ns spec-key) str) (:name spec-key))
+            :kind "s/def"
+            :filename (:filename spec-key)}
+           (select-keys (or (defining-form analysis 'clojure.spec.alpha 'def spec-key)
+                            spec-key)
+                        range-keys))))
+
+(defn- file-definitions
+  "The Definitions of one file's clj-kondo `analysis`, one per defining form
+   (a `.cljc` form analysed for several languages appears once)."
+  [analysis]
+  (->> (concat (map var-definition->definition (:var-definitions analysis))
+               (map namespace-definition->definition (:namespace-definitions analysis))
+               (defmethod-definitions analysis)
+               (spec-definitions analysis))
        (map #(into {} (remove (comp nil? val)) %))
-       (group-by (juxt :filename :row :col :ns :name))
+       (group-by (juxt :row :col :ns :name :dispatch))
        vals
        (map first)))
 
+(defn definitions
+  "All Definitions of the project: vars, tests, multimethods and their
+   methods, protocols, records, specs and forms of project macros."
+  [index]
+  (mapcat (comp file-definitions :analysis) (vals (:files index))))
+
+(defn enclosing-definition
+  "The Enclosing definition of the position `row`:`col` (1-based) in
+   `file-path` (absolute): the innermost Definition whose form contains it,
+   or nil. Works where clj-kondo gives no `:from-var` (defmethod, s/def,
+   record and type bodies)."
+  [index file-path row col]
+  (->> (file-definitions (get-in index [:files file-path :analysis]))
+       (filter #(contains-position? % [row col]))
+       ;; innermost first: latest start, then earliest end; of forms sharing
+       ;; one range (`Circle`, `->Circle`) the shortest name
+       (sort-by (fn [{def-row :row def-col :col :keys [end-row end-col] def-name :name}]
+                  [(- def-row) (- def-col) end-row end-col (count (str def-name))]))
+       first))
+
 (defn qualified-name
-  "`ns/name` of a Definition, or the namespace name of a namespace Definition."
-  [{:keys [ns] def-name :name}]
-  (if ns (str ns "/" def-name) (str def-name)))
+  "`ns/name` of a Definition (followed by the dispatch value for a
+   defmethod), the keyword of a spec, or the namespace name of a namespace
+   Definition."
+  [{:keys [ns dispatch] def-name :name}]
+  (cond (keyword? def-name) (str def-name)
+        ns (cond-> (str ns "/" def-name) dispatch (str " " dispatch))
+        :else (str def-name)))
 
 ;; ---------------------------------------------------------------------------
 ;; Name resolution
@@ -246,20 +323,54 @@
       [(subs name-str 0 slash) (subs name-str (inc slash))]
       [nil name-str])))
 
+(defn- normalize-dispatch
+  [dispatch-str]
+  (some-> dispatch-str (s/replace #"\s+" " ")))
+
+(defn- symbol-matcher
+  "Predicate on Definitions for `name-str`, optionally followed by a
+   defmethod dispatch value (`area :circle`)."
+  [index name-str]
+  (let [[head dispatch] (s/split name-str #"\s+" 2)
+        [ns-part simple] (split-name head)
+        simple-sym (symbol simple)
+        dispatch (normalize-dispatch dispatch)
+        namespaces (when ns-part
+                     (conj (alias-targets index ns-part) (symbol ns-part)))]
+    (fn [definition]
+      (and (= simple-sym (:name definition))
+           (= dispatch (normalize-dispatch (:dispatch definition)))
+           (or (nil? namespaces) (contains? namespaces (:ns definition)))))))
+
+(defn- keyword-matcher
+  "Predicate on spec Definitions for a keyword as written: `:app.core/uuid`,
+   `::uuid` (in any namespace) or `::c/uuid` (alias-qualified)."
+  [index keyword-str]
+  (let [auto-resolved? (s/starts-with? keyword-str "::")
+        [ns-part simple] (split-name (s/replace keyword-str #"^::?" ""))
+        namespaces (cond (and auto-resolved? ns-part)
+                         (conj (alias-targets index ns-part) (symbol ns-part))
+                         ns-part #{(symbol ns-part)})]
+    (fn [{def-name :name}]
+      (and (keyword? def-name)
+           (= simple (name def-name))
+           (cond namespaces (contains? namespaces (some-> (namespace def-name) symbol))
+                 auto-resolved? (some? (namespace def-name))
+                 :else (nil? (namespace def-name)))))))
+
 (defn resolve-name
   "Definitions that `name-str` may denote: a simple name (`get-uuid`, or a
    namespace name), an alias-qualified name as written in some namespace
-   (`c/get-uuid`) or a fully qualified name (`app.core/get-uuid`). More
-   than one result means the name is ambiguous."
+   (`c/get-uuid`) or a fully qualified name (`app.core/get-uuid`). A
+   multimethod name followed by a dispatch value (`area :circle`) denotes
+   that defmethod; a keyword (`:app.core/uuid`, `::uuid`, `::c/uuid`)
+   denotes its spec. More than one result means the name is ambiguous."
   [index name-str]
-  (let [[ns-part simple] (split-name (s/trim (or name-str "")))]
-    (when-not (s/blank? simple)
-      (let [simple-sym (symbol simple)
-            namespaces (when ns-part
-                         (conj (alias-targets index ns-part) (symbol ns-part)))]
-        (->> (definitions index)
-             (filter (if ns-part
-                       #(and (= simple-sym (:name %)) (contains? namespaces (:ns %)))
-                       #(= simple-sym (:name %))))
-             (sort-by (juxt :filename :row))
-             vec)))))
+  (let [name-str (s/trim (or name-str ""))]
+    (when-not (or (s/blank? name-str) (= ":" name-str) (= "::" name-str))
+      (->> (definitions index)
+           (filter (if (s/starts-with? name-str ":")
+                     (keyword-matcher index name-str)
+                     (symbol-matcher index name-str)))
+           (sort-by (juxt :filename :row))
+           vec))))

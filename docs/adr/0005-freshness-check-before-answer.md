@@ -1,0 +1,3 @@
+# Synchronous freshness check before each answer, no file watcher
+
+Before answering, the precise tools compare file modification times across the project (milliseconds for hundreds of files) and re-analyse changed files synchronously with clj-kondo. We dropped the Java WatchService watcher: it was a source of CPU and correctness bugs, and it cannot guarantee that an agent which edits a file and immediately asks again gets an answer that reflects the edit. A stale answer destroys trust in the server as surely as an oversized one. Embeddings for changed files are recomputed in the background (see ADR-0003).

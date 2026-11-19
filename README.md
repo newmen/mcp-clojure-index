@@ -2,6 +2,10 @@
 
 MCP server for semantic indexing and analysis of Clojure code. Provides LLM agents with intelligent access to source code through search, navigation, and dependency analysis.
 
+## Purpose
+
+LLM agents spend most of their tokens on understanding code: `grep`, then reading files to see what each hit really is. This server answers questions like "where is X defined", "who uses X", "what is in this namespace" and "where is the code that does Y" with **compact** answers (one line per finding, hard size ceiling) that are **more complete than `grep`**: usages through any alias, `:refer`, `#'var`, `with-redefs`, functions passed as values, keywords in code and EDN. If an answer is ever bigger or less precise than what `grep` would give, that is a bug. See `docs/adr/` for the principles and `GLOSSARY.md` for the vocabulary.
+
 ## Features
 
 - **Semantic search** — vector search + reranking (Cross Encoder)

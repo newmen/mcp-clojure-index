@@ -1,0 +1,3 @@
+# Purpose: fewer agent tokens than grep, with better precision
+
+The server exists to cut the tokens an LLM agent spends understanding Clojure code. Every tool must beat the agent's default (`grep` plus reading files) on two axes at once: the answer is **smaller** and it is **more complete or more precise** (aliases, `:refer`, `#'var`, `with-redefs`, values passed to higher-order functions). A tool that loses on either axis gets abandoned: an agent that receives one oversized or wrong answer stops trusting the whole server and returns to `grep` for the rest of the session. Precise navigation and semantic search are equally important; the decisions in ADR-0002 to ADR-0006 follow from this one.

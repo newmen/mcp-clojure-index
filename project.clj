@@ -6,7 +6,8 @@
                   [ch.qos.logback/logback-classic "1.5.38"]
                   [clj-http "3.13.1"]
                   [rewrite-clj "1.2.55"]
-                  [aysylu/loom "1.0.2"]]
+                  [aysylu/loom "1.0.2"]
+                  [clj-kondo/clj-kondo "2026.10.26"]]
   :main mcp.server
   :aot [mcp.server]
   :repl-options {:init-ns mcp.server}

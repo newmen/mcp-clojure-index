@@ -89,43 +89,6 @@
     (is (= 2 (count (get (:index/by-type idx) :val))))))
 
 ;; ---------------------------------------------------------------------------
-;; find-symbol
-;; ---------------------------------------------------------------------------
-
-(deftest find-symbol-by-qualified-name
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (seq (sut/find-symbol idx 'fixtures.valid-defs/create-user)))
-    (is (= 'fixtures.valid-defs/create-user
-           (:sym/name (first (sut/find-symbol idx 'fixtures.valid-defs/create-user)))))))
-
-(deftest find-symbol-by-simple-name
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (seq (sut/find-symbol idx 'create-user)))
-    (is (= 1 (count (sut/find-symbol idx 'create-user))))))
-
-(deftest find-symbol-returns-nil-for-missing
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (nil? (sut/find-symbol idx 'nonexistent)))))
-
-(deftest find-symbol-by-string-name
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (seq (sut/find-symbol idx "create-user")))
-    (is (seq (sut/find-symbol idx "fixtures.valid-defs/create-user")))))
-
-;; ---------------------------------------------------------------------------
-;; find-namespace
-;; ---------------------------------------------------------------------------
-
-(deftest find-namespace-works
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (some? (sut/find-namespace idx 'fixtures.valid-defs)))
-    (is (= 'fixtures.valid-defs (:ns/name (sut/find-namespace idx 'fixtures.valid-defs))))))
-
-(deftest find-namespace-returns-nil-for-missing
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (nil? (sut/find-namespace idx 'nonexistent.ns)))))
-
-;; ---------------------------------------------------------------------------
 ;; find-by-type
 ;; ---------------------------------------------------------------------------
 
@@ -320,21 +283,6 @@
         chunks (:result/chunks enriched)
         idx (sut/build-index symbols chunks)]
     (is (= (count symbols) (count (:index/by-qname idx))))))
-
-;; ---------------------------------------------------------------------------
-;; Edge cases: namespace extraction
-;; ---------------------------------------------------------------------------
-
-(deftest find-namespace-extracts-requires
-  (let [result (parser/parse-file (fixture-path "valid_defs.clj"))
-        enriched (parser/enrich-chunks-with-ns result)
-        symbols (parser/extract-symbols enriched)
-        chunks (:result/chunks enriched)
-        idx (sut/build-index symbols chunks)
-        ns-rec (sut/find-namespace idx 'fixtures.valid-defs)]
-    (is (some? ns-rec))
-    (is (= 'fixtures.valid-defs (:ns/name ns-rec)))
-    (is (seq (:ns/requires ns-rec)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases: remove-file! idempotency

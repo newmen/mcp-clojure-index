@@ -4,11 +4,11 @@
 
 **Blocked by:** 01 (Output budget and compact semantic search)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Precise index is built from clj-kondo analysis at startup and is available even when Qdrant and Ollama are down.
-- [ ] Simple, alias-qualified and fully qualified names resolve to the right Definition; an ambiguous simple name returns candidates.
-- [ ] Answers follow the Output budget and the Compact answer rules; a miss reports the number of files checked.
-- [ ] `initialize` returns `instructions` in English; the protocol version supports that field.
-- [ ] `find_symbol` and `find_namespace` no longer appear in `tools/list`.
-- [ ] Acceptance test on this project's own code base (case 4 of the spec) runs in the default test run without external services.
+- [x] Precise index is built from clj-kondo analysis at startup and is available even when Qdrant and Ollama are down.
+- [x] Simple, alias-qualified and fully qualified names resolve to the right Definition; an ambiguous simple name returns candidates.
+- [x] Answers follow the Output budget and the Compact answer rules; a miss reports the number of files checked.
+- [x] `initialize` returns `instructions` in English; the protocol version supports that field.
+- [x] `find_symbol` and `find_namespace` no longer appear in `tools/list`.
+- [x] Acceptance test on this project's own code base (case 4 of the spec) runs in the default test run without external services.

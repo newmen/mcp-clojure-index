@@ -113,20 +113,6 @@
 ;; Lookups
 ;; ---------------------------------------------------------------------------
 
-(defn find-symbol
-  [index name]
-  (let [sym (if (instance? clojure.lang.Named name)
-              name
-              (symbol name))]
-    (if (qualified-symbol? sym)
-      (when-let [rec (get (:index/by-qname index) sym)]
-        [rec])
-      (get (:index/by-simple index) sym))))
-
-(defn find-namespace
-  [index ns-name]
-  (get (:index/namespaces index) (symbol ns-name)))
-
 (defn find-by-type
   [index type]
   (get (:index/by-type index) type []))

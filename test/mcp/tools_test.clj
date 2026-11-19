@@ -37,19 +37,18 @@
    :sym/aliases    #{}})
 
 (deftest tool-definitions-contain-all-tools
-  (let [names (set (map :name sut/tool-definitions))]
+  (let [names (set (map :name (sut/tool-definitions)))]
     (is (contains? names "semantic_search"))
-    (is (contains? names "find_symbol"))
-    (is (contains? names "find_namespace"))
+    (is (contains? names "find_definition"))
     (is (contains? names "find_callers"))
     (is (contains? names "find_callees"))
     (is (contains? names "find_protocol"))
     (is (contains? names "find_record"))
     (is (contains? names "find_macro"))
-    (is (= 8 (count names)))))
+    (is (= 7 (count names)))))
 
 (deftest tool-definitions-have-required-fields
-  (doseq [t sut/tool-definitions]
+  (doseq [t (sut/tool-definitions)]
     (is (contains? t :name))
     (is (contains? t :description))
     (is (contains? t :inputSchema))
@@ -61,52 +60,12 @@
         result (sut/handle-tools-list state)
         tool-names (set (map :name (:tools result)))]
     (is (contains? tool-names "semantic_search"))
-    (is (contains? tool-names "find_symbol"))
-    (is (contains? tool-names "find_namespace"))
+    (is (contains? tool-names "find_definition"))
     (is (contains? tool-names "find_callers"))
     (is (contains? tool-names "find_callees"))
     (is (contains? tool-names "find_protocol"))
     (is (contains? tool-names "find_record"))
     (is (contains? tool-names "find_macro"))))
-
-(deftest find-symbol-by-qualified-name
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'my-func "/f.clj" cid)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_symbol" {:name "test.ns/my-func"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "test.ns/my-func"))
-    (is (s/includes? text "my-func"))))
-
-(deftest find-symbol-by-simple-name
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'my-func "/f.clj" cid)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_symbol" {:name "my-func"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "my-func"))))
-
-(deftest find-symbol-returns-not-found
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_symbol" {:name "nonexistent"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-(deftest find-namespace-found
-  (let [ns-chunk {:chunk/type :ns :chunk/name "test.ns" :chunk/source "(ns test.ns)" :chunk/file "/f.clj"}
-        index (si/build-index [] [ns-chunk])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_namespace" {:name "test.ns"} state)
-        text (:text (first (:content result)))]
-    (is (some? text))))
-
-(deftest find-namespace-not-found
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_namespace" {:name "missing.ns"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
 
 (deftest find-callers-found
   (let [gr (-> (graph/empty-graph)
@@ -250,7 +209,7 @@
            (semantic-search-text cfg (si/empty-index) hits {:query "f" :limit 99 :offset 1})))))
 
 (deftest semantic-search-schema-accepts-limit-and-offset
-  (let [schema (:inputSchema (first (filter (comp #{"semantic_search"} :name) sut/tool-definitions)))]
+  (let [schema (:inputSchema (first (filter (comp #{"semantic_search"} :name) (sut/tool-definitions))))]
     (is (= #{:query :limit :offset} (set (keys (:properties schema)))))))
 
 (deftest semantic-search-no-results
@@ -265,18 +224,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Edge cases: tools with nil/empty arguments
 ;; ---------------------------------------------------------------------------
-
-(deftest find-symbol-with-nil-name
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_symbol" {:name nil} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-(deftest find-namespace-with-empty-string
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_namespace" {:name ""} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
 
 (deftest find-callers-with-nil-symbol
   (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}

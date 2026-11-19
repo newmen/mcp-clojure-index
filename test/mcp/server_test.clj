@@ -1,10 +1,11 @@
 (ns mcp.server-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.string :as s]
+            [clojure.test :refer [deftest is]]
             [mcp.server :as sut]
             [mcp.config :as config]
             [mcp.symbol-index :as si]
-            [mcp.graph :as graph])
-  (:import (java.util UUID)))
+            [mcp.graph :as graph]
+            [mcp.test-project :as project]))
 
 (set! *warn-on-reflection* true)
 
@@ -37,10 +38,27 @@
         state {:config config/defaults}
         [response _new-state] (#'sut/initialize-handler msg state)]
     (is (= 1 (:id response)))
-    (is (= "2024-11-05" (get-in response [:result :protocolVersion])))
+    (is (= "2025-06-18" (get-in response [:result :protocolVersion])))
     (is (= "mcp-clojure-index" (get-in response [:result :serverInfo :name])))
     (is (get-in response [:result :capabilities :tools]))
     (is (= state {:config config/defaults}))))
+
+(deftest initialize-returns-instructions-to-prefer-the-server-over-grep
+  (let [[response _state] (#'sut/initialize-handler {:id 1 :method "initialize"} {})
+        instructions (get-in response [:result :instructions])]
+    (is (<= 4 (count (s/split-lines instructions)) 6))
+    (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
+                    "path:line" "size limit" "get_source"]]
+      (is (s/includes? instructions phrase) phrase))))
+
+(deftest handle-method-tools-call-find-definition-without-qdrant
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
+             :params {:name "find_definition" :arguments {:name "mcp.output/first-line"}}}
+        state {:config project/config :code-index-ref (atom (project/code-index))}
+        [response _new-state] (#'sut/handle-method msg state)]
+    (is (= [{:type "text"
+             :text "src/mcp/output.clj:38  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
+           (get-in response [:result :content])))))
 
 (deftest handle-method-initialize
   (let [msg {:jsonrpc "2.0" :id 1 :method "initialize" :params {:clientInfo {:name "test" :version "1.0"}}}
@@ -65,37 +83,14 @@
         tool-names (set (map :name (get-in response [:result :tools])))]
     (is (= 1 (:id response)))
     (is (contains? tool-names "semantic_search"))
-    (is (contains? tool-names "find_symbol"))
-    (is (contains? tool-names "find_namespace"))
+    (is (contains? tool-names "find_definition"))
+    (is (not (contains? tool-names "find_symbol")))
+    (is (not (contains? tool-names "find_namespace")))
     (is (contains? tool-names "find_callers"))
     (is (contains? tool-names "find_callees"))
     (is (contains? tool-names "find_protocol"))
     (is (contains? tool-names "find_record"))
     (is (contains? tool-names "find_macro"))))
-
-(deftest handle-method-tools-call-find-symbol
-  (let [cid (UUID/randomUUID)
-        sym {:sym/name 'test.ns/my-func :sym/simple 'my-func :sym/ns 'test.ns
-             :sym/type :fn :sym/file "/f.clj" :sym/line 1
-             :sym/chunk-id cid :sym/visibility :public :sym/aliases #{}}
-        index (si/add-file! (si/empty-index) [sym])
-        msg {:jsonrpc "2.0" :id 1 :method "tools/call"
-             :params {:name "find_symbol" :arguments {:name "test.ns/my-func"}}}
-        state {:config config/defaults :index index :graph-state (graph/empty-graph)}
-        [response _new-state] (#'sut/handle-method msg state)
-        content (get-in response [:result :content])]
-    (is (= 1 (:id response)))
-    (is (some? content))
-    (is (some #(re-find #"test.ns/my-func" (:text %)) content))))
-
-(deftest handle-method-tools-call-find-symbol-not-found
-  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
-             :params {:name "find_symbol" :arguments {:name "nonexistent"}}}
-        state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
-        [response _new-state] (#'sut/handle-method msg state)
-        content (get-in response [:result :content])]
-    (is (= 1 (:id response)))
-    (is (some #(re-find #"not found" (:text %)) content))))
 
 (deftest handle-method-tools-call-invalid-tool
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
@@ -203,8 +198,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest process-message-tools-call
-  (let [state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
-        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find_symbol\",\"arguments\":{\"name\":\"test\"}}}"
+  (let [state {:config project/config :code-index-ref (atom (project/code-index))}
+        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find_definition\",\"arguments\":{\"name\":\"test\"}}}"
         [response _new-state] (#'sut/process-message line state)]
     (is (some? response))
     (is (= 1 (:id response)))

@@ -1,0 +1,265 @@
+(ns mcp.code-index
+  "Precise in-memory index of the project's Definitions and Usages, built
+   from clj-kondo analysis (ADR-0002). Nothing here touches Qdrant or
+   Ollama (ADR-0003).
+
+   The index keeps clj-kondo's raw analysis per file, so a changed file is
+   re-analysed on its own (`update-files`) and every query derives what it
+   needs from `entries`. Definitions are normalised by `definitions`;
+   `resolve-name` maps a name as an agent writes it (simple, alias-qualified
+   or fully qualified) to the Definitions it may denote."
+  (:require [clj-kondo.core :as kondo]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as s])
+  (:import (java.io File PushbackReader)))
+
+(set! *warn-on-reflection* true)
+
+;; Index shape:
+;;
+;; {:root       "/abs/project"            ; no trailing slash
+;;  :test-paths ["/abs/project/test" ...] ; absolute Test path directories
+;;  :files      {"/abs/file.clj" {:mtime    1700000000000
+;;                                :analysis {:var-definitions [...]
+;;                                           :var-usages [...]
+;;                                           :namespace-definitions [...]
+;;                                           :namespace-usages [...]
+;;                                           :keywords [...]
+;;                                           :protocol-impls [...]
+;;                                           :symbols [...]
+;;                                           :java-class-usages [...]}}}}
+;;
+;; Analysis entries are clj-kondo's own maps (see clj-kondo's analysis
+;; docs); every entry has an absolute `:filename`.
+
+(def ^:private analysis-config
+  {:output {:canonical-paths true}
+   :analysis {:arglists true
+              :keywords true
+              :protocol-impls true
+              :symbols true
+              :java-class-usages true
+              :locals false
+              :context false}})
+
+(def ^:private test-file-pattern #"_test\.clj[cs]?$")
+
+;; ---------------------------------------------------------------------------
+;; Project files
+;; ---------------------------------------------------------------------------
+
+(defn- relative-to
+  [root file-path]
+  (subs file-path (min (count file-path) (inc (count root)))))
+
+(defn- project-file?
+  [cfg root ^File file]
+  (let [path (.getPath file)
+        relative (relative-to root path)]
+    (and (.isFile file)
+         (some #(s/ends-with? (s/lower-case path) %) (:index/include-extensions cfg))
+         (not-any? #(re-find % relative) (:index/exclude cfg)))))
+
+(defn- source-files
+  "Absolute paths of all Clojure and EDN files of the project, minus
+   configured excludes."
+  [cfg root]
+  (->> (file-seq (io/file root))
+       (filter (partial project-file? cfg root))
+       (mapv #(.getCanonicalPath ^File %))))
+
+;; ---------------------------------------------------------------------------
+;; Test paths
+;; ---------------------------------------------------------------------------
+
+(defn- read-forms
+  [^File file]
+  (binding [*read-eval* false]
+    (with-open [reader (PushbackReader. (io/reader file))]
+      (->> (repeatedly #(read {:eof ::eof :read-cond :allow} reader))
+           (take-while (complement #{::eof}))
+           doall))))
+
+(defn- lein-test-paths
+  [^File project-clj]
+  (when (.isFile project-clj)
+    (some (fn [form]
+            (when (and (seq? form) (= 'defproject (first form)))
+              (let [options (apply hash-map (drop 3 form))]
+                (or (:test-paths options) ["test"]))))
+          (read-forms project-clj))))
+
+(defn- deps-test-paths
+  [^File deps-edn]
+  (when (.isFile deps-edn)
+    (->> (:aliases (edn/read-string (slurp deps-edn)))
+         (filter (comp #(s/includes? % "test") name key))
+         (mapcat (comp :extra-paths val))
+         seq)))
+
+(defn- detect-test-paths
+  "Test paths from `project.clj` `:test-paths` or the `:extra-paths` of
+   `deps.edn` aliases whose name contains `test`; fallback `test`."
+  [root]
+  (->> (or (try (lein-test-paths (io/file root "project.clj"))
+                (catch Exception _ nil))
+           (try (deps-test-paths (io/file root "deps.edn"))
+                (catch Exception _ nil))
+           ["test"])
+       (mapv #(.getCanonicalPath (io/file root (str %))))))
+
+;; ---------------------------------------------------------------------------
+;; Analysis
+;; ---------------------------------------------------------------------------
+
+(defn- kondo-config-dir
+  [root]
+  (let [dir (io/file root ".clj-kondo")]
+    (when (.isDirectory dir)
+      (.getCanonicalPath dir))))
+
+(defn- analyze
+  "Run clj-kondo on `file-paths`; returns {file-path analysis}."
+  [root file-paths]
+  (let [result (kondo/run! (cond-> {:lint (vec file-paths)
+                                    :cache false
+                                    :skip-lint true
+                                    :parallel true
+                                    :config analysis-config}
+                             (kondo-config-dir root) (assoc :config-dir (kondo-config-dir root))))
+        empty-analysis (zipmap (keys (:analysis result)) (repeat []))]
+    (reduce-kv (fn [acc entry-key entries]
+                 (reduce (fn [acc entry]
+                           (update-in acc [(:filename entry) entry-key] (fnil conj []) entry))
+                         acc
+                         entries))
+               (zipmap file-paths (repeat empty-analysis))
+               (:analysis result))))
+
+(defn update-files
+  "Re-analyse `file-paths` (absolute) and replace their entries in `index`.
+   Paths that no longer exist are dropped from the index."
+  [index file-paths]
+  (let [{existing true missing false} (group-by #(.isFile (io/file ^String %)) file-paths)
+        analyses (when (seq existing) (analyze (:root index) existing))]
+    (-> index
+        (update :files #(apply dissoc % missing))
+        (update :files merge
+                (into {}
+                      (map (fn [file-path]
+                             [file-path {:mtime (.lastModified (io/file ^String file-path))
+                                         :analysis (get analyses file-path)}]))
+                      existing)))))
+
+(defn build
+  "Build the index of the project at `:index/root-path` from scratch."
+  [cfg]
+  (let [root (.getCanonicalPath (io/file ^String (:index/root-path cfg)))]
+    (update-files {:root root
+                   :test-paths (detect-test-paths root)
+                   :files {}}
+                  (source-files cfg root))))
+
+;; ---------------------------------------------------------------------------
+;; Files
+;; ---------------------------------------------------------------------------
+
+(defn files
+  "Absolute paths of all indexed files."
+  [index]
+  (keys (:files index)))
+
+(defn test-file?
+  "True when `file-path` (absolute) lies under a Test path or is named
+   like a test file."
+  [index ^String file-path]
+  (boolean
+   (or (some #(s/starts-with? file-path (str % "/")) (:test-paths index))
+       (re-find test-file-pattern file-path))))
+
+(defn entries
+  "All clj-kondo analysis entries of kind `entry-key` (e.g. `:var-usages`)
+   across the indexed files."
+  [index entry-key]
+  (mapcat (comp entry-key :analysis) (vals (:files index))))
+
+;; ---------------------------------------------------------------------------
+;; Definitions
+;; ---------------------------------------------------------------------------
+
+;; Definition shape:
+;;
+;; {:ns       mcp.output            ; absent for a namespace Definition
+;;  :name     relative-path         ; symbol
+;;  :kind     "defn"                ; defining form, "ns", "protocol-method"
+;;  :filename "/abs/src/mcp/output.clj"
+;;  :row 25 :col 1 :end-row 33 :end-col 20   ; whole form, :end-col exclusive
+;;  :arglists ["[root-path file-path]"]
+;;  :doc      "Return ..."
+;;  :private  true}                 ; only when private
+
+(defn- var-definition->definition
+  [{:keys [defined-by protocol-name arglist-strs] :as var-def}]
+  (cond-> (select-keys var-def [:ns :name :filename :row :col :end-row :end-col :doc :private])
+    true (assoc :kind (cond protocol-name "protocol-method"
+                            defined-by (name defined-by)
+                            :else "def"))
+    (seq arglist-strs) (assoc :arglists arglist-strs)))
+
+(defn- namespace-definition->definition
+  [ns-def]
+  (-> (select-keys ns-def [:name :filename :row :col :end-row :end-col :doc])
+      (assoc :kind "ns")))
+
+(defn definitions
+  "All Definitions of the project, one per defining form (a `.cljc` form
+   analysed for several languages appears once)."
+  [index]
+  (->> (concat (map var-definition->definition (entries index :var-definitions))
+               (map namespace-definition->definition (entries index :namespace-definitions)))
+       (map #(into {} (remove (comp nil? val)) %))
+       (group-by (juxt :filename :row :col :ns :name))
+       vals
+       (map first)))
+
+(defn qualified-name
+  "`ns/name` of a Definition, or the namespace name of a namespace Definition."
+  [{:keys [ns] def-name :name}]
+  (if ns (str ns "/" def-name) (str def-name)))
+
+;; ---------------------------------------------------------------------------
+;; Name resolution
+;; ---------------------------------------------------------------------------
+
+(defn- alias-targets
+  "Namespaces that `alias-str` stands for in any namespace of the project."
+  [index alias-str]
+  (->> (entries index :namespace-usages)
+       (filter (comp #{alias-str} str :alias))
+       (into #{} (map :to))))
+
+(defn- split-name
+  [name-str]
+  (let [slash (s/index-of name-str "/")]
+    (if (and slash (pos? slash) (< slash (dec (count name-str))))
+      [(subs name-str 0 slash) (subs name-str (inc slash))]
+      [nil name-str])))
+
+(defn resolve-name
+  "Definitions that `name-str` may denote: a simple name (`get-uuid`, or a
+   namespace name), an alias-qualified name as written in some namespace
+   (`c/get-uuid`) or a fully qualified name (`app.core/get-uuid`). More
+   than one result means the name is ambiguous."
+  [index name-str]
+  (let [[ns-part simple] (split-name (s/trim (or name-str "")))]
+    (when-not (s/blank? simple)
+      (let [simple-sym (symbol simple)
+            namespaces (when ns-part
+                         (conj (alias-targets index ns-part) (symbol ns-part)))]
+        (->> (definitions index)
+             (filter (if ns-part
+                       #(and (= simple-sym (:name %)) (contains? namespaces (:ns %)))
+                       #(= simple-sym (:name %))))
+             (sort-by (juxt :filename :row))
+             vec)))))

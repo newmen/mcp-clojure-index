@@ -1,9 +1,13 @@
 (ns mcp.tools
+  "Serves `tools/list` and `tools/call` from the tool registry (`mcp.tool`).
+   New tools live in their own `mcp.tools.*` namespace and are required here."
   (:require [clojure.string :as s]
             [mcp.output :as output]
             [mcp.search :as search]
             [mcp.symbol-index :as si]
-            [mcp.graph :as graph]))
+            [mcp.graph :as graph]
+            [mcp.tool :as tool]
+            [mcp.tools.find-definition]))
 
 (set! *warn-on-reflection* true)
 
@@ -47,7 +51,7 @@
     (update config :search/re-rank-top
             (fnil max 0) (+ (or (:offset params) 0) page-size))))
 
-(def tool-definitions
+(def ^:private legacy-tool-specs
   [{:name "semantic_search"
     :description "Search code semantically using vector search and reranking. Answer: one line per hit (score  path:line  kind  ns/name  first docstring line), no source bodies; at most :output/limit lines and :output/max-chars characters."
     :inputSchema {:type "object"
@@ -55,16 +59,6 @@
                                :limit {:type "integer" :description "Maximum number of hits (can only lower the server limit)"}
                                :offset {:type "integer" :description "Number of hits to skip, for paging"}}
                   :required ["query"]}}
-   {:name "find_symbol"
-    :description "Find a symbol (function, macro, var) by name"
-    :inputSchema {:type "object"
-                  :properties {:name {:type "string" :description "Symbol name (simple or qualified)"}}
-                  :required ["name"]}}
-   {:name "find_namespace"
-    :description "Find a namespace definition"
-    :inputSchema {:type "object"
-                  :properties {:name {:type "string" :description "Namespace name"}}
-                  :required ["name"]}}
    {:name "find_callers"
     :description "Find all symbols that call a given symbol"
     :inputSchema {:type "object"
@@ -102,11 +96,10 @@
        (mapv (comp map->text (partial symbol->result (:index/root-path config))))
        (output/render config params)))
 
-(defmulti handle-tool
-  (fn [tool-name _args _state]
-    (keyword tool-name)))
+(doseq [{tool-name :name :as tool-spec} legacy-tool-specs]
+  (defmethod tool/spec (keyword tool-name) [_tool-key] tool-spec))
 
-(defmethod handle-tool :semantic_search
+(defmethod tool/call :semantic_search
   [_ params {:keys [config index]}]
   (let [query (or (:query params) "")]
     (if (s/blank? query)
@@ -118,23 +111,7 @@
                                     (mapv (partial hit->line (:index/root-path config) index) hits)))]
         {:content [{:type "text" :text answer}]}))))
 
-(defmethod handle-tool :find_symbol
-  [_ params {:keys [config index]}]
-  (let [sym-name (or (:name params) "")
-        results (si/find-symbol index sym-name)]
-    (if (empty? results)
-      {:content [{:type "text" :text (str "Symbol '" sym-name "' not found.")}]}
-      {:content [{:type "text" :text (symbols->answer config params results)}]})))
-
-(defmethod handle-tool :find_namespace
-  [_ params {:keys [config index]}]
-  (let [ns-name (or (:name params) "")
-        result (si/find-namespace index ns-name)]
-    (if (nil? result)
-      {:content [{:type "text" :text (str "Namespace '" ns-name "' not found.")}]}
-      {:content [{:type "text" :text (output/render config params [(pr-str result)])}]})))
-
-(defmethod handle-tool :find_callers
+(defmethod tool/call :find_callers
   [_ params {:keys [config graph-state]}]
   (let [sym-str (or (:symbol params) "")
         sym (symbol sym-str)
@@ -143,7 +120,7 @@
       {:content [{:type "text" :text (str "No callers found for '" sym-str "'.")}]}
       {:content [{:type "text" :text (output/render config params (mapv str callers))}]})))
 
-(defmethod handle-tool :find_callees
+(defmethod tool/call :find_callees
   [_ params {:keys [config graph-state]}]
   (let [sym-str (or (:symbol params) "")
         sym (symbol sym-str)
@@ -152,7 +129,7 @@
       {:content [{:type "text" :text (str "No callees found for '" sym-str "'.")}]}
       {:content [{:type "text" :text (output/render config params (mapv str callees))}]})))
 
-(defmethod handle-tool :find_protocol
+(defmethod tool/call :find_protocol
   [_ params {:keys [config index]}]
   (let [protocol-name (or (:name params) "")
         results (si/find-by-protocol index protocol-name)]
@@ -160,7 +137,7 @@
       {:content [{:type "text" :text (str "Protocol '" protocol-name "' not found.")}]}
       {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
-(defmethod handle-tool :find_record
+(defmethod tool/call :find_record
   [_ params {:keys [config index]}]
   (let [record-name (or (:name params) "")
         results (si/find-by-record index record-name)]
@@ -168,7 +145,7 @@
       {:content [{:type "text" :text (str "Record '" record-name "' not found.")}]}
       {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
-(defmethod handle-tool :find_macro
+(defmethod tool/call :find_macro
   [_ params {:keys [config index]}]
   (let [macro-name (or (:name params) "")
         all-macros (find-all-macros index)
@@ -189,6 +166,21 @@
    :index-ref (atom (si/empty-index))
    :graph-ref (atom (graph/empty-graph))})
 
+(defn tool-definitions
+  "The `tools/list` entries of all registered tools, sorted by name."
+  []
+  (->> (keys (methods tool/spec))
+       (remove #{:default})
+       (map tool/spec)
+       (sort-by :name)
+       vec))
+
 (defn handle-tools-list
+  "Answer `tools/list`."
   [_state]
-  {:tools (vec (mapv (fn [t] (select-keys t [:name :description :inputSchema])) tool-definitions))})
+  {:tools (tool-definitions)})
+
+(defn handle-tool
+  "Answer `tools/call` of `tool-name` with `args` in `state`."
+  [tool-name args state]
+  (tool/call (keyword tool-name) args state))

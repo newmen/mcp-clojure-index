@@ -2,6 +2,7 @@
   (:gen-class)
   (:require [clojure.data.json :as json]
             [clojure.tools.logging :as log]
+            [mcp.code-index :as code-index]
             [mcp.config :as config]
             [mcp.tools :as tools]
             [mcp.watcher :as watcher])
@@ -9,7 +10,17 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:private protocol-version "2024-11-05")
+(def ^:private protocol-version
+  "First MCP revision whose `initialize` result carries `instructions`
+   is 2025-03-26; this is the latest one the server follows."
+  "2025-06-18")
+
+(def ^:private instructions
+  (str "Use this server instead of grep and reading files for questions about this Clojure code base.\n"
+       "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
+       "Answers are compact `path:line` lines with a hard size limit; page with `offset` when an answer says it is truncated.\n"
+       "Start with find_definition for where a name is defined.\n"
+       "Use get_source for a definition's body instead of reading the whole file."))
 (defonce ^:private server-state-atom (atom nil))
 
 (defn- json-rpc-error
@@ -43,14 +54,17 @@
                      :version "0.1.0"}]
     [(json-rpc-result id {:protocolVersion protocol-version
                           :capabilities {:tools {:listChanged false}}
-                          :serverInfo server-info})
+                          :serverInfo server-info
+                          :instructions instructions})
      state]))
 
 (defn- live-state
   [state]
   (let [idx-ref (:index-ref state)
-        gr-ref (:graph-ref state)]
+        gr-ref (:graph-ref state)
+        code-index-ref (:code-index-ref state)]
     (cond-> state
+      code-index-ref (assoc :code-index @code-index-ref)
       idx-ref (assoc :index @idx-ref)
       gr-ref (assoc :graph-state @gr-ref))))
 
@@ -96,7 +110,9 @@
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
         _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
-        initial (tools/make-initial-state cfg)
+        initial (assoc (tools/make-initial-state cfg)
+                       :code-index-ref (atom (code-index/build cfg)))
+        _ (log/info "Code index built:" (count (code-index/files @(:code-index-ref initial))) "files")
         index-ref (:index-ref initial)
         graph-ref (:graph-ref initial)
         watcher-map (watcher/start-watching! cfg index-ref graph-ref)

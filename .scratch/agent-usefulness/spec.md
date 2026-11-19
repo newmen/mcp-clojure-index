@@ -17,13 +17,14 @@ In real refactoring sessions agents abandon the server after the first call and 
 
 ## Decisions
 
-See `docs/adr/0001`–`0006` and `GLOSSARY.md`. In short:
+See `docs/adr/0001`–`0007` and `GLOSSARY.md`. In short:
 
 - Definitions and Usages come from clj-kondo analysis, embedded as a library, honouring the project's `.clj-kondo/config.edn` (ADR-0002).
 - The precise index is in memory only; Qdrant and Ollama serve semantic search only and are optional (ADR-0003).
 - Output budget is a server-side ceiling: `:output/limit` 50, `:output/max-chars` 2000 (ADR-0004).
 - Synchronous mtime check before each answer, no WatchService (ADR-0005).
 - Compact answers only, nothing the agent did not ask for (ADR-0006).
+- The reranker is a separate optional `/v1/rerank` server; lexical matching is fused with vector search before it (ADR-0007).
 - No backward compatibility with the old tool names.
 
 ## Tool surface
@@ -37,7 +38,7 @@ All tools obey the Output budget and accept `limit` (lower only) and `offset`. N
 | `namespace_summary` | `ns` | public and private Definitions with arglists and first docstring line; then the namespaces that require it |
 | `get_source` | `name` | the source of exactly one Definition, with `path:start-end` header |
 | `find_implementations` | `name` (protocol or multimethod) | `path:line  ns/type-or-dispatch-value  method` |
-| `semantic_search` | `query`, `limit?` | `score  path:line  kind  ns/name  first docstring line`; no bodies, no expansion |
+| `semantic_search` | `query`, `limit?` | `score  path:line  kind  ns/name  first docstring line`; no bodies, no expansion; `score` is the reranker's relevance, left out when the reranker is not running (ADR-0007) |
 
 Removed: `find_symbol`, `find_namespace`, `find_callers`, `find_callees`, `find_protocol`, `find_record`, `find_macro`.
 
@@ -49,13 +50,13 @@ Tool descriptions say explicitly what the tool sees that `grep` does not and how
 
 ## Server instructions
 
-Upgrade the MCP protocol version so that `initialize` returns `instructions` (in English, ~5 lines): use this server instead of `grep` for questions about Clojure code; usages include aliases, `:refer`, `#'var`, `with-redefs`, values and keywords in EDN; answers are compact `path:line` lines with a hard size limit; use `get_source` for bodies.
+Upgrade the MCP protocol version so that `initialize` returns `instructions` (in English, ~5 lines): use this server instead of `grep` for questions about Clojure code; usages include aliases, `:refer`, `#'var`, `with-redefs`, values and keywords in EDN; answers are compact `path:line` lines under a hard size ceiling; use `get_source` for bodies.
 
 ## Scope of analysis
 
 - All Clojure files (`.clj`, `.cljc`, `.cljs`) and `.edn` files of the project, minus configured excludes. `project.clj` and `deps.edn` are analysed as ordinary files.
 - Test paths come from `project.clj` `:test-paths` or `deps.edn` alias `:extra-paths` (aliases containing `test`); fallback: `test/` and `*_test.clj*` files.
-- Search units: every Definition (including `deftest`, `defmethod`, `s/def`, project macros) and every top-level entry of an EDN map. Embedding text: `ns/name` + arglists + docstring + source truncated to ~2000 characters. The reranker stays.
+- Search units: every Definition (including `deftest`, `defmethod`, `s/def`, project macros) and every top-level entry of an EDN map. Embedding text: `ns/name` + arglists + docstring + source truncated to ~2000 characters. The reranker stays, as a separate optional server (ADR-0007).
 - Other resources (`.sql`, `.html`, `.json`) are out of scope.
 
 ## Freshness
@@ -74,7 +75,7 @@ Automated tests on this project's own code base, plus fixtures under `test-resou
 6. An answer larger than the budget ends with a Truncation note, and `offset` returns the next page.
 7. Edit a file, ask again immediately: the answer reflects the edit.
 8. Qdrant/Ollama unavailable: precise tools answer; `semantic_search` says it is unavailable.
-9. `^:integration`: for a fixed set of queries against fixtures, the expected Definition is in the top 3 of `semantic_search`, and the answer fits the budget. If not, add lexical matching on names and docstrings with rank fusion before the reranker (second step, only if this test demands it).
+9. `^:integration`: for a fixed set of queries against fixtures, the expected Definition is in the top 3 of `semantic_search`, and the answer fits the budget. If not, add lexical matching on names and docstrings with rank fusion before the reranker (second step, only if this test demands it). Done in ticket 13 (ADR-0007): the test failed on vector search alone; fusion is kept alongside the repaired reranker.
 
 ## Delivery
 
@@ -94,4 +95,4 @@ Vertical slices, one tool at a time, test-first (TDD), old code deleted as each 
 
 - Indexing non-Clojure resources.
 - Several projects per server process (one process per project root, as today).
-- Lexical/hybrid search unless acceptance case 9 requires it.
+- Lexical/hybrid search beyond the fusion of ADR-0007.

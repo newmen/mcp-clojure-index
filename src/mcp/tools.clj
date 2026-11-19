@@ -8,6 +8,7 @@
             [mcp.graph :as graph]
             [mcp.tool :as tool]
             [mcp.tools.find-definition]
+            [mcp.tools.get-source]
             [mcp.tools.namespace-summary]))
 
 (set! *warn-on-reflection* true)

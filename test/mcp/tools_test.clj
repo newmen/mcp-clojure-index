@@ -40,6 +40,7 @@
   (let [names (set (map :name (sut/tool-definitions)))]
     (is (contains? names "semantic_search"))
     (is (contains? names "find_definition"))
+    (is (contains? names "get_source"))
     (is (contains? names "find_callers"))
     (is (contains? names "find_callees"))
     (is (contains? names "find_protocol"))

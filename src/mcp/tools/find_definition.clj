@@ -26,7 +26,9 @@
                                     tool/paging-properties)
                  :required ["name"]}})
 
-(defn- definition->line
+(defn definition->line
+  "Compact answer line of a Definition:
+   `path:line  kind  ns/name  [arglists]  first docstring line`."
   [root {:keys [filename row kind arglists doc] :as definition}]
   (->> [(str (output/relative-path root filename) ":" row)
         kind
@@ -36,7 +38,8 @@
        (remove s/blank?)
        (s/join "  ")))
 
-(defn- not-found
+(defn not-found
+  "Answer for a name that resolves to no Definition, saying what was searched."
   [index name-str]
   (str "not found: " name-str
        " (checked " (count (code-index/files index)) " files"
@@ -44,7 +47,9 @@
          ", including tests")
        ")"))
 
-(defn- ambiguous
+(defn ambiguous
+  "Answer for a name that resolves to several Definitions: a header and the
+   candidate `lines` within the Output budget."
   [config params name-str lines]
   (let [header (str "ambiguous: " (count lines) " definitions named " name-str
                     ", pass a qualified name")

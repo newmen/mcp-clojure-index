@@ -14,6 +14,8 @@
        "More complete than grep: resolves aliases, `:refer`, `#'var` and `(var x)`, finds "
        "functions passed as values (`partial`, `comp`, `map` arguments), and has no false "
        "positives from other definitions with the same simple name. "
+       "Marks test doubles bound in `with-redefs` (kind redef) and REPL scratch code inside "
+       "`comment` (kind in-comment). "
        "Answer: grouped by target, one line per Usage (path:line:col  usage-kind  "
        "ns/enclosing-definition), at most :output/limit lines and :output/max-chars characters; "
        "`kinds` and `include_tests` narrow it."))

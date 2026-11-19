@@ -67,13 +67,16 @@
 (defn- target-group
   [index opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
-        found (when target
+        found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (str "ambiguous: " target-str " is any of "
                                (s/join ", " (sort (map code-index/qualified-name candidates)))
                                ", pass a qualified name")}
       (nil? target) {:header (str "not found: " target-str " " (searched index (:include-tests? opts)))}
+      (= :defmethod (:target/type target))
+      {:header (str (:target/name target) " is a defmethod: it is called through its multimethod, "
+                    "find usages of " (code-index/qualified-name (dissoc (:definition target) :dispatch)))}
       (empty? found) {:header (str "no usages of " (:target/name target) " "
                                    (searched index (:include-tests? opts)))}
       :else {:header (str (:target/name target) ": " (count found)

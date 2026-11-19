@@ -228,8 +228,15 @@
 
 (defmulti usages
   "All Usages of a Target, sorted by file and position, without duplicates
-   (a `.cljc` form analysed for several languages appears once)."
+   (a `.cljc` form analysed for several languages appears once). Only for
+   a Target that `has-usages?`."
   (fn [_index target] (:target/type target)))
+
+(defn has-usages?
+  "False for a defmethod Target, which is never referred to by itself:
+   calls go through its multimethod."
+  [target]
+  (contains? (methods usages) (:target/type target)))
 
 (defn- sorted-distinct
   [found]
@@ -238,11 +245,6 @@
        vals
        (map first)
        (sort-by (juxt :filename :row :col))))
-
-(defmethod usages :default
-  [_index _target]
-  ;; TODO: a defmethod Target has no Usages: calls go through its multimethod
-  [])
 
 (defn- in-ns-form?
   "True when a keyword entry lies inside the `ns` form of its file

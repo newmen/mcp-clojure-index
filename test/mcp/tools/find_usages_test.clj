@@ -109,6 +109,14 @@
   (is (= "ambiguous: check is any of plain.b/check, plain.c-test/check, pass a qualified name"
          (answer @plain-project {:targets ["check"]}))))
 
+(deftest defmethod-target-points-to-its-multimethod
+  (let [definitions-project (code-index/build
+                             (assoc project/config :index/root-path
+                                    (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))]
+    (is (= (str "app.core/area :circle is a defmethod: it is called through its multimethod, "
+                "find usages of app.core/area")
+           (answer definitions-project {:targets ["area :circle"]})))))
+
 (deftest finds-usages-on-own-code-base
   (testing (str "line and column numbers are left out: they move with every edit; "
                 "same-named private definition->line fns of other tools are not Usages")

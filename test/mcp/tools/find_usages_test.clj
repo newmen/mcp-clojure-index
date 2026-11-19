@@ -1,5 +1,5 @@
 (ns mcp.tools.find-usages-test
-  "Acceptance cases 1 (without `redef`/`in-comment`), 2 and 3 of the spec, on
+  "Acceptance cases 1, 2 and 3 of the spec, on
    fixture projects under `test-resources/usages/` and on this project's
    own code base."
   (:require [clojure.string :as s]
@@ -37,7 +37,9 @@
    "src/app/core.clj:11:15  value  app.core/uses-value"
    "src/app/core.clj:12:16  value  app.core/uses-value"
    "src/app/core.clj:13:11  value  app.core/uses-value"
+   "src/app/core.clj:17:4  in-comment  app.core"
    "spec/app/core_spec.clj:6:4  call  app.core-spec/check-uuid"
+   "spec/app/core_spec.clj:9:17  redef  app.core-spec/get-uuid-test"
    "src/app/other.clj:2:37  require  app.other"
    "src/app/other.clj:6:5  call  app.other/caller"
    "src/app/other.clj:7:5  call  app.other/caller"
@@ -45,9 +47,9 @@
    "src/app/other.clj:9:12  var-ref  app.other/caller"
    "src/app/other.clj:10:9  var-ref  app.other/caller"])
 
-(deftest finds-usages-through-alias-refer-var-and-value-passing
+(deftest finds-usages-through-alias-refer-var-value-redef-and-comment
   (let [[header & usages] (answer-lines @lein-project {:targets ["get-uuid"]})]
-    (is (= "app.core/get-uuid: 11 usages" header))
+    (is (= "app.core/get-uuid: 13 usages" header))
     (is (= (sort get-uuid-usages) (sort usages)))))
 
 (deftest finds-require-usages-of-a-namespace
@@ -60,8 +62,8 @@
   (let [lines (answer-lines @lein-project {:targets ["c/get-uuid" "app.core/uses-value"]})
         [uuid-group uses-value-group] (split-with (complement #{"app.core/uses-value: 1 usage"})
                                                   lines)]
-    (is (= "app.core/get-uuid: 11 usages" (first uuid-group)))
-    (is (= 12 (count uuid-group)))
+    (is (= "app.core/get-uuid: 13 usages" (first uuid-group)))
+    (is (= 14 (count uuid-group)))
     (is (= ["app.core/uses-value: 1 usage"
             "src/app/other.clj:11:5  call  app.other/caller"]
            uses-value-group))))
@@ -72,11 +74,18 @@
           "src/app/other.clj:10:9  var-ref  app.other/caller"]
          (answer-lines @lein-project {:targets ["get-uuid"] :kinds ["var-ref"]}))))
 
+(deftest kinds-can-exclude-in-comment-usages
+  (let [[header & usages] (answer-lines @lein-project {:targets ["get-uuid"]
+                                                       :kinds ["call" "value" "var-ref"
+                                                               "redef" "require"]})]
+    (is (= "app.core/get-uuid: 12 usages" header))
+    (is (= (sort (remove #(s/includes? % "in-comment") get-uuid-usages)) (sort usages)))))
+
 (deftest test-usages-are-dropped-when-tests-are-excluded
   (testing "Test path from project.clj :test-paths"
     (is (not-any? #(s/starts-with? % "spec/")
                   (answer-lines @lein-project {:targets ["get-uuid"] :include_tests false})))
-    (is (= "app.core/get-uuid: 10 usages"
+    (is (= "app.core/get-uuid: 11 usages"
            (first (answer-lines @lein-project {:targets ["get-uuid"] :include_tests false})))))
   (testing "Test path from a deps.edn test alias :extra-paths"
     (is (= ["lib.a/f: 1 usage" "src/lib/a.clj:5:14  call  lib.a/g"]
@@ -88,8 +97,8 @@
 
 (deftest empty-result-says-what-was-searched
   (testing "including tests"
-    (is (= "no usages of app.core-spec/check-uuid (checked 4 files, including tests)"
-           (answer @lein-project {:targets ["check-uuid"]}))))
+    (is (= "no usages of app.core-spec/get-uuid-test (checked 4 files, including tests)"
+           (answer @lein-project {:targets ["get-uuid-test"]}))))
   (testing "excluding tests"
     (is (= "no usages of app.core/uses-value (checked 3 files, excluding tests)"
            (answer @lein-project {:targets ["uses-value"] :kinds ["value"] :include_tests false})))))
@@ -165,8 +174,8 @@
         text (answer cfg @lein-project {:targets ["get-uuid"]})
         next-page (answer cfg @lein-project {:targets ["get-uuid"] :offset 4})]
     (is (<= (count text) (:output/max-chars cfg)))
-    (is (s/ends-with? text "truncated: shown 4 of 11, pass offset=4 or narrow the query"))
-    (is (s/starts-with? next-page "app.core/get-uuid: 11 usages\n"))))
+    (is (s/ends-with? text "truncated: shown 4 of 13, pass offset=4 or narrow the query"))
+    (is (s/starts-with? next-page "app.core/get-uuid: 13 usages\n"))))
 
 (deftest description-says-why-it-beats-grep
   (let [spec (some #(when (= "find_usages" (:name %)) %)

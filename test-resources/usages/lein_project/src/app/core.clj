@@ -12,3 +12,6 @@
      (comp str get-uuid)
      (map get-uuid xs)
      (g 1)]))
+
+(comment
+  (get-uuid 99))

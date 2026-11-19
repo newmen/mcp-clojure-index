@@ -10,7 +10,8 @@
      first rule whose predicate holds wins."
   (:require [clojure.java.io :as io]
             [clojure.string :as s]
-            [mcp.code-index :as code-index]))
+            [mcp.code-index :as code-index]
+            [rewrite-clj.zip :as z]))
 
 (set! *warn-on-reflection* true)
 
@@ -88,9 +89,38 @@
   (or (preceded-by-var-quote? ctx var-usage)
       (some #(encloses? % (position var-usage)) (core-macro-usages ctx 'var))))
 
+(defn- in-comment?
+  "Inside a `(comment ...)` form."
+  [ctx var-usage]
+  (some #(encloses? % (position var-usage)) (core-macro-usages ctx 'comment)))
+
+(defn- redef-key-positions
+  "[row col] of each binding key of the `with-redefs` form starting at
+   `row`/`col` in `source`; `#'name` keys give the position of `name`."
+  [source {:keys [row col]}]
+  (let [loc (z/find-last-by-pos (z/of-string source {:track-position? true}) [row col])
+        form (if (= :list (z/tag loc)) loc (z/up loc))
+        bindings (-> form z/down z/right)]
+    (->> (iterate z/right (z/down bindings))
+         (take-while some?)
+         (take-nth 2)
+         (map #(z/position (if (= :var (z/tag %)) (z/down %) %))))))
+
+(defn- redef?
+  "A binding key of an enclosing `with-redefs`. clj-kondo gives the form's
+   range but not its bindings, so those are read from the source; only
+   files with an enclosing `with-redefs` (usually tests) are parsed."
+  [{:keys [lines] :as ctx} var-usage]
+  (let [pos (position var-usage)]
+    (when-let [forms (seq (filter #(encloses? % pos) (core-macro-usages ctx 'with-redefs)))]
+      (let [source (s/join "\n" @lines)]
+        (some #(some #{pos} (redef-key-positions source %)) forms)))))
+
 (def ^:private var-usage-kind-rules
   "[kind (fn [ctx var-usage] truthy)], tried in order; the last always holds."
   [["require" (fn [_ctx var-usage] (:refer var-usage))]
+   ["in-comment" in-comment?]
+   ["redef" redef?]
    ["var-ref" var-ref?]
    ["call" (fn [_ctx var-usage] (:arity var-usage))]
    ["value" (constantly true)]])

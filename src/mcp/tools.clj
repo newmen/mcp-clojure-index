@@ -7,24 +7,10 @@
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
             [mcp.tool :as tool]
-            [mcp.tools.find-definition]))
+            [mcp.tools.find-definition]
+            [mcp.tools.find-implementations]))
 
 (set! *warn-on-reflection* true)
-
-(defn- find-all-macros
-  [index]
-  (si/find-by-type index :macro))
-
-(defn- symbol->result
-  [root-path sym]
-  {:name      (str (:sym/name sym))
-   :ns        (str (:sym/ns sym))
-   :type      (name (:sym/type sym))
-   :file      (output/relative-path root-path (:sym/file sym))
-   :line      (:sym/line sym)
-   :arglists  (when (:sym/arglists sym) (pr-str (:sym/arglists sym)))
-   :doc       (:sym/doc sym)
-   :visibility (name (:sym/visibility sym))})
 
 (defn- hit-docstring
   [index chunk]
@@ -68,33 +54,7 @@
     :description "Find all symbols called by a given symbol"
     :inputSchema {:type "object"
                   :properties {:symbol {:type "string" :description "Qualified symbol name (e.g. my.ns/my-func)"}}
-                  :required ["symbol"]}}
-   {:name "find_protocol"
-    :description "Find all methods of a protocol"
-    :inputSchema {:type "object"
-                  :properties {:name {:type "string" :description "Protocol name"}}
-                  :required ["name"]}}
-   {:name "find_record"
-    :description "Find all methods of a record"
-    :inputSchema {:type "object"
-                  :properties {:name {:type "string" :description "Record name"}}
-                  :required ["name"]}}
-   {:name "find_macro"
-    :description "List all macros in the index"
-    :inputSchema {:type "object"
-                  :properties {:name {:type "string" :description "Macro name (optional, returns all if empty)"}}
-                  :required []}}])
-
-(defn- map->text
-  [m]
-  (->> (map (fn [[k v]] (str (name k) ": " v)) m)
-       (s/join "\n")))
-
-(defn- symbols->answer
-  [config params syms]
-  (->> syms
-       (mapv (comp map->text (partial symbol->result (:index/root-path config))))
-       (output/render config params)))
+                  :required ["symbol"]}}])
 
 (doseq [{tool-name :name :as tool-spec} legacy-tool-specs]
   (defmethod tool/spec (keyword tool-name) [_tool-key] tool-spec))
@@ -128,35 +88,6 @@
     (if (empty? callees)
       {:content [{:type "text" :text (str "No callees found for '" sym-str "'.")}]}
       {:content [{:type "text" :text (output/render config params (mapv str callees))}]})))
-
-(defmethod tool/call :find_protocol
-  [_ params {:keys [config index]}]
-  (let [protocol-name (or (:name params) "")
-        results (si/find-by-protocol index protocol-name)]
-    (if (empty? results)
-      {:content [{:type "text" :text (str "Protocol '" protocol-name "' not found.")}]}
-      {:content [{:type "text" :text (symbols->answer config params results)}]})))
-
-(defmethod tool/call :find_record
-  [_ params {:keys [config index]}]
-  (let [record-name (or (:name params) "")
-        results (si/find-by-record index record-name)]
-    (if (empty? results)
-      {:content [{:type "text" :text (str "Record '" record-name "' not found.")}]}
-      {:content [{:type "text" :text (symbols->answer config params results)}]})))
-
-(defmethod tool/call :find_macro
-  [_ params {:keys [config index]}]
-  (let [macro-name (or (:name params) "")
-        all-macros (find-all-macros index)
-        results (if (s/blank? macro-name)
-                  all-macros
-                  (filter #(= (str (:sym/simple %)) macro-name) all-macros))]
-    (if (empty? results)
-      {:content [{:type "text" :text (if (s/blank? macro-name)
-                                       "No macros found in index."
-                                       (str "Macro '" macro-name "' not found."))}]}
-      {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
 (defn make-initial-state
   [config]

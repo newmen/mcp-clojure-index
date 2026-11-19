@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 (clj-kondo index and `find_definition`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Protocol Implementations from records, types, `extend-*` and `reify` are listed with the implementing type and method.
-- [ ] Multimethod Implementations are listed with their dispatch value.
-- [ ] `find_protocol`, `find_record` and `find_macro` no longer appear in `tools/list`.
-- [ ] Tested on fixtures covering each form.
+- [x] Protocol Implementations from records, types, `extend-*` and `reify` are listed with the implementing type and method.
+- [x] Multimethod Implementations are listed with their dispatch value.
+- [x] `find_protocol`, `find_record` and `find_macro` no longer appear in `tools/list`.
+- [x] Tested on fixtures covering each form.

@@ -88,9 +88,8 @@
     (is (not (contains? tool-names "find_namespace")))
     (is (contains? tool-names "find_callers"))
     (is (contains? tool-names "find_callees"))
-    (is (contains? tool-names "find_protocol"))
-    (is (contains? tool-names "find_record"))
-    (is (contains? tool-names "find_macro"))))
+    (is (contains? tool-names "find_implementations"))
+    (is (not (contains? tool-names "find_protocol")))))
 
 (deftest handle-method-tools-call-invalid-tool
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"

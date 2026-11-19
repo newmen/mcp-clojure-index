@@ -28,16 +28,7 @@
     (is (map? (:index/by-qname idx)))
     (is (map? (:index/by-simple idx)))
     (is (map? (:index/by-file idx)))
-    (is (map? (:index/by-type idx)))
     (is (map? (:index/namespaces idx)))))
-
-(deftest empty-index-by-type-all-types
-  (let [idx (sut/empty-index)]
-    (is (contains? (:index/by-type idx) :fn))
-    (is (contains? (:index/by-type idx) :macro))
-    (is (contains? (:index/by-type idx) :protocol))
-    (is (contains? (:index/by-type idx) :record))
-    (is (contains? (:index/by-type idx) :val))))
 
 ;; ---------------------------------------------------------------------------
 ;; build-index
@@ -80,72 +71,6 @@
     (is (every? #(.endsWith ^String % "valid_defs.clj")
                 (keys (:index/by-file idx))))))
 
-(deftest build-index-by-type-counts
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (= 2 (count (get (:index/by-type idx) :fn))))
-    (is (= 1 (count (get (:index/by-type idx) :macro))))
-    (is (= 1 (count (get (:index/by-type idx) :protocol))))
-    (is (= 2 (count (get (:index/by-type idx) :record))))
-    (is (= 2 (count (get (:index/by-type idx) :val))))))
-
-;; ---------------------------------------------------------------------------
-;; find-by-type
-;; ---------------------------------------------------------------------------
-
-(deftest find-by-type-functions
-  (let [idx (parse-and-index "valid_defs.clj")
-        fns (sut/find-by-type idx :fn)]
-    (is (= 2 (count fns)))
-    (is (some #(= 'fixtures.valid-defs/create-user (:sym/name %)) fns))
-    (is (some #(= 'fixtures.valid-defs/format-name (:sym/name %)) fns))))
-
-(deftest find-by-type-macros
-  (let [idx (parse-and-index "valid_defs.clj")
-        macros (sut/find-by-type idx :macro)]
-    (is (= 1 (count macros)))
-    (is (= 'fixtures.valid-defs/with-tx (:sym/name (first macros))))))
-
-(deftest find-by-type-protocols
-  (let [idx (parse-and-index "valid_defs.clj")
-        protocols (sut/find-by-type idx :protocol)]
-    (is (= 1 (count protocols)))
-    (is (= 'fixtures.valid-defs/UserProtocol (:sym/name (first protocols))))))
-
-(deftest find-by-type-records
-  (let [idx (parse-and-index "valid_defs.clj")
-        records (sut/find-by-type idx :record)]
-    (is (= 2 (count records)))))
-
-(deftest find-by-type-vars
-  (let [idx (parse-and-index "valid_defs.clj")
-        vals (sut/find-by-type idx :val)]
-    (is (= 2 (count vals)))))
-
-(deftest find-by-type-empty-for-missing-type
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (= [] (sut/find-by-type idx :multimethod)))))
-
-;; ---------------------------------------------------------------------------
-;; find-by-protocol
-;; ---------------------------------------------------------------------------
-
-(deftest find-by-protocol-no-methods-with-current-metadata
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (= [] (sut/find-by-protocol idx 'UserProtocol)))))
-
-;; Protocol methods are currently not tracked in :sym/protocol
-;; because defrecord/deftype method forms are inside the record body.
-
-;; ---------------------------------------------------------------------------
-;; find-by-record
-;; ---------------------------------------------------------------------------
-
-(deftest find-by-record-no-methods-with-current-metadata
-  (let [idx (parse-and-index "valid_defs.clj")]
-    (is (= [] (sut/find-by-record idx 'User)))))
-
-;; Same as above — defrecord method forms are body-level.
-
 ;; ---------------------------------------------------------------------------
 ;; remove-file!
 ;; ---------------------------------------------------------------------------
@@ -156,8 +81,7 @@
         removed (sut/remove-file! idx file-path)]
     (is (empty? (:index/by-qname removed)))
     (is (empty? (:index/by-simple removed)))
-    (is (empty? (:index/by-file removed)))
-    (is (every? empty? (vals (:index/by-type removed))))))
+    (is (empty? (:index/by-file removed)))))
 
 (deftest remove-file-noop-for-unknown-file
   (let [idx (parse-and-index "valid_defs.clj")
@@ -270,7 +194,6 @@
     (is (pos? (count (:index/by-qname idx))))
     (is (pos? (count (:index/by-simple idx))))
     (is (= 1 (count (:index/by-file idx))))
-    (is (pos? (count (get (:index/by-type idx) :fn))))
     (is (some? (get (:index/by-qname idx) 'fixtures.large-file/func-1)))
     (is (some? (get (:index/by-qname idx) 'fixtures.large-file/aggregate)))
     (is (some? (get (:index/by-qname idx) 'fixtures.large-file/Serializer)))
@@ -295,12 +218,3 @@
         removed2 (sut/remove-file! removed1 file-path)]
     (is (= removed1 removed2))))
 
-(deftest find-by-type-returns-correct-types-from-large-file
-  (let [result (parser/parse-file (fixture-path "large_file.clj"))
-        enriched (parser/enrich-chunks-with-ns result)
-        symbols (parser/extract-symbols enriched)
-        chunks (:result/chunks enriched)
-        idx (sut/build-index symbols chunks)]
-    (is (pos? (count (sut/find-by-type idx :fn))))
-    (is (some? (first (sut/find-by-type idx :protocol))))
-    (is (some? (first (sut/find-by-type idx :record))))))

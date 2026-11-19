@@ -26,24 +26,6 @@
   (or *config* config/defaults))
 
 ;; ---------------------------------------------------------------------------
-;; Embedding text construction
-;; ---------------------------------------------------------------------------
-
-(defn build-embedding-text
-  [chunk]
-  (let [ns-name (or (:chunk/ns chunk) "")
-        sym-name (or (:chunk/name chunk) "")
-        meta (:chunk/metadata chunk)
-        doc (:doc meta)
-        source (:chunk/source chunk "")]
-    (s/join "\n"
-            (cond-> ["Language:" "Clojure" ""
-                     "Namespace:" ns-name ""
-                     "Symbol:" sym-name]
-                    (seq doc) (conj "" "Docstring:" doc)
-                    true (conj "" "Code:" source)))))
-
-;; ---------------------------------------------------------------------------
 ;; Embedding cache (hash -> vector) — thread-safe via atomic write
 ;; ---------------------------------------------------------------------------
 
@@ -136,32 +118,20 @@
        (vec results)))))
 
 ;; ---------------------------------------------------------------------------
-;; Generate embeddings from chunks with hash-based caching
+;; Embeddings of Search units, cached by their hash
 ;; ---------------------------------------------------------------------------
 
-(defn generate-from-chunks
-  [cfg chunks]
-  (let [texts (mapv build-embedding-text chunks)
-        hashes (mapv :chunk/hash chunks)
-        cached (mapv (partial cached-embedding cfg) hashes)
-        uncached-idx (vec (keep-indexed (fn [i v] (when (nil? v) i)) cached))]
-    (if (empty? uncached-idx)
-      (mapv vector chunks cached)
-      (let [idx->pos (into {} (map-indexed (fn [pos i] [i pos]) uncached-idx))
-            uncached (mapv (fn [i] {:text (nth texts i) :hash (nth hashes i)})
-                           uncached-idx)
-            embeddings (binding [*config* cfg]
-                         (generate (mapv :text uncached)))]
-        (run! (fn [[{:keys [hash]} emb]]
-                (when hash
-                  (cache-embedding! cfg hash emb)))
-              (map vector uncached embeddings))
-        (mapv (fn [i]
-                [(nth chunks i)
-                 (if-let [pos (get idx->pos i)]
-                   (nth embeddings pos)
-                   (nth cached i))])
-              (range (count chunks)))))))
+(defn embed-units
+  "Embedding vectors of the Search `units` (see `mcp.search-units`), in
+   order. Vectors are cached on disk by the unit's `:hash`; only uncached
+   texts are sent to Ollama."
+  [cfg units]
+  (let [cached (mapv (comp (partial cached-embedding cfg) :hash) units)
+        uncached (vec (remove (comp some? (partial nth cached)) (range (count units))))
+        generated (zipmap uncached (generate (mapv (comp :text (partial nth units)) uncached) cfg))]
+    (doseq [[unit-index unit-vector] generated]
+      (cache-embedding! cfg (:hash (nth units unit-index)) unit-vector))
+    (mapv #(or (nth cached %) (get generated %)) (range (count units)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reranking

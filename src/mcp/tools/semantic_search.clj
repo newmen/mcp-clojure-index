@@ -1,0 +1,89 @@
+(ns mcp.tools.semantic-search
+  "`semantic_search`: Search units by meaning, as Compact answer lines
+   (ADR-0006). Needs Qdrant and Ollama; without them it says so and the
+   precise tools keep working (ADR-0003)."
+  (:require [clojure.string :as s]
+            [clojure.tools.logging :as log]
+            [mcp.output :as output]
+            [mcp.search :as search]
+            [mcp.semantic-index :as semantic-index]
+            [mcp.tool :as tool]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private description
+  (str "Find Clojure Definitions (functions, macros, tests, multimethods, specs, records, namespaces) "
+       "and top-level EDN config entries by meaning, when you do not know their names. "
+       "Unlike grep, matches intent rather than text (vector search plus a reranker). "
+       "Answer: one line per hit (score  path:line  kind  ns/name  first docstring line), "
+       "no source bodies, at most :output/limit lines and :output/max-chars characters; "
+       "ends with `embeddings stale for N files` while recent edits are being embedded. "
+       "Use find_definition for known names and get_source for bodies."))
+
+(defmethod tool/spec :semantic_search
+  [_tool-key]
+  {:name "semantic_search"
+   :description description
+   :inputSchema {:type "object"
+                 :properties (merge {:query {:type "string"
+                                             :description "What the code does, in natural language"}}
+                                    tool/paging-properties)
+                 :required ["query"]}})
+
+(def ^:private unavailable-answer
+  (str "semantic search unavailable (Qdrant or Ollama not reachable); "
+       "the precise tools (find_definition, get_source, ...) still work"))
+
+;; ---------------------------------------------------------------------------
+;; Answer
+;; ---------------------------------------------------------------------------
+
+(defn- hit->line
+  "`score  path:line  kind  ns/name  first docstring line`."
+  [root {:keys [unit re-rank score]}]
+  (->> [(format "%.2f" (double (or re-rank score 0.0)))
+        (str (output/relative-path root (:file unit)) ":" (:row unit))
+        (:kind unit)
+        (:name unit)
+        (:doc unit)]
+       (remove s/blank?)
+       (s/join "  ")))
+
+(defn- search-config
+  "Ask the search for enough hits to fill the requested page."
+  [config params]
+  (let [page-size (min (:output/limit config)
+                       (or (:limit params) (:search/re-rank-top config)))]
+    (update config :search/re-rank-top
+            (fnil max 0) (+ (or (:offset params) 0) page-size))))
+
+(defn- stale-note
+  [semantic-state code-index]
+  (let [stale-count (count (semantic-index/stale-files semantic-state code-index))]
+    (when (pos? stale-count)
+      (str "embeddings stale for " stale-count " files"))))
+
+(defn- with-note
+  "`render` the findings so that `note`, when given, fits after them."
+  [config params lines note]
+  (if note
+    (str (output/render (update config :output/max-chars - (inc (count note))) params lines)
+         "\n" note)
+    (output/render config params lines)))
+
+(defmethod tool/call :semantic_search
+  [_tool-key params {:keys [config code-index semantic-index]}]
+  (let [query (s/trim (str (:query params)))]
+    (tool/text-result
+     (if (s/blank? query)
+       "query is empty"
+       (try
+         (let [hits (search/search (search-config config params) query)
+               note (some-> semantic-index (stale-note code-index))
+               lines (mapv (partial hit->line (:root code-index)) hits)]
+           (if (empty? lines)
+             (cond-> (str "no results for: " query) note (str "\n" note))
+             (with-note config params lines note)))
+         (catch Exception e
+           (log/warn "semantic_search unavailable:" (.getMessage e))
+           unavailable-answer))))))

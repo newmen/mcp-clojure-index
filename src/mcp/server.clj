@@ -4,8 +4,8 @@
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
             [mcp.config :as config]
-            [mcp.tools :as tools]
-            [mcp.watcher :as watcher])
+            [mcp.semantic-index :as semantic-index]
+            [mcp.tools :as tools])
   (:import (java.io BufferedReader InputStreamReader OutputStreamWriter)))
 
 (set! *warn-on-reflection* true)
@@ -60,21 +60,20 @@
 
 (defn- live-state
   [state]
-  (let [idx-ref (:index-ref state)
-        gr-ref (:graph-ref state)
-        code-index-ref (:code-index-ref state)]
-    (cond-> state
-      code-index-ref (assoc :code-index @code-index-ref)
-      idx-ref (assoc :index @idx-ref)
-      gr-ref (assoc :graph-state @gr-ref))))
+  (if-let [code-index-ref (:code-index-ref state)]
+    (assoc state :code-index @code-index-ref)
+    state))
 
 (defn- ensure-fresh-code-index!
   "Re-analyse files changed on disk since the last answer, synchronously,
-   so a precise tool never answers from a stale index (ADR-0005)."
+   so a precise tool never answers from a stale index (ADR-0005), then let
+   the embeddings of changed files catch up in the background."
   [state]
   (when-let [code-index-ref (:code-index-ref state)]
     (try
-      (swap! code-index-ref (partial code-index/refresh (:config state)))
+      (let [index (swap! code-index-ref (partial code-index/refresh (:config state)))]
+        (when-let [semantic-state (:semantic-index state)]
+          (semantic-index/sync-async! (:config state) semantic-state index)))
       (catch Exception e
         (log/error e "Freshness check failed, answering from the last index"))))
   state)
@@ -105,8 +104,7 @@
 
 (defn stop
   []
-  (when-let [st @server-state-atom]
-    (watcher/stop-watching! (:watcher st))
+  (when @server-state-atom
     (reset! server-state-atom nil)
     (log/info "Server stopped")))
 
@@ -122,27 +120,15 @@
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
         _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
-        initial (assoc (tools/make-initial-state cfg)
-                       :code-index-ref (atom (code-index/build cfg)))
-        _ (log/info "Code index built:" (count (code-index/files @(:code-index-ref initial))) "files")
-        index-ref (:index-ref initial)
-        graph-ref (:graph-ref initial)
-        watcher-map (watcher/start-watching! cfg index-ref graph-ref)
-        server-state (atom (assoc initial
-                                  :watcher watcher-map))]
+        code-index-ref (atom (code-index/build cfg))
+        _ (log/info "Code index built:" (count (code-index/files @code-index-ref)) "files")
+        semantic-state (semantic-index/make-state)
+        server-state (atom (assoc (tools/make-initial-state cfg)
+                                  :code-index-ref code-index-ref
+                                  :semantic-index semantic-state))]
     (reset! server-state-atom @server-state)
-    (log/info "MCP server ready on stdio (indexing in background)")
-    (future
-      (try
-        (let [restore-result (watcher/restore-state! cfg)]
-          (reset! index-ref (:index restore-result))
-          (reset! graph-ref (:graph restore-result))
-          (swap! server-state assoc
-                 :index @index-ref
-                 :graph-state @graph-ref)
-          (log/info "Background indexing complete"))
-        (catch Exception e
-          (log/error e "Background indexing failed:" (.getMessage e)))))
+    (semantic-index/sync-async! cfg semantic-state @code-index-ref)
+    (log/info "MCP server ready on stdio (embeddings are computed in the background)")
     (try
       (loop [line (.readLine reader)]
         (when line
@@ -164,4 +150,6 @@
         cfg (-> (config/load-config config-path)
                 (config/resolve-config)
                 (config/validate-config))]
-    (start cfg)))
+    (start cfg)
+    ;; the background embeddings sync must not keep the JVM alive
+    (shutdown-agents)))

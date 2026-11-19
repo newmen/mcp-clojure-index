@@ -16,23 +16,14 @@
          :search/top-k 100
          :search/re-rank-top 10))
 
-(defn- make-chunk
-  [overrides]
-  (merge
-   {:chunk/id        (UUID/randomUUID)
-    :chunk/ns        "test.ns"
-    :chunk/file      "/fake/path.clj"
-    :chunk/type      :fn
-    :chunk/name      "my-func"
-    :chunk/source    "(defn my-func [x] (* x 2))"
-    :chunk/start-line 1
-    :chunk/end-line   1
-    :chunk/visibility :public
-    :chunk/language  "clojure"
-    :chunk/metadata  {}
-    :chunk/symbols   #{}
-    :chunk/hash      "abc123"}
-   overrides))
+(defn- make-unit
+  [unit-name]
+  {:id (str (UUID/randomUUID))
+   :file "/fake/path.clj"
+   :row 1
+   :kind "defn"
+   :name (str "test.ns/" unit-name)
+   :text (str "test.ns/" unit-name "\n(defn " unit-name " [x] (* x 2))")})
 
 (defn- rerank-by-position
   [_query candidates _cfg]
@@ -50,22 +41,22 @@
   (is (thrown? Exception (sut/search test-config "find user creation"))))
 
 (deftest search-returns-only-reranked-hits-without-expansion
-  (let [cg1 (make-chunk {:chunk/name "create-user"})
-        cg2 (make-chunk {:chunk/name "find-user"})]
+  (let [cg1 (make-unit "create-user")
+        cg2 (make-unit "find-user")]
     (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
                   qdrant/search (fn [_cfg _emb _k]
-                                  [{:chunk cg1 :score 0.85}
-                                   {:chunk cg2 :score 0.72}])
+                                  [{:unit cg1 :score 0.85}
+                                   {:unit cg2 :score 0.72}])
                   embeddings/rerank rerank-by-position]
-      (is (= [{:chunk cg1 :score 0.85 :re-rank (float 1.0)}
-              {:chunk cg2 :score 0.72 :re-rank (float 0.9)}]
+      (is (= [{:unit cg1 :score 0.85 :re-rank (float 1.0)}
+              {:unit cg2 :score 0.72 :re-rank (float 0.9)}]
              (sut/search test-config "find user"))))))
 
 (deftest search-keeps-at-most-re-rank-top-hits
-  (let [chunks (mapv #(make-chunk {:chunk/name (str "f" %)}) (range 5))]
+  (let [units (mapv #(make-unit (str "f" %)) (range 5))]
     (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
                   qdrant/search (fn [_cfg _emb _k]
-                                  (mapv (fn [c] {:chunk c :score 0.5}) chunks))
+                                  (mapv (fn [c] {:unit c :score 0.5}) units))
                   embeddings/rerank rerank-by-position]
       (is (= 2 (count (sut/search (assoc test-config :search/re-rank-top 2) "f")))))))
 
@@ -93,11 +84,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest qdrant-candidates-format-correctly
-  (let [cg (make-chunk {:chunk/source "(defn foo [x] x)"})]
+  (let [cg (assoc (make-unit "foo") :text "(defn foo [x] x)")]
     (with-redefs [qdrant/search (fn [_cfg _emb _k]
-                                  [{:chunk cg :score 0.95}])]
+                                  [{:unit cg :score 0.95}])]
       (let [candidates (#'sut/qdrant-candidates test-config [0.1 0.2 0.3] 10)]
         (is (= 1 (count candidates)))
         (is (= "(defn foo [x] x)" (:text (first candidates))))
         (is (= 0.95 (:score (first candidates))))
-        (is (= cg (:chunk (first candidates))))))))
+        (is (= cg (:unit (first candidates))))))))

@@ -7,6 +7,7 @@
             [mcp.config :as config]
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
+            [mcp.semantic-index :as semantic-index]
             [mcp.test-project :as project])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
@@ -63,6 +64,37 @@
     (is (= [{:type "text"
              :text "src/mcp/output.clj:38  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
            (get-in response [:result :content])))))
+
+(def ^:private services-down-config
+  (assoc project/config
+         :qdrant/port 19999
+         :ollama/url "http://localhost:19999/v1"))
+
+(defn- tool-call
+  [state tool-name arguments]
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
+             :params {:name tool-name :arguments arguments}}]
+    (-> (#'sut/handle-method msg state) first :result :content first :text)))
+
+(deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
+  (let [state {:config services-down-config
+               :code-index-ref (atom (project/code-index))
+               :semantic-index (semantic-index/make-state)}]
+    (is (s/starts-with? (tool-call state "find_definition" {:name "mcp.output/first-line"})
+                        "src/mcp/output.clj:38  defn  mcp.output/first-line"))
+    (is (s/starts-with? (tool-call state "semantic_search" {:query "first line of a docstring"})
+                        "semantic search unavailable"))))
+
+(deftest freshness-check-hands-the-refreshed-index-to-the-embeddings-sync
+  (let [synced (atom nil)
+        semantic-state (semantic-index/make-state)
+        state {:config services-down-config
+               :code-index-ref (atom (project/code-index))
+               :semantic-index semantic-state}]
+    (with-redefs [semantic-index/sync-async! (fn [_cfg sync-state index]
+                                               (reset! synced [sync-state index]))]
+      (tool-call state "find_definition" {:name "mcp.output/first-line"}))
+    (is (= [semantic-state @(:code-index-ref state)] @synced))))
 
 (defn- find-definition-call
   [state name-str]
@@ -234,14 +266,7 @@
     (is (some? response))
     (is (= -32601 (get-in response [:error :code])))))
 
-(deftest live-state-returns-atom-values
-  (let [index (si/empty-index)
-        graph (graph/empty-graph)
-        state {:config config/defaults
-               :index-ref (atom index)
-               :graph-ref (atom graph)
-               :index index
-               :graph-state graph}
-        live (#'sut/live-state state)]
-    (is (= index (:index live)))
-    (is (= graph (:graph-state live)))))
+(deftest live-state-returns-the-current-code-index
+  (let [state {:config config/defaults
+               :code-index-ref (atom {:files {}})}]
+    (is (= {:files {}} (:code-index (#'sut/live-state state))))))

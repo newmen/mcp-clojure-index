@@ -13,8 +13,8 @@ LLM agents spend most of their tokens on understanding code: `grep`, then readin
 - **Namespace search** — namespace definition and metadata
 - **Protocol and record search** — all methods of protocol/record
 - **Dependency graph** — who calls (callers) and who is called (callees) by a function
-- **Incremental indexing** — automatic tracking of file changes
-- **State recovery** — in-memory structures are rebuilt from Qdrant on restart
+- **Freshness** — files changed on disk are re-analysed before each answer; embeddings catch up in the background
+- **Qdrant and Ollama are optional** — without them only `semantic_search` is unavailable
 
 ## Requirements
 
@@ -80,7 +80,7 @@ lein uberjar
 java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 ```
 
-The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. On the first run it performs a full project indexing. On subsequent runs it restores the state from Qdrant and indexes only the changed files.
+The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. It analyses the project with clj-kondo at startup (in memory only) and computes embeddings of Search units in the background; on later runs only files changed since their embeddings were stored are re-embedded. A Qdrant collection of the old format is dropped and recreated.
 
 ## Integration with Kilo Code
 
@@ -174,7 +174,6 @@ src/mcp/
 ├── graph.clj        — call graph (callers/callees)
 ├── embeddings.clj   — embeddings via Ollama
 ├── qdrant.clj       — vector storage (Qdrant HTTP API)
-├── watcher.clj     — incremental indexing (WatchService)
 ├── search.clj      — hybrid search
 └── config.clj      — configuration loading
 ```

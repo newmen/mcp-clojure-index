@@ -9,7 +9,7 @@
 
    {:config     resolved config (see mcp.config)
     :code-index the precise index (see mcp.code-index), current at call time
-    :index      legacy symbol index, used by semantic_search until ticket 11}")
+    :semantic-index embeddings state of semantic_search (see mcp.semantic-index)}")
 
 (set! *warn-on-reflection* true)
 

@@ -2,8 +2,7 @@
   (:require [clojure.test :refer :all]
             [mcp.parser :as parser]
             [mcp.symbol-index :as si]
-            [mcp.graph :as graph]
-            [mcp.embeddings :as embeddings]))
+            [mcp.graph :as graph]))
 
 (set! *warn-on-reflection* true)
 
@@ -59,17 +58,6 @@
     (is (sequential? (:edges g)))
     (is (< elapsed 5000)
         (str "Building graph for large file took " elapsed "ms"))))
-
-(deftest build-embedding-texts-100-chunks-under-200ms
-  (let [result (parser/parse-file (fixture-path "large_file.clj"))
-        enriched (parser/enrich-chunks-with-ns result)
-        chunks (take 100 (:result/chunks enriched))
-        start (System/nanoTime)
-        texts (mapv embeddings/build-embedding-text chunks)
-        elapsed (/ (- (System/nanoTime) start) 1e6)]
-    (is (= 100 (count texts)))
-    (is (< elapsed 200)
-        (str "Building 100 embedding texts took " elapsed "ms"))))
 
 (deftest full-pipeline-large-file-under-15-seconds
   (let [start (System/nanoTime)

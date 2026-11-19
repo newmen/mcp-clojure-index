@@ -4,11 +4,13 @@
 
 **Blocked by:** 01 (Output budget and compact semantic search), 06 (Definitions from tests, multimethods, specs and project macros), 10 (Freshness check before each answer)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Search units cover all Definitions and top-level EDN map entries.
-- [ ] Answers keep the compact line format from ticket 01 and fit the Output budget.
-- [ ] Stale embeddings are reported with the count of affected files.
-- [ ] With Qdrant or Ollama down, `semantic_search` reports unavailability and precise tools answer (spec acceptance case 8).
-- [ ] The watcher and restore-from-Qdrant code are gone; an old-format collection is recreated on start.
-- [ ] `^:integration` test (spec acceptance case 9): for a fixed set of queries against fixtures, the expected Definition is in the top 3. If it fails, open a follow-up ticket for lexical matching with rank fusion instead of tuning ad hoc.
+- [x] Search units cover all Definitions and top-level EDN map entries.
+- [x] Answers keep the compact line format from ticket 01 and fit the Output budget.
+- [x] Stale embeddings are reported with the count of affected files.
+- [x] With Qdrant or Ollama down, `semantic_search` reports unavailability and precise tools answer (spec acceptance case 8).
+- [x] The watcher and restore-from-Qdrant code are gone; an old-format collection is recreated on start.
+- [x] `^:integration` test (spec acceptance case 9): for a fixed set of queries against fixtures, the expected Definition is in the top 3. If it fails, open a follow-up ticket for lexical matching with rank fusion instead of tuning ad hoc.
+
+Integration result (2026-11-19, local Qdrant + Ollama): 4 of 8 queries miss the top 3. Follow-up: `13-lexical-matching-with-rank-fusion.md`.

@@ -1,4 +1,5 @@
 (ns mcp.search
+  "Semantic search over Search units: Qdrant vector search, then the reranker."
   (:require [mcp.qdrant :as qdrant]
             [mcp.embeddings :as embeddings]))
 
@@ -15,9 +16,9 @@
 (defn- qdrant-candidates
   [cfg embedding top-k]
   (mapv (fn [r]
-          {:text (get-in r [:chunk :chunk/source] "")
+          {:text (get-in r [:unit :text] "")
            :score (:score r 0.0)
-           :chunk (:chunk r)})
+           :unit (:unit r)})
         (qdrant/search cfg embedding top-k)))
 
 (defn search
@@ -27,7 +28,7 @@
      :search/top-k       - number of candidates from Qdrant (default 100)
      :search/re-rank-top - number of hits kept after reranking (default 10)
 
-   Returns a vector of {:chunk CodeChunk :score float :re-rank float},
+   Returns a vector of {:unit SearchUnit :score float :re-rank float},
    best first, or nil for a blank query."
   [cfg query]
   (let [top-k (default-top-k cfg)
@@ -38,4 +39,4 @@
           (->> (when (seq candidates)
                  (embeddings/rerank query candidates cfg))
                (take rerank-top)
-               (mapv #(select-keys % [:chunk :score :re-rank]))))))))
+               (mapv #(select-keys % [:unit :score :re-rank]))))))))

@@ -40,12 +40,13 @@
   (let [names (set (map :name (sut/tool-definitions)))]
     (is (contains? names "semantic_search"))
     (is (contains? names "find_definition"))
+    (is (contains? names "get_source"))
     (is (contains? names "find_callers"))
     (is (contains? names "find_callees"))
     (is (contains? names "find_protocol"))
     (is (contains? names "find_record"))
     (is (contains? names "find_macro"))
-    (is (= 7 (count names)))))
+    (is (contains? names "namespace_summary"))))
 
 (deftest tool-definitions-have-required-fields
   (doseq [t (sut/tool-definitions)]

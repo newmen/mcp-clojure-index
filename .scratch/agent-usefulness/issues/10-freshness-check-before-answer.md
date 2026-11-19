@@ -4,8 +4,8 @@
 
 **Blocked by:** 02 (clj-kondo index and `find_definition`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Edit, add and delete of a file are reflected in the very next precise-tool answer (spec acceptance case 7).
-- [ ] Only changed files are re-analysed.
-- [ ] The check adds negligible latency on this code base (measured in a test).
+- [x] Edit, add and delete of a file are reflected in the very next precise-tool answer (spec acceptance case 7).
+- [x] Only changed files are re-analysed.
+- [x] The check adds negligible latency on this code base (measured in a test).

@@ -90,9 +90,13 @@
   (let [cfg (sut/load-config (fixture-path "config.edn"))
         exclude-strs (set (map #(.pattern ^java.util.regex.Pattern %) (:index/exclude cfg)))]
     (is (= "/Users/altermn/projects/clojure/mcp" (:index/root-path cfg)))
-    (is (= #{"target" "\\.git" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"
+    (is (= #{"target" "\\.git" "\\.claude" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"
              "\\.cpcache" "logs" "tmp"}
            exclude-strs))))
+
+(deftest load-config-excludes-agent-worktrees-under-dot-claude
+  (let [excludes (:index/exclude (sut/load-config (fixture-path "config.edn")))]
+    (is (some #(re-find % ".claude/worktrees/agent-1/src/mcp/server.clj") excludes))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-config

@@ -61,12 +61,10 @@
 (defn- live-state
   [state]
   (let [idx-ref (:index-ref state)
-        gr-ref (:graph-ref state)
         code-index-ref (:code-index-ref state)]
     (cond-> state
       code-index-ref (assoc :code-index @code-index-ref)
-      idx-ref (assoc :index @idx-ref)
-      gr-ref (assoc :graph-state @gr-ref))))
+      idx-ref (assoc :index @idx-ref))))
 
 (defn- handle-method
   [msg state]
@@ -125,9 +123,7 @@
         (let [restore-result (watcher/restore-state! cfg)]
           (reset! index-ref (:index restore-result))
           (reset! graph-ref (:graph restore-result))
-          (swap! server-state assoc
-                 :index @index-ref
-                 :graph-state @graph-ref)
+          (swap! server-state assoc :index @index-ref)
           (log/info "Background indexing complete"))
         (catch Exception e
           (log/error e "Background indexing failed:" (.getMessage e)))))

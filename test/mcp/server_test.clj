@@ -86,8 +86,7 @@
     (is (contains? tool-names "find_definition"))
     (is (not (contains? tool-names "find_symbol")))
     (is (not (contains? tool-names "find_namespace")))
-    (is (contains? tool-names "find_callers"))
-    (is (contains? tool-names "find_callees"))
+    (is (contains? tool-names "find_usages"))
     (is (contains? tool-names "find_protocol"))
     (is (contains? tool-names "find_record"))
     (is (contains? tool-names "find_macro"))))
@@ -214,12 +213,8 @@
 
 (deftest live-state-returns-atom-values
   (let [index (si/empty-index)
-        graph (graph/empty-graph)
         state {:config config/defaults
                :index-ref (atom index)
-               :graph-ref (atom graph)
-               :index index
-               :graph-state graph}
+               :index index}
         live (#'sut/live-state state)]
-    (is (= index (:index live)))
-    (is (= graph (:graph-state live)))))
+    (is (= index (:index live)))))

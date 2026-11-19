@@ -7,7 +7,8 @@
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
             [mcp.tool :as tool]
-            [mcp.tools.find-definition]))
+            [mcp.tools.find-definition]
+            [mcp.tools.find-usages]))
 
 (set! *warn-on-reflection* true)
 
@@ -59,16 +60,6 @@
                                :limit {:type "integer" :description "Maximum number of hits (can only lower the server limit)"}
                                :offset {:type "integer" :description "Number of hits to skip, for paging"}}
                   :required ["query"]}}
-   {:name "find_callers"
-    :description "Find all symbols that call a given symbol"
-    :inputSchema {:type "object"
-                  :properties {:symbol {:type "string" :description "Qualified symbol name (e.g. my.ns/my-func)"}}
-                  :required ["symbol"]}}
-   {:name "find_callees"
-    :description "Find all symbols called by a given symbol"
-    :inputSchema {:type "object"
-                  :properties {:symbol {:type "string" :description "Qualified symbol name (e.g. my.ns/my-func)"}}
-                  :required ["symbol"]}}
    {:name "find_protocol"
     :description "Find all methods of a protocol"
     :inputSchema {:type "object"
@@ -111,24 +102,6 @@
                                     (mapv (partial hit->line (:index/root-path config) index) hits)))]
         {:content [{:type "text" :text answer}]}))))
 
-(defmethod tool/call :find_callers
-  [_ params {:keys [config graph-state]}]
-  (let [sym-str (or (:symbol params) "")
-        sym (symbol sym-str)
-        callers (graph/find-callers graph-state sym)]
-    (if (empty? callers)
-      {:content [{:type "text" :text (str "No callers found for '" sym-str "'.")}]}
-      {:content [{:type "text" :text (output/render config params (mapv str callers))}]})))
-
-(defmethod tool/call :find_callees
-  [_ params {:keys [config graph-state]}]
-  (let [sym-str (or (:symbol params) "")
-        sym (symbol sym-str)
-        callees (graph/find-callees graph-state sym)]
-    (if (empty? callees)
-      {:content [{:type "text" :text (str "No callees found for '" sym-str "'.")}]}
-      {:content [{:type "text" :text (output/render config params (mapv str callees))}]})))
-
 (defmethod tool/call :find_protocol
   [_ params {:keys [config index]}]
   (let [protocol-name (or (:name params) "")
@@ -162,7 +135,6 @@
   [config]
   {:config config
    :index (si/empty-index)
-   :graph-state (graph/empty-graph)
    :index-ref (atom (si/empty-index))
    :graph-ref (atom (graph/empty-graph))})
 

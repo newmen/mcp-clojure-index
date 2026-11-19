@@ -71,34 +71,6 @@
     (is (some #(= 'fixtures.valid-defs/User (:edge/from %)) (:edges graph)))))
 
 ;; ---------------------------------------------------------------------------
-;; find-callers / find-callees
-;; ---------------------------------------------------------------------------
-
-(deftest find-callers-for-format-name
-  (let [{:keys [graph]} (parse-and-build-graph "valid_defs.clj")]
-    (is (contains? (:callers graph) 'fixtures.valid-defs/format-name))))
-
-(deftest find-callers-returns-sorted
-  (let [{:keys [graph]} (parse-and-build-graph "valid_defs.clj")
-        callers (sut/find-callers graph 'fixtures.valid-defs/format-name)]
-    (is (sequential? callers))
-    (is (= callers (sort callers)))))
-
-(deftest find-callees-returns-sorted
-  (let [{:keys [graph]} (parse-and-build-graph "graph_project")
-        callees (sut/find-callees graph 'graph-project.core/process)]
-    (is (sequential? callees))
-    (is (= callees (sort callees)))))
-
-(deftest find-callers-returns-empty-for-unknown
-  (let [{:keys [graph]} (parse-and-build-graph "valid_defs.clj")]
-    (is (= [] (sut/find-callers graph 'nonexistent.sym/foo)))))
-
-(deftest find-callees-returns-empty-for-unknown
-  (let [{:keys [graph]} (parse-and-build-graph "valid_defs.clj")]
-    (is (= [] (sut/find-callees graph 'nonexistent.sym/foo)))))
-
-;; ---------------------------------------------------------------------------
 ;; find-edges-by-chunk
 ;; ---------------------------------------------------------------------------
 

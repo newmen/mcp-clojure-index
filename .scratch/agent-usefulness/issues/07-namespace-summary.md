@@ -1,0 +1,12 @@
+# 07: `namespace_summary`
+
+**What to build:** An agent asks what a namespace contains and gets, without reading the file, one line per Definition (public and private marked) with arglists and the first docstring line, followed by the namespaces that require it. No bodies.
+
+**Blocked by:** 02 (clj-kondo index and `find_definition`)
+
+**Status:** resolved
+
+- [x] Lists every Definition of the namespace with visibility, kind, line, arglists and first docstring line.
+- [x] Lists the namespaces that require it.
+- [x] Unknown namespace returns close candidates by name.
+- [x] Obeys the Output budget; tested on a namespace of this code base.

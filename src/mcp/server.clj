@@ -2,14 +2,25 @@
   (:gen-class)
   (:require [clojure.data.json :as json]
             [clojure.tools.logging :as log]
+            [mcp.code-index :as code-index]
             [mcp.config :as config]
-            [mcp.tools :as tools]
-            [mcp.watcher :as watcher])
+            [mcp.semantic-index :as semantic-index]
+            [mcp.tool :as tool]
+            [mcp.tools :as tools])
   (:import (java.io BufferedReader InputStreamReader OutputStreamWriter)))
 
 (set! *warn-on-reflection* true)
 
-(def ^:private protocol-version "2024-11-05")
+(def ^:private protocol-version
+  "First MCP revision whose `initialize` result carries `instructions`
+   is 2025-03-26; this is the latest one the server follows."
+  "2025-06-18")
+
+(def ^:private instructions
+  (str "Use this server instead of grep and reading files for questions about this Clojure code base.\n"
+       "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
+       "Answers are compact `path:line` lines under a hard size ceiling; page with `offset` when an answer says it is truncated.\n"
+       "Use get_source for a definition's body instead of reading the whole file."))
 (defonce ^:private server-state-atom (atom nil))
 
 (defn- json-rpc-error
@@ -43,34 +54,48 @@
                      :version "0.1.0"}]
     [(json-rpc-result id {:protocolVersion protocol-version
                           :capabilities {:tools {:listChanged false}}
-                          :serverInfo server-info})
+                          :serverInfo server-info
+                          :instructions instructions})
      state]))
 
 (defn- live-state
   [state]
-  (let [idx-ref (:index-ref state)
-        gr-ref (:graph-ref state)]
-    (cond-> state
-      idx-ref (assoc :index @idx-ref)
-      gr-ref (assoc :graph-state @gr-ref))))
+  (if-let [code-index-ref (:code-index-ref state)]
+    (assoc state :code-index @code-index-ref)
+    state))
+
+(defn- ensure-fresh-code-index!
+  "Re-analyse files changed on disk since the last answer, synchronously,
+   so a precise tool never answers from a stale index (ADR-0005), then let
+   the embeddings of changed files catch up in the background."
+  [state]
+  (when-let [code-index-ref (:code-index-ref state)]
+    (try
+      (let [index (swap! code-index-ref (partial code-index/refresh (:config state)))]
+        (when-let [semantic-state (:semantic-index state)]
+          (semantic-index/sync-async! (:config state) semantic-state index)))
+      (catch Exception e
+        (log/error e "Freshness check failed, answering from the last index"))))
+  state)
 
 (defn- handle-method
   [msg state]
   (let [method (:method msg)
         id (:id msg)
         params (:params msg)
-        fresh (live-state state)]
+        fresh (live-state (cond-> state
+                            (= "tools/call" method) ensure-fresh-code-index!))]
     (try
       (case method
         "initialize" (initialize-handler msg state)
         "notifications/initialized" [nil state]
         "tools/list"
-        (let [result (tools/handle-tools-list fresh)]
+        (let [result {:tools (tools/tool-definitions)}]
           [(json-rpc-result id result) state])
         "tools/call"
         (if-let [tool-name (get params :name)]
           (let [arguments (get params :arguments {})
-                tool-result (tools/handle-tool tool-name arguments fresh)]
+                tool-result (tool/call (keyword tool-name) arguments fresh)]
             [(json-rpc-result id {:content (:content tool-result)}) state])
           [(json-rpc-error id -32602 "Missing tool name") state])
         [(json-rpc-error id -32601 (str "Method not found: " method)) state])
@@ -79,8 +104,7 @@
 
 (defn stop
   []
-  (when-let [st @server-state-atom]
-    (watcher/stop-watching! (:watcher st))
+  (when @server-state-atom
     (reset! server-state-atom nil)
     (log/info "Server stopped")))
 
@@ -96,25 +120,15 @@
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
         _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
-        initial (tools/make-initial-state cfg)
-        index-ref (:index-ref initial)
-        graph-ref (:graph-ref initial)
-        watcher-map (watcher/start-watching! cfg index-ref graph-ref)
-        server-state (atom (assoc initial
-                                  :watcher watcher-map))]
+        code-index-ref (atom (code-index/build cfg))
+        _ (log/info "Code index built:" (count (code-index/files @code-index-ref)) "files")
+        semantic-state (semantic-index/make-state)
+        server-state (atom {:config cfg
+                            :code-index-ref code-index-ref
+                            :semantic-index semantic-state})]
     (reset! server-state-atom @server-state)
-    (log/info "MCP server ready on stdio (indexing in background)")
-    (future
-      (try
-        (let [restore-result (watcher/restore-state! cfg)]
-          (reset! index-ref (:index restore-result))
-          (reset! graph-ref (:graph restore-result))
-          (swap! server-state assoc
-                 :index @index-ref
-                 :graph-state @graph-ref)
-          (log/info "Background indexing complete"))
-        (catch Exception e
-          (log/error e "Background indexing failed:" (.getMessage e)))))
+    (semantic-index/sync-async! cfg semantic-state @code-index-ref)
+    (log/info "MCP server ready on stdio (embeddings are computed in the background)")
     (try
       (loop [line (.readLine reader)]
         (when line
@@ -136,4 +150,6 @@
         cfg (-> (config/load-config config-path)
                 (config/resolve-config)
                 (config/validate-config))]
-    (start cfg)))
+    (start cfg)
+    ;; the background embeddings sync must not keep the JVM alive
+    (shutdown-agents)))

@@ -28,13 +28,15 @@
    :qdrant/recreate?  false
    :ollama/url        "http://localhost:11434/v1"
    :ollama/embedding-model "vishalraj/nomic-embed-code"
-   :ollama/reranker-model  "qllama/bce-reranker-base_v1"
+   :reranker/url      "http://localhost:8012/v1"
+   :reranker/model    "qllama/bce-reranker-base_v1"
    :server/transport  :stdio
-   :server/port       8080
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
    :index/exclude     []
    :search/top-k      100
-   :search/re-rank-top 10})
+   :search/re-rank-top 10
+   :output/limit      50
+   :output/max-chars  2000})
 
 (defn compile-exclude-patterns
   "Convert string exclude patterns to compiled regex patterns."
@@ -47,7 +49,7 @@
     (let [file-config (edn/read (PushbackReader. r))]
       (-> (merge defaults file-config)
           (update :index/exclude conj
-                  ".calva" ".clj-kondo" ".cpcache" ".git"
+                  ".calva" ".claude" ".clj-kondo" ".cpcache" ".git"
                   ".kilo" ".lsp" ".mcp" "logs" "target" "tmp")
           (update :index/exclude set)
           (update :index/exclude compile-exclude-patterns)))))

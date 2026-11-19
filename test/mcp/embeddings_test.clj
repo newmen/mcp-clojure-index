@@ -1,103 +1,13 @@
 (ns mcp.embeddings-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
-            [clojure.string :as s]
             [mcp.embeddings :as sut]
-            [mcp.parser :as parser]
-            [mcp.config :as config]))
+            [clojure.data.json :as json]
+            [mcp.config :as config])
+  (:import (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
+           (java.net InetSocketAddress)))
 
-(def fixtures-dir "test-resources/fixtures")
-
-(defn fixture-path
-  [name]
-  (str fixtures-dir "/" name))
-
-;; ---------------------------------------------------------------------------
-;; build-embedding-text
-;; ---------------------------------------------------------------------------
-
-(defn- make-chunk
-  [overrides]
-  (merge
-    {:chunk/id        (java.util.UUID/randomUUID)
-     :chunk/ns        "test.ns"
-     :chunk/file      "/fake/path.clj"
-     :chunk/type      :fn
-     :chunk/name      "my-func"
-     :chunk/source    "(defn my-func [x] (* x 2))"
-     :chunk/start-line 1
-     :chunk/end-line   1
-     :chunk/visibility :public
-     :chunk/language  "clojure"
-     :chunk/metadata  {}
-     :chunk/symbols   #{}
-     :chunk/hash      "abc123"}
-    overrides))
-
-(deftest build-embedding-text-includes-language
-  (let [text (sut/build-embedding-text (make-chunk {}))]
-    (is (.contains text "Language:"))
-    (is (.contains text "Clojure"))))
-
-(deftest build-embedding-text-includes-namespace
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/ns "bank.user"}))]
-    (is (.contains text "Namespace:"))
-    (is (.contains text "bank.user"))))
-
-(deftest build-embedding-text-includes-symbol
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/name "create-user"}))]
-    (is (.contains text "Symbol:"))
-    (is (.contains text "create-user"))))
-
-(deftest build-embedding-text-includes-docstring
-  (let [text (sut/build-embedding-text
-               (make-chunk {:chunk/metadata {:doc "Creates a user."}}))]
-    (is (.contains text "Docstring:"))
-    (is (.contains text "Creates a user."))))
-
-(deftest build-embedding-text-omits-docstring-when-missing
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/metadata {}}))]
-    (is (not (.contains text "Docstring:")))))
-
-(deftest build-embedding-text-no-extra-blank-lines-without-docstring
-  (let [text (sut/build-embedding-text (make-chunk {}))
-        lines (s/split-lines text)
-        blank-runs (->> lines
-                        (partition-by #(= "" %))
-                        (filter #(= "" (first %))))]
-    (is (every? #(= 1 (count %)) blank-runs)
-        "Should not have consecutive blank lines")))
-
-(deftest build-embedding-text-includes-code
-  (let [source "(defn my-func [x] (* x 2))"
-        text (sut/build-embedding-text (make-chunk {:chunk/source source}))]
-    (is (.contains text "Code:"))
-    (is (.contains text source))))
-
-(deftest build-embedding-text-handles-nil-ns
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/ns nil}))]
-    (is (.contains text "Namespace:"))
-    (is (not (nil? text)))))
-
-(deftest build-embedding-text-handles-nil-name
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/name nil}))]
-    (is (.contains text "Symbol:"))
-    (is (not (nil? text)))))
-
-(deftest build-embedding-text-from-parsed-chunk
-  (let [result (parser/parse-file (fixture-path "valid_defs.clj"))
-        enriched (parser/enrich-chunks-with-ns result)
-        fn-chunk (first (filter #(= "create-user" (:chunk/name %))
-                                 (:result/chunks enriched)))
-        text (sut/build-embedding-text fn-chunk)]
-    (is (.contains text "Namespace:"))
-    (is (.contains text "fixtures.valid-defs"))
-    (is (.contains text "Symbol:"))
-    (is (.contains text "create-user"))
-    (is (.contains text "Docstring:"))
-    (is (.contains text "Creates a new user in the system."))
-    (is (.contains text "(defn create-user"))
-    (is (.contains text "Code:"))))
+(set! *warn-on-reflection* true)
 
 ;; ---------------------------------------------------------------------------
 ;; Embedding cache
@@ -176,80 +86,96 @@
     (is (thrown? Exception (sut/generate ["test"])))))
 
 ;; ---------------------------------------------------------------------------
-;; generate-from-chunks — all cached
+;; rerank: a /v1/rerank server (llama.cpp `llama-server --rerank`)
 ;; ---------------------------------------------------------------------------
 
-(deftest generate-from-chunks-skips-cached
-  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache3")
-        result (parser/parse-file (fixture-path "valid_defs.clj"))
-        enriched (parser/enrich-chunks-with-ns result)
-        chunks (:result/chunks enriched)]
+(defn- with-rerank-server
+  "Call `f` with the base URL of a local HTTP server whose `/rerank`
+   answers `status` and `response-body`, recording the request bodies in
+   `requests`."
+  [requests status response-body f]
+  (let [server (HttpServer/create (InetSocketAddress. "localhost" 0) 0)]
+    (.createContext server "/v1/rerank"
+                    (reify HttpHandler
+                      (handle [_this http-exchange]
+                        (let [^HttpExchange exchange http-exchange
+                              ^bytes body (.getBytes ^String (json/write-str response-body) "UTF-8")]
+                          (swap! requests conj (json/read-str (slurp (.getRequestBody exchange))
+                                                              :key-fn keyword))
+                          (.sendResponseHeaders exchange (int status) (long (alength body)))
+                          (with-open [out (.getResponseBody exchange)]
+                            (.write out body))))))
+    (.start server)
     (try
-      (run! (fn [c] (sut/cache-embedding! cfg (:chunk/hash c) [(double (.hashCode (:chunk/name c)))]))
-            chunks)
-      (let [pairs (sut/generate-from-chunks cfg chunks)]
-        (is (= (count chunks) (count pairs)))
-        (is (every? vector? (map second pairs))))
+      (f (str "http://localhost:" (.getPort (.getAddress server)) "/v1"))
       (finally
-        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache3"))]
-          (io/delete-file f true))
-        (io/delete-file (io/file "/tmp/mcp-test-cache3") true)))))
+        (.stop server 0)))))
 
-(deftest generate-from-chunks-returns-all-pairs
-  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache4")
-        chunks [(make-chunk {:chunk/hash "h1" :chunk/source "(defn a [x] x)"})
-                (make-chunk {:chunk/hash "h2" :chunk/source "(defn b [x] x)"})
-                (make-chunk {:chunk/hash "h3" :chunk/source "(defn c [x] x)"})]]
-    (try
-      (run! (fn [c] (sut/cache-embedding! cfg (:chunk/hash c) [(double (.hashCode (:chunk/name c)))]))
-            chunks)
-      (let [pairs (sut/generate-from-chunks cfg chunks)]
-        (is (= 3 (count pairs)))
-        (is (every? vector? (map second pairs))))
-      (finally
-        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache4"))]
-          (io/delete-file f true))
-        (io/delete-file (io/file "/tmp/mcp-test-cache4") true)))))
+(def ^:private candidates
+  [{:text "order total" :unit {:id "a"}}
+   {:text "connection pool" :unit {:id "b"}}
+   {:text "apply discount" :unit {:id "c"}}])
 
-;; ---------------------------------------------------------------------------
-;; generate-from-chunks — mixed cache: some cached, some not
-;; ---------------------------------------------------------------------------
+(deftest rerank-sends-the-query-and-candidate-texts
+  (let [requests (atom [])]
+    (with-rerank-server requests 200 {:results []}
+      (fn [url]
+        (sut/rerank "sum an order" candidates
+                    (assoc config/defaults :reranker/url url :reranker/model "bce"))))
+    (is (= [{:model "bce"
+             :query "sum an order"
+             :documents ["order total" "connection pool" "apply discount"]}]
+           @requests))))
 
-(deftest generate-from-chunks-mixed-cache-works
-  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache5")
-        chunks [(make-chunk {:chunk/hash "pre-cached-1" :chunk/name "a"
-                             :chunk/source "(defn a [x] x)"})
-                (make-chunk {:chunk/hash "uncached-1" :chunk/name "b"
-                             :chunk/source "(defn b [x] x)"})
-                (make-chunk {:chunk/hash "pre-cached-2" :chunk/name "c"
-                             :chunk/source "(defn c [x] x)"})]]
-    (try
-      (sut/cache-embedding! cfg "pre-cached-1" [0.1 0.2])
-      (sut/cache-embedding! cfg "pre-cached-2" [0.3 0.4])
-      (let [result (sut/generate-from-chunks cfg chunks)]
-        (is (= 3 (count result)) "Should return 3 pairs")
-        (is (= [0.1 0.2] (second (first result))) "First chunk uses cached")
-        (is (= [0.3 0.4] (second (nth result 2))) "Third chunk uses cached")
-        (is (vector? (second (second result))) "Second chunk generates real embedding"))
-      (finally
-        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache5"))]
-          (io/delete-file f true))
-        (io/delete-file (io/file "/tmp/mcp-test-cache5") true)))))
+(deftest rerank-sends-only-the-start-of-long-texts
+  ;; the BCE model reads at most 512 tokens of query and text;
+  ;; 1000 characters of code stay below
+  (let [requests (atom [])
+        long-text (apply str (repeat 1500 "x"))]
+    (with-rerank-server requests 200 {:results []}
+      (fn [url]
+        (sut/rerank "a query" [{:text long-text}] (assoc config/defaults :reranker/url url))))
+    (is (= [(subs long-text 0 993)] (:documents (first @requests))))))
 
-;; ---------------------------------------------------------------------------
-;; rerank interface — architecture spec: (rerank query candidates)
-;; ---------------------------------------------------------------------------
+(defn- rounded
+  [reranked]
+  (mapv #(update % :re-rank (fn [score] (/ (Math/round (* 1000.0 score)) 1000.0))) reranked))
+
+(deftest rerank-orders-candidates-by-relevance
+  ;; llama-server answers logits; the relevance is their sigmoid, in 0..1
+  (with-rerank-server (atom []) 200 {:results [{:index 2 :relevance_score 0.0}
+                                               {:index 0 :relevance_score (Math/log 3)}
+                                               {:index 1 :relevance_score (- (Math/log 3))}]}
+    (fn [url]
+      (is (= [(assoc (nth candidates 0) :re-rank 0.75)
+              (assoc (nth candidates 2) :re-rank 0.5)
+              (assoc (nth candidates 1) :re-rank 0.25)]
+             (rounded (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url))))))))
+
+(deftest rerank-error-keeps-candidates-without-relevance-score
+  (with-rerank-server (atom []) 500 {:error "model failed"}
+    (fn [url]
+      (is (= candidates
+             (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url)))))))
+
+(deftest rerank-answer-without-a-score-for-each-candidate-keeps-candidates
+  (doseq [results [[{:index 0 :relevance_score 0.5} {:index 1 :relevance_score 0.5}]
+                   [{:index 0 :relevance_score 0.5} {:index 1 :relevance_score nil}
+                    {:index 2 :relevance_score 0.5}]
+                   [{:index 0 :relevance_score 0.5} {:index 0 :relevance_score 0.5}
+                    {:index 2 :relevance_score 0.5}]]]
+    (with-rerank-server (atom []) 200 {:results results}
+      (fn [url]
+        (is (= candidates
+               (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url))))))))
+
+(deftest rerank-unavailable-keeps-candidates-without-relevance-score
+  (is (= candidates
+         (sut/rerank "sum an order" candidates
+                     (assoc config/defaults :reranker/url "http://localhost:19999/v1")))))
 
 (deftest rerank-empty-candidates
-  (is (= [] (sut/rerank "test" []))))
-
-(deftest rerank-fallback-on-error
-  (let [candidates [{:text "hello" :score 0.5} {:text "world" :score 0.3}]]
-    (binding [sut/*config* (assoc config/defaults :ollama/url "http://localhost:19999")]
-      (let [result (sut/rerank "test query" candidates)]
-        (is (= 2 (count result)))
-        (is (every? #(contains? % :re-rank) result))
-        (is (every? #(= (:score %) (:re-rank %)) result))))))
+  (is (= [] (sut/rerank "test" [] config/defaults))))
 
 ;; ---------------------------------------------------------------------------
 ;; dynamic *config* binding works
@@ -265,30 +191,6 @@
   (let [cfg (assoc config/defaults :ollama/url "http://localhost:29999")]
     (is (thrown? Throwable (sut/generate ["hello"] cfg))
         "Should attempt to connect to explicit config URL")))
-
-;; ---------------------------------------------------------------------------
-;; Edge cases: build-embedding-text with various chunk configurations
-;; ---------------------------------------------------------------------------
-
-(deftest build-embedding-text-handles-long-docstring
-  (let [long-doc (apply str (repeat 1000 "Lorem ipsum dolor sit amet. "))
-        text (sut/build-embedding-text
-               (make-chunk {:chunk/metadata {:doc long-doc}}))]
-    (is (.contains text "Docstring:"))
-    (is (.contains text long-doc))))
-
-(deftest build-embedding-text-handles-empty-source
-  (let [text (sut/build-embedding-text (make-chunk {:chunk/source ""}))]
-    (is (.contains text "Code:"))
-    (is (not (nil? text)))))
-
-(deftest build-embedding-text-handles-special-chars
-  (let [text (sut/build-embedding-text
-               (make-chunk {:chunk/ns "a.b"
-                            :chunk/name "x->y"
-                            :chunk/source "(defn x->y [z] z)"}))]
-    (is (.contains text "a.b"))
-    (is (.contains text "x->y"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases: cache with concurrent access simulation
@@ -309,34 +211,28 @@
         (io/delete-file (io/file "/tmp/mcp-test-cache-concurrent") true)))))
 
 ;; ---------------------------------------------------------------------------
-;; Edge cases: generate with empty chunks list returns nil
+;; embed-units
 ;; ---------------------------------------------------------------------------
 
-(deftest generate-from-chunks-empty-chunks-returns-empty
-  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-empty")]
-    (is (= [] (sut/generate-from-chunks cfg [])))))
+(defn- temp-cache-config
+  []
+  (assoc config/defaults
+         :embedding/cache-dir (str (java.nio.file.Files/createTempDirectory
+                                    "embed-units-test"
+                                    (make-array java.nio.file.attribute.FileAttribute 0)))))
 
-(deftest generate-from-chunks-nil-hash-skipped
-  (let [cfg (assoc config/defaults :embedding/cache-dir "/tmp/mcp-test-cache-nil-hash")
-        chunks [(make-chunk {:chunk/hash nil :chunk/source "(defn a [x] x)"})]]
-    (try
-      (let [result (sut/generate-from-chunks cfg chunks)]
-        (is (= 1 (count result)))
-        (is (vector? (second (first result)))))
-      (finally
-        (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache-nil-hash"))]
-          (io/delete-file f true))
-        (io/delete-file (io/file "/tmp/mcp-test-cache-nil-hash") true)))))
+(deftest embed-units-sends-only-uncached-texts-to-ollama
+  (let [cfg (temp-cache-config)
+        sent (atom [])
+        units [{:hash "h-a" :text "a"} {:hash "h-b" :text "b"} {:hash "h-c" :text "c"}]]
+    (sut/cache-embedding! cfg "h-a" [0.1 0.2])
+    (sut/cache-embedding! cfg "h-c" [0.3 0.4])
+    (with-redefs [sut/generate (fn [texts _cfg] (swap! sent into texts) (mapv (constantly [0.5 0.6]) texts))]
+      (is (= [[0.1 0.2] [0.5 0.6] [0.3 0.4]] (sut/embed-units cfg units))))
+    (is (= ["b"] @sent))
+    (testing "the generated vector is cached"
+      (is (= [0.5 0.6] (sut/cached-embedding cfg "h-b"))))))
 
-;; ---------------------------------------------------------------------------
-;; Edge cases: rerank with single candidate
-;; ---------------------------------------------------------------------------
+(deftest embed-units-of-no-units-is-empty
+  (is (= [] (sut/embed-units (temp-cache-config) []))))
 
-(deftest rerank-single-candidate-works
-  (let [candidates [{:text "some code" :score 0.9}]]
-    (is (= 1 (count (sut/rerank "test" candidates))))))
-
-(deftest rerank-very-long-query
-  (let [long-query (apply str (repeat 100 "query "))
-        candidates [{:text "short code" :score 0.5} {:text "longer code" :score 0.4}]]
-    (is (= 2 (count (sut/rerank long-query candidates))))))

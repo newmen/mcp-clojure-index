@@ -4,6 +4,7 @@
             [clojure.edn :as edn]
             [clojure.data.json :as json]
             [clj-http.client :as http]
+            [clojure.tools.logging :as log]
             [mcp.config :as config])
   (:import (java.io PushbackReader File)
            (java.nio.file Files StandardCopyOption)))
@@ -19,29 +20,24 @@
 (defonce ^:dynamic *config* nil)
 
 (def ^:private batch-size 50)
-(def ^:private embedding-timeout 300000)
+(def ^:private embedding-timeouts
+  {:socket-timeout 300000 :connection-timeout 10000})
+
+(def ^:private rerank-timeouts
+  "The reranker is optional: an absent one is given up on quickly."
+  {:socket-timeout 120000 :connection-timeout 2000})
+
+(def ^:private rerank-max-chars
+  "Characters of query plus candidate text the reranker reads. The BCE
+   model takes at most 512 tokens per query and document together, and
+   the reranker rejects the whole request when one pair is longer; 1000
+   characters of Clojure measured at most ~415 tokens. A text starts with
+   name, arglists and docstring, so these are always read."
+  1000)
 
 (defn- get-config
   []
   (or *config* config/defaults))
-
-;; ---------------------------------------------------------------------------
-;; Embedding text construction
-;; ---------------------------------------------------------------------------
-
-(defn build-embedding-text
-  [chunk]
-  (let [ns-name (or (:chunk/ns chunk) "")
-        sym-name (or (:chunk/name chunk) "")
-        meta (:chunk/metadata chunk)
-        doc (:doc meta)
-        source (:chunk/source chunk "")]
-    (s/join "\n"
-            (cond-> ["Language:" "Clojure" ""
-                     "Namespace:" ns-name ""
-                     "Symbol:" sym-name]
-                    (seq doc) (conj "" "Docstring:" doc)
-                    true (conj "" "Code:" source)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Embedding cache (hash -> vector) — thread-safe via atomic write
@@ -85,10 +81,14 @@
 ;; Ollama API helpers
 ;; ---------------------------------------------------------------------------
 
+(defn- endpoint-url
+  "`path` under the API `base-url`, with or without a trailing slash."
+  [base-url path]
+  (str (s/replace base-url #"/$" "") path))
+
 (defn- ollama-embed-url
   [cfg]
-  (let [base (or (:ollama/url cfg) "http://localhost:11434/v1")]
-    (str (s/replace base #"/$" "") "/embeddings")))
+  (endpoint-url (or (:ollama/url cfg) "http://localhost:11434/v1") "/embeddings"))
 
 (defn- embedding-model
   [cfg]
@@ -96,14 +96,15 @@
 
 (defn- reranker-model
   [cfg]
-  (or (:ollama/reranker-model cfg) "qllama/bce-reranker-base_v1"))
+  (or (:reranker/model cfg) "qllama/bce-reranker-base_v1"))
 
 (defn- http-post-json
-  [url body-map]
-  (let [response (http/post url {:content-type "application/json"
-                                 :body (json/write-str body-map)
-                                 :socket-timeout embedding-timeout
-                                 :connection-timeout 10000})]
+  "POST `body-map` as JSON to `url`; `timeouts` are clj-http's
+   {:socket-timeout :connection-timeout}. The body comes back parsed."
+  [url body-map timeouts]
+  (let [response (http/post url (merge {:content-type "application/json"
+                                        :body (json/write-str body-map)}
+                                       timeouts))]
     (update response :body #(json/read-str % :key-fn keyword))))
 
 ;; ---------------------------------------------------------------------------
@@ -124,71 +125,99 @@
      (let [url (ollama-embed-url cfg)
            model (embedding-model cfg)
            batcher (fn [batch]
-                     (let [response (http-post-json url {:model model :input (vec batch)})
+                     (let [response (http-post-json url {:model model :input (vec batch)} embedding-timeouts)
                            data (:body response)
                            embeddings (extract-embeddings data)]
                        (when (nil? embeddings)
                          (throw (ex-info "Ollama returned no embeddings"
-                                  {:url url :model model :response data})))
+                                         {:url url :model model :response data})))
                        embeddings))
            batches (partition-all batch-size texts)
            results (mapcat batcher batches)]
        (vec results)))))
 
 ;; ---------------------------------------------------------------------------
-;; Generate embeddings from chunks with hash-based caching
+;; Embeddings of Search units, cached by their hash
 ;; ---------------------------------------------------------------------------
 
-(defn generate-from-chunks
-  [cfg chunks]
-  (let [texts (mapv build-embedding-text chunks)
-        hashes (mapv :chunk/hash chunks)
-        cached (mapv (partial cached-embedding cfg) hashes)
-        uncached-idx (vec (keep-indexed (fn [i v] (when (nil? v) i)) cached))]
-    (if (empty? uncached-idx)
-      (mapv vector chunks cached)
-      (let [idx->pos (into {} (map-indexed (fn [pos i] [i pos]) uncached-idx))
-            uncached (mapv (fn [i] {:text (nth texts i) :hash (nth hashes i)})
-                           uncached-idx)
-            embeddings (binding [*config* cfg]
-                         (generate (mapv :text uncached)))]
-        (run! (fn [[{:keys [hash]} emb]]
-                (when hash
-                  (cache-embedding! cfg hash emb)))
-              (map vector uncached embeddings))
-        (mapv (fn [i]
-                [(nth chunks i)
-                 (if-let [pos (get idx->pos i)]
-                   (nth embeddings pos)
-                   (nth cached i))])
-              (range (count chunks)))))))
+(defn embed-units
+  "Embedding vectors of the Search `units` (see `mcp.search-units`), in
+   order. Vectors are cached on disk by the unit's `:hash`; only uncached
+   texts are sent to Ollama."
+  [cfg units]
+  (let [cached (mapv (comp (partial cached-embedding cfg) :hash) units)
+        uncached (vec (remove (comp some? (partial nth cached)) (range (count units))))
+        generated (zipmap uncached (generate (mapv (comp :text (partial nth units)) uncached) cfg))]
+    (doseq [[unit-index unit-vector] generated]
+      (cache-embedding! cfg (:hash (nth units unit-index)) unit-vector))
+    (mapv #(or (nth cached %) (get generated %)) (range (count units)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reranking
-;; Architecture interface: (rerank query candidates) -> seq of {:text :score :re-rank}
+;; Architecture interface: (rerank query candidates) -> candidates best first,
+;; each with :re-rank (absent when the reranker is unavailable)
 ;;
-;; NOTE: This is a temporary implementation that uses the embedding endpoint.
-;; A proper cross-encoder should call Ollama's /api/generate with the BCE
-;; reranker model using the standard "query: Q passage: P" format and extract
-;; logits from the response. This will be replaced in a future task.
+;; Ollama cannot run the BCE cross-encoder (no rerank API; its embedding
+;; runner crashes on the model), so the reranker is a separate server
+;; speaking the /v1/rerank API of llama.cpp's `llama-server --rerank`
+;; (also Jina- and Cohere-compatible): request {:model :query :documents},
+;; response {:results [{:index i :relevance_score s}]}. llama-server's
+;; scores are the model's logits; their sigmoid is the relevance in 0..1,
+;; as the BCE model is meant to be read.
 ;; ---------------------------------------------------------------------------
 
+(defn- rerank-url
+  [cfg]
+  (endpoint-url (or (:reranker/url cfg) "http://localhost:8012/v1") "/rerank"))
+
+(defn- scores-in-order
+  "Scores of the reranker's `results` by candidate index, or nil unless
+   they score each of the `candidate-count` candidates exactly once."
+  [results candidate-count]
+  (let [by-index (into {} (map (juxt :index :relevance_score)) results)
+        scores (mapv by-index (range candidate-count))]
+    (when (and (= candidate-count (count results) (count by-index))
+               (every? number? scores))
+      scores)))
+
+(defn- relevance-scores
+  "The reranker's score of each of `texts` for `query`, in order, or nil
+   when it is not reachable, fails or answers something else."
+  [cfg query texts]
+  (try
+    (-> (http-post-json (rerank-url cfg)
+                        {:model (reranker-model cfg) :query query :documents texts}
+                        rerank-timeouts)
+        (get-in [:body :results])
+        (scores-in-order (count texts)))
+    (catch Exception e
+      (log/debug "Reranker unavailable:" (.getMessage e))
+      nil)))
+
+(defn- sigmoid
+  [logit]
+  (/ 1.0 (+ 1.0 (Math/exp (- (double logit))))))
+
+(defn- truncate-for-rerank
+  "Start of `text` that fits in `rerank-max-chars` together with `query`."
+  [query text]
+  (let [text (str text)
+        max-chars (max 0 (- rerank-max-chars (count query)))]
+    (cond-> text
+      (> (count text) max-chars) (subs 0 max-chars))))
+
 (defn rerank
+  "`candidates` ({:text ...}) ordered by the reranker's relevance of their
+   `:text` to `query`, best first, each with its relevance (0..1) as `:re-rank`.
+   When the reranker is unavailable, `candidates` as given."
   ([query candidates]
    (rerank query candidates (get-config)))
   ([query candidates cfg]
-   (let [url (ollama-embed-url cfg)
-         model (reranker-model cfg)
-         texts (mapv :text candidates)]
-     (if (empty? texts)
-       []
-       (try
-         (let [response (http-post-json url {:model model
-                                              :input (mapv (fn [_] (str "query: " query)) texts)
-                                              :input2 (mapv (fn [t] (str "passage: " t)) texts)})
-               data (:body response)]
-           (if-let [embeddings (:embeddings data)]
-             (mapv (fn [c e] (assoc c :re-rank (float (first e)))) candidates embeddings)
-             (mapv #(assoc % :re-rank (:score %)) candidates)))
-         (catch Exception _
-           (mapv #(assoc % :re-rank (:score %)) candidates)))))))
+   (if-let [scores (when (seq candidates)
+                     (relevance-scores cfg query
+                                       (mapv (comp (partial truncate-for-rerank query) :text)
+                                             candidates)))]
+     (->> (map #(assoc %1 :re-rank (sigmoid %2)) candidates scores)
+          (sort-by (comp - :re-rank))
+          vec)
+     (vec candidates))))

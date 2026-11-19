@@ -1,5 +1,5 @@
 (ns mcp.config-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is]]
             [mcp.config :as sut]))
 
 (def fixtures-dir "test-resources/fixtures")
@@ -72,6 +72,11 @@
     (is (instance? java.util.regex.Pattern (first (:index/exclude cfg))))
     (is (= "/Users/altermn/projects/clojure/mcp" (:index/root-path cfg)))))
 
+(deftest load-config-defaults-output-budget
+  (let [cfg (sut/load-config (fixture-path "config.edn"))]
+    (is (= 50 (:output/limit cfg)))
+    (is (= 2000 (:output/max-chars cfg)))))
+
 (deftest load-config-compiles-exclude-patterns
   (let [cfg (sut/load-config (fixture-path "config.edn"))
         excludes (:index/exclude cfg)]
@@ -85,9 +90,13 @@
   (let [cfg (sut/load-config (fixture-path "config.edn"))
         exclude-strs (set (map #(.pattern ^java.util.regex.Pattern %) (:index/exclude cfg)))]
     (is (= "/Users/altermn/projects/clojure/mcp" (:index/root-path cfg)))
-    (is (= #{"target" "\\.git" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"
+    (is (= #{"target" "\\.git" "\\.claude" "\\.lsp" "\\.clj-kondo" "\\.calva" "\\.kilo" "\\.mcp"
              "\\.cpcache" "logs" "tmp"}
            exclude-strs))))
+
+(deftest load-config-excludes-agent-worktrees-under-dot-claude
+  (let [excludes (:index/exclude (sut/load-config (fixture-path "config.edn")))]
+    (is (some #(re-find % ".claude/worktrees/agent-1/src/mcp/server.clj") excludes))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-config
@@ -100,14 +109,14 @@
 
 (deftest validate-config-throws-on-missing-root-path
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-        #"Missing :index/root-path"
-        (sut/validate-config {:index/include-extensions [".clj"]}))))
+                        #"Missing :index/root-path"
+                        (sut/validate-config {:index/include-extensions [".clj"]}))))
 
 (deftest validate-config-throws-on-non-collection-extensions
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-        #":index/include-extensions must be a collection"
-        (sut/validate-config {:index/root-path "/foo"
-                               :index/include-extensions ".clj"}))))
+                        #":index/include-extensions must be a collection"
+                        (sut/validate-config {:index/root-path "/foo"
+                                              :index/include-extensions ".clj"}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config from non-existent file
@@ -115,7 +124,7 @@
 
 (deftest load-config-throws-on-missing-file
   (is (thrown? java.io.FileNotFoundException
-        (sut/load-config "/nonexistent/path.edn"))))
+               (sut/load-config "/nonexistent/path.edn"))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config with minimal file (only overrides)
@@ -136,18 +145,18 @@
 
 (deftest validate-config-throws-on-nil-root-path
   (is (thrown? clojure.lang.ExceptionInfo
-        (sut/validate-config {:index/root-path nil
-                               :index/include-extensions [".clj"]}))))
+               (sut/validate-config {:index/root-path nil
+                                     :index/include-extensions [".clj"]}))))
 
 (deftest validate-config-throws-on-nil-extensions
   (is (thrown? clojure.lang.ExceptionInfo
-        (sut/validate-config {:index/root-path "/foo"
-                               :index/include-extensions nil}))))
+               (sut/validate-config {:index/root-path "/foo"
+                                     :index/include-extensions nil}))))
 
 (deftest validate-config-throws-on-string-extensions
   (is (thrown? clojure.lang.ExceptionInfo
-        (sut/validate-config {:index/root-path "/foo"
-                               :index/include-extensions ".clj"}))))
+               (sut/validate-config {:index/root-path "/foo"
+                                     :index/include-extensions ".clj"}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases: compile-exclude-patterns pattern conversion

@@ -1,0 +1,3 @@
+{:db/connection-pool {:max-connections 10
+                      :timeout-ms 3000}
+ :smtp/server "mail.example.org"}

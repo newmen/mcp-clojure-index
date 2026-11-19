@@ -1,0 +1,116 @@
+(ns mcp.tools.namespace-summary-test
+  "`namespace_summary` on this project's own code base."
+  (:require [clojure.string :as s]
+            [clojure.test :refer [deftest is testing]]
+            [mcp.code-index :as code-index]
+            [mcp.test-project :as project]
+            [mcp.tool :as tool]
+            [mcp.tools :as tools])
+  (:import (java.io File)))
+
+(set! *warn-on-reflection* true)
+
+(defn- answer
+  ([args] (answer project/config args))
+  ([cfg args]
+   (project/answer-text cfg
+                        (tool/call :namespace_summary args
+                                   {:config cfg :code-index (project/code-index)}))))
+
+(def ^:private output-definitions
+  "Hand-checked Definitions of `src/mcp/output.clj`."
+  ["12  private  defn-  effective-limit  [cfg args]"
+   "17  private  defn-  truncation-note  [shown-until total]"
+   "26  public  defn  relative-path  [root-path file-path]  Return `file-path` relative to the project root `root-path`; paths"
+   "39  public  defn  first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
+   "51  private  defn-  answer-text  [shown offset total]  Join the `shown` findings of a page starting at `offset`, adding a"
+   "60  private  defn-  oversized-first-finding  [cfg page offset total]  Answer for a page whose first finding alone exceeds `:output/max-chars`:"
+   "71  public  defn  render  [cfg args findings]  Render `findings` (one string per finding) as an answer within the Output"
+   "84  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  `render` `findings` between an optional `header` line and an optional"
+   "99  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
+   "110  public  defn  not-found  [index name-str]  Answer for `name-str` that resolves to nothing, saying what was searched."
+   "115  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  Compact answer line of a Definition:"
+   "127  public  defn  ambiguous-header  [what name-str candidate-count]  Header line for `name-str` that denotes `candidate-count` candidates,"
+   "133  public  defn  ambiguous  [cfg args index what name-str definitions]  Answer for `name-str` that denotes several `definitions`: an"
+   "141  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  Answer for `name-str` that resolved to `definitions`: `not-found` for"])
+
+(def ^:private output-requirers
+  "Hand-checked namespaces that require `mcp.output` (more may be added)."
+  #{"mcp.output-test" "mcp.tools.semantic-search" "mcp.tools.find-definition"})
+
+(defn- required-by
+  [text]
+  (some->> (s/split-lines text)
+           (some #(second (re-matches #"required by: (.*)" %)))
+           (#(s/split % #", "))
+           set))
+
+(deftest summarises-every-definition-of-a-namespace
+  (let [[header & lines] (s/split-lines (answer {:ns "mcp.output"}))]
+    (is (= "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
+           header))
+    (is (= output-definitions (butlast lines)))))
+
+(deftest lists-namespaces-that-require-it
+  (let [text (answer {:ns "mcp.output"})
+        requirers (required-by text)]
+    (is (s/starts-with? (last (s/split-lines text)) "required by: "))
+    (is (every? requirers output-requirers))
+    (is (not (contains? requirers "mcp.output")))))
+
+(deftest namespace-nobody-requires
+  (is (s/ends-with? (answer {:ns "mcp.output-test"}) "required by: none")))
+
+(deftest unknown-namespace-returns-close-candidates
+  (testing "misspelt"
+    (testing "says what was searched, then the close names"
+      (is (re-matches #"not found: namespace mcp\.outptu \(checked \d+ files, including tests\); close: .*mcp\.output.*"
+                      (answer {:ns "mcp.outptu"})))))
+  (testing "partial name"
+    (is (s/includes? (answer {:ns "find-definition"}) "mcp.tools.find-definition")))
+  (testing "nothing close"
+    (is (re-matches #"not found: namespace zzzzzzzz \(checked \d+ files, including tests\)"
+                    (answer {:ns "zzzzzzzz"})))))
+
+(deftest answer-respects-output-budget
+  (let [cfg (assoc project/config :output/limit 3)
+        text (answer cfg {:ns "mcp.output"})
+        lines (s/split-lines text)]
+    (is (= 5 (count lines)))
+    (is (= (take 3 output-definitions) (take 3 (rest lines))))
+    (is (re-matches #"truncated: shown 3 of \d+, pass offset=3 or narrow the query" (last lines)))
+    (is (= (drop 3 (take 6 output-definitions))
+           (take 3 (rest (s/split-lines (answer cfg {:ns "mcp.output" :offset 3}))))))
+    (is (<= (count text) (:output/max-chars cfg))))
+  (testing "character ceiling"
+    (let [cfg (assoc project/config :output/max-chars 300)
+          text (answer cfg {:ns "mcp.output"})]
+      (is (<= (count text) 300))
+      (is (re-find #"truncated: shown \d+ of \d+" text))))
+  (testing "default budget"
+    (is (<= (count (answer {:ns "mcp.code-index"})) (:output/max-chars project/config)))))
+
+(def ^:private definitions-fixture-config
+  (assoc project/config :index/root-path
+         (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))
+
+(deftest defmethods-belong-to-the-namespace-of-their-file
+  (testing "a tool namespace lists its own defmethods with their dispatch values"
+    (let [lines (s/split-lines (answer {:ns "mcp.tools.get-source"}))]
+      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/spec :get_source") lines))
+      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/call :get_source") lines))))
+  (testing "the multimethod's namespace does not list defmethods written in other files"
+    (is (not (s/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
+  (testing "a defmethod of a local multimethod is named without its namespace"
+    (let [text (-> (tool/call :namespace_summary {:ns "app.core"}
+                              {:config definitions-fixture-config
+                               :code-index (code-index/build definitions-fixture-config)})
+                   :content first :text)]
+      (is (some #{"15  public  defmethod  area :circle"} (s/split-lines text))))))
+
+(deftest description-says-what-grep-cannot-do
+  (let [spec (some #(when (= "namespace_summary" (:name %)) %)
+                   (tools/tool-definitions))]
+    (is (re-find #"grep" (:description spec)))
+    (is (= #{:ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= ["ns"] (get-in spec [:inputSchema :required])))))

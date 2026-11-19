@@ -1,29 +1,33 @@
 # MCP Clojure Code Index
 
-MCP server for semantic indexing and analysis of Clojure code. Provides LLM agents with intelligent access to source code through search, navigation, and dependency analysis.
+MCP server that answers an LLM agent's questions about a Clojure code base precisely and compactly: where a name is defined, who uses it, what a namespace contains, the source of one Definition, the Implementations of a protocol or multimethod, and (optionally) where the code that does something is.
+
+## Purpose
+
+LLM agents spend most of their tokens on understanding code: `grep`, then reading files to see what each hit really is. This server answers questions like "where is X defined", "who uses X", "what is in this namespace" and "where is the code that does Y" with **compact** answers (one line per finding, hard size ceiling) that are **more complete than `grep`**: usages through any alias, `:refer`, `#'var`, `with-redefs`, functions passed as values, keywords in code and EDN. If an answer is ever bigger or less precise than what `grep` would give, that is a bug. See `docs/adr/` for the principles and `GLOSSARY.md` for the vocabulary.
 
 ## Features
 
-- **Semantic search** — vector search + reranking (Cross Encoder)
-- **Symbol search** — functions, macros, vars by name (qualified or simple)
-- **Namespace search** — namespace definition and metadata
-- **Protocol and record search** — all methods of protocol/record
-- **Dependency graph** — who calls (callers) and who is called (callees) by a function
-- **Incremental indexing** — automatic tracking of file changes
-- **State recovery** — in-memory structures are rebuilt from Qdrant on restart
+- **Definitions from clj-kondo analysis** — vars, macros, tests (`deftest`), multimethods and their methods, specs (`s/def`), protocols, records, forms of project macros declared via `lint-as` in the project's `.clj-kondo/config.edn`
+- **Usages more complete than `grep`** — aliases, `:refer`, `#'var`, functions passed as values, `with-redefs`, `comment` forms, `:require`, keywords in code and in `.edn` files
+- **Output budget** — every answer is one line per finding with a hard ceiling in lines and characters, and pages with `offset`
+- **Freshness** — files changed on disk are re-analysed before each answer; embeddings catch up in the background
+- **Qdrant and Ollama are optional** — they are needed only for `semantic_search`; all other tools work without them
 
 ## Requirements
 
 - [Java](https://adoptium.net/) 21+
 - [Leiningen](https://leiningen.org/) 2.11+ (development and build only)
-- [Qdrant](https://qdrant.tech/) (vector database)
-- [Ollama](https://ollama.com/) with models:
-  - `vishalraj/nomic-embed-code` — code embeddings
-  - `qllama/bce-reranker-base_v1` — result reranking
+- Only for `semantic_search` (optional):
+  - [Qdrant](https://qdrant.tech/) (vector database)
+  - [Ollama](https://ollama.com/) with the `vishalraj/nomic-embed-code` model — code embeddings
+  - optionally, a reranker: llama.cpp's `llama-server --rerank` with `qllama/bce-reranker-base_v1` — sorts the hits precisely and gives them a relevance score
+
+If Qdrant or Ollama is not reachable, the server still starts and every precise tool answers; `semantic_search` answers that it is unavailable. Without the reranker `semantic_search` still works: hits are ordered by vector search fused with word matching on names and docstrings, and carry no score.
 
 ## Installation and running
 
-### 1. Install and start the dependencies
+### 1. Install and start the optional dependencies (semantic search only)
 
 <details>
 <summary><b>Qdrant</b> — vector database</summary>
@@ -36,31 +40,50 @@ Check: `curl http://localhost:6333/collections`
 </details>
 
 <details>
-<summary><b>Ollama</b> — embedding and reranking models</summary>
+<summary><b>Ollama</b> — embedding model</summary>
 
 ```bash
 ollama pull vishalraj/nomic-embed-code
-ollama pull qllama/bce-reranker-base_v1
 ```
+</details>
+
+<details>
+<summary><b>Reranker</b> (optional) — llama-server with the BCE model</summary>
+
+Ollama cannot run the reranking model itself (it has no rerank API), but it can download it, and Linux builds of Ollama ship `llama-server`, which can:
+
+```bash
+ollama pull qllama/bce-reranker-base_v1
+MODEL=$(ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
+```
+
+Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works the same way. Check: `curl http://localhost:8012/health`
 </details>
 
 ### 2. Configure
 
-The `resources/config.edn` file is already configured for the current project (`/Users/altermn/projects/clojure/mcp`). To index another project, change the `:index/root-path` field.
+`resources/config.edn` is the default config. The project root is taken from `:index/root-path`, else the `QD_PROJECT_ROOT` or `VSCODE_CWD` environment variable, else the working directory.
 
-Main config fields:
+| Key | Default | Description |
+|------|---------|----------|
+| `:index/root-path` | see above | Path to the indexed project |
+| `:index/include-extensions` | `[".clj" ".cljc" ".cljs" ".edn"]` | File extensions to analyse |
+| `:index/exclude` | `[]` | Directories to exclude; `.calva`, `.claude`, `.clj-kondo`, `.cpcache`, `.git`, `.kilo`, `.lsp`, `.mcp`, `logs`, `target`, `tmp` are always excluded |
+| `:output/limit` | `50` | Output budget: the maximum number of findings in one answer; a call's `limit` can only lower it |
+| `:output/max-chars` | `2000` | Output budget: the maximum number of characters in one answer |
+| `:qdrant/host`, `:qdrant/port` | `"localhost"`, `6333` | Qdrant (semantic search only) |
+| `:qdrant/collection` | `QD_COLLECTION` env, else `<project dir>-collection` | Qdrant collection (semantic search only) |
+| `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |
+| `:ollama/url` | `"http://localhost:11434/v1"` | Ollama API address (semantic search only) |
+| `:ollama/embedding-model` | `"vishalraj/nomic-embed-code"` | Embedding model (semantic search only) |
+| `:reranker/url` | `"http://localhost:8012/v1"` | Reranker address, a `/v1/rerank` API such as `llama-server --rerank` (semantic search only, optional) |
+| `:reranker/model` | `"qllama/bce-reranker-base_v1"` | Model name sent to the reranker (semantic search only) |
+| `:search/top-k` | `100` | Candidates taken from vector search and from word matching each, and fused candidates passed to the reranker (semantic search only) |
+| `:search/re-rank-top` | `10` | Hits kept after reranking (semantic search only) |
+| `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
 
-| Key | Description |
-|------|----------|
-| `:qdrant/host` | Qdrant host |
-| `:qdrant/port` | Qdrant port |
-| `:qdrant/collection` | Collection name |
-| `:ollama/url` | Ollama API address |
-| `:ollama/embedding-model` | Embedding model |
-| `:ollama/reranker-model` | Reranking model |
-| `:index/root-path` | Path to the indexed project |
-| `:index/include-extensions` | File extensions to index |
-| `:index/exclude` | Directories to exclude |
+An answer that hits the Output budget ends with a Truncation note, e.g. `truncated: shown 50 of 120, pass offset=50 or narrow the query`.
 
 ### 3. Build uberjar
 
@@ -76,7 +99,7 @@ lein uberjar
 java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 ```
 
-The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. On the first run it performs a full project indexing. On subsequent runs it restores the state from Qdrant and indexes only the changed files.
+The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. It analyses the project with clj-kondo at startup (in memory only) and computes embeddings of Search units in the background; on later runs only files changed since their embeddings were stored are re-embedded. A Qdrant collection of the old format is dropped and recreated.
 
 ## Integration with Kilo Code
 
@@ -121,68 +144,121 @@ Create `kilo.json` at the project root or `.kilo/kilo.jsonc`:
 
 ### Verification
 
-After configuration, restart Kilo Code. The MCP server `clojure-code-index` will appear in the interface. When enabled, Kilo automatically discovers these 8 tools:
+After configuration, restart Kilo Code. The MCP server `clojure-code-index` will appear in the interface. When enabled, Kilo automatically discovers these 6 tools:
 
 | Tool | Description |
 |-----|----------|
-| `semantic_search` | Search code by natural language query |
-| `find_symbol` | Find a symbol by name |
-| `find_namespace` | Find a namespace |
-| `find_callers` | Who calls a function |
-| `find_callees` | Which function is called |
-| `find_protocol` | Protocol methods |
-| `find_record` | Record methods |
-| `find_macro` | List of macros |
+| `find_definition` | Where a name is defined |
+| `find_usages` | Every Usage of one or more names and/or keywords |
+| `namespace_summary` | The Definitions of a namespace and who requires it |
+| `get_source` | The source of exactly one Definition |
+| `find_implementations` | The Implementations of a protocol or multimethod |
+| `semantic_search` | Definitions and EDN entries by meaning (needs Qdrant and Ollama) |
 
 ## Available MCP tools
 
-All tools follow the JSON-RPC 2.0 protocol and are automatically registered in Kilo Code.
+These are exactly the tools returned by `tools/list`. Names can be simple (`relative-path`), alias-qualified as written in some namespace (`output/relative-path`) or fully qualified (`mcp.output/relative-path`); an ambiguous name returns the candidates. Every tool except `get_source` accepts `limit` (can only lower `:output/limit`) and `offset` (findings to skip, for paging). Every answer obeys the Output budget.
+
+### find_definition
+
+```
+Input:  name (string, required) — simple, alias-qualified or fully qualified;
+        `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
+        limit, offset
+Answer: one line per Definition
+        path:line  kind  ns/name  [arglists]  first docstring line
+```
+
+Example: `src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...`
+
+### find_usages
+
+```
+Input:  targets (array of strings, required) — names and/or keywords (`:k`, `:ns/k`, `::k`, `::alias/k`)
+        kinds (array of strings) — only these Usage kinds:
+          call, value, var-ref, redef, in-comment, require, keyword, edn (default: all)
+        include_tests (boolean, default true)
+        limit, offset
+Answer: per target a header `target: N usages`, then one line per Usage
+        path:line:col  usage-kind  ns/enclosing-definition
+```
+
+An empty result states what was searched, e.g. `no usages of x (checked 214 files, including tests)`.
+
+### namespace_summary
+
+```
+Input:  ns (string, required) — fully qualified namespace name
+        limit, offset
+Answer: header   ns name  path  first docstring line
+        per Definition   line  public|private  kind  name  [arglists]  first docstring line
+        last line        required by: ns1, ns2, ... (or `none`)
+```
+
+### get_source
+
+```
+Input:  name (string, required) — simple, alias-qualified or fully qualified
+        limit, offset — in lines of the body (or in candidates of an ambiguous name)
+Answer: a `path:start-end` header line, then the source of exactly one Definition;
+        a body over the Output budget ends with a truncation note, pass offset for the rest
+```
+
+### find_implementations
+
+```
+Input:  name (string, required) — protocol or multimethod
+        limit, offset
+Answer: one line per Implementation (defrecord, deftype, extend-type, extend-protocol, reify, defmethod)
+        path:line  ns/type-or-dispatch-value  method
+```
 
 ### semantic_search
 
 ```
-Parameters: query (string)
-Search: query embedding → Qdrant top-100 → Cross Encoder rerank → top-10
+Input:  query (string, required) — what the code does, in natural language
+        limit, offset
+Search: query embedding → Qdrant top :search/top-k ─┐
+        words of names and docstrings (BM25) ───────┴→ reciprocal rank fusion → reranker → top :search/re-rank-top
+Answer: one line per hit, no source bodies
+        score  path:line  kind  ns/name  first docstring line
+        (score: the reranker's relevance, 0..1; left out when the reranker is unavailable)
+        ends with `embeddings stale for N files` while recent edits are being embedded
 ```
 
-### find_symbol
-
-```
-Parameters: name (string) — qualified or simple symbol name
-Returns: type, namespace, file, line, arglists, docstring
-```
-
-### find_callers / find_callees
-
-```
-Parameters: symbol (string) — qualified name (e.g. my.ns/my-func)
-Returns: list of all callers/callees with file and line
-```
+Needs Qdrant and Ollama; without them it answers that semantic search is unavailable.
 
 ## Architecture
 
 ```
 src/mcp/
-├── server.clj       — entry point, JSON-RPC over STDIO
-├── tools.clj        — 8 MCP tools usings
-├── parser.clj       — parsing .clj/.edn via rewrite-clj
-├── symbol_index.clj — in-memory symbol index
-├── graph.clj        — call graph (callers/callees)
-├── embeddings.clj   — embeddings via Ollama
-├── qdrant.clj       — vector storage (Qdrant HTTP API)
-├── watcher.clj     — incremental indexing (WatchService)
-├── search.clj      — hybrid search
-└── config.clj      — configuration loading
+├── server.clj         — entry point, JSON-RPC over STDIO, freshness check before each tool call
+├── config.clj         — configuration loading
+├── code_index.clj     — in-memory clj-kondo analysis of the project (Definitions, Usages)
+├── usages.clj         — Usages and their kinds
+├── output.clj         — Output budget and Compact answer helpers
+├── tool.clj           — tool registry (spec/call multimethods)
+├── tools.clj          — tools/list and tools/call
+├── tools/             — one namespace per tool
+├── search_units.clj   — Search units for semantic search
+├── semantic_index.clj — background embedding of Search units
+├── embeddings.clj     — embeddings via Ollama, reranking via a /v1/rerank server
+├── lexical.clj        — word matching (BM25) on Search unit names and docstrings
+├── qdrant.clj         — vector storage (Qdrant HTTP API)
+└── search.clj         — vector search + word matching, rank fusion, reranking
 ```
 
 ## Development
 
 ```bash
-# Tests
+# Tests (no Qdrant or Ollama needed)
 lein test
 
+# Tests that need Qdrant and Ollama (they pass with or without the reranker)
+lein test :integration
+
 # Linter
-clj-kondo --lint src/
+clj-kondo --lint src test
 
 # Build the uberjar (on code changes)
 lein uberjar

@@ -1,0 +1,3 @@
+# Output budget is a hard server-side ceiling
+
+`config.edn` sets `:output/limit` (default 50 findings) and `:output/max-chars` (default 2000 characters per answer). These are both the defaults and the ceiling: a tool's `limit` argument may only lower them, and `offset` pages through the rest. An answer that reaches `max-chars` is cut at a line boundary and ends with a Truncation note (`truncated: shown 37 of 312, pass offset=37 or narrow the query`). We chose a server-side ceiling over per-call arguments alone because one unbounded answer (595k characters in practice) is enough to make an agent abandon the server, and the owner of the server, not the agent, knows the token budget.

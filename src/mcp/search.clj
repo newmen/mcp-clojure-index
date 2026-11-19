@@ -1,168 +1,80 @@
 (ns mcp.search
-  (:require [clojure.string :as s]
-            [clojure.set :as set]
-            [mcp.qdrant :as qdrant]
-            [mcp.embeddings :as embeddings]
-            [mcp.graph :as graph]))
+  "Semantic search over Search units: Qdrant vector search and lexical
+   matching on names and docstrings (`mcp.lexical`), merged by reciprocal
+   rank fusion, then the reranker."
+  (:require [mcp.embeddings :as embeddings]
+            [mcp.lexical :as lexical]
+            [mcp.qdrant :as qdrant]))
 
 (set! *warn-on-reflection* true)
 
-(defonce ^:private file-cache-atom (atom {}))
-(def ^:private cache-max-size 50)
+(def ^:private fusion-offset
+  "Reciprocal rank fusion constant k: a candidate at rank r (from 1) of a
+   ranking adds 1/(k + r) to its fused score. 60 is the usual choice; it
+   keeps one ranking's first places from outweighing agreement of both."
+  60)
 
-(defn- default-top-k
-  [cfg]
-  (or (:search/top-k cfg) 100))
+;; Candidate shape (what the reranker receives):
+;;
+;; {:unit {:id "..." :filename ... :name ... :text ...} ; Search unit, `:id` as a string
+;;  :text "..."                                     ; the unit's embedding text
+;;  :score 0.87}                                    ; vector similarity, only from Qdrant
 
-(defn- default-rerank-top
-  [cfg]
-  (or (:search/re-rank-top cfg) 10))
+(defn- candidate
+  [unit]
+  {:unit unit
+   :text (:text unit "")})
 
 (defn- qdrant-candidates
   [cfg embedding top-k]
-  (mapv (fn [r]
-          {:text (get-in r [:chunk :chunk/source] "")
-           :score (:score r 0.0)
-           :chunk (:chunk r)})
+  (mapv (fn [{:keys [unit score]}] (assoc (candidate unit) :score score))
         (qdrant/search cfg embedding top-k)))
 
-(defn- search-pipeline
-  [cfg query]
-  (let [top-k (default-top-k cfg)
-        rerank-top (default-rerank-top cfg)]
-    (when (and (seq query) (pos? top-k) (pos? rerank-top))
-      (when-let [embedding (first (embeddings/generate [query] cfg))]
-        (let [candidates (qdrant-candidates cfg embedding top-k)]
-          (-> (if (seq candidates)
-                (embeddings/rerank query candidates cfg)
-                [])
-              (->> (take rerank-top))))))))
+(defn- lexical-candidates
+  "The `top-k` best lexical matches among `units`, shaped like the units
+   Qdrant returns."
+  [query units top-k]
+  (->> (lexical/rank query units)
+       (take top-k)
+       (mapv (fn [unit]
+               (candidate (-> unit
+                              (select-keys [:id :filename :row :kind :name :doc :text])
+                              (update :id str)))))))
 
-(defn- expand-with-symbols
-  "Given a set of chunk-ids and a symbol index, return additional context chunks.
-   Looks up by simple name and by file."
-  [chunk-ids index chunk-map]
-  (let [chunks (keep chunk-map chunk-ids)
-        files (into #{} (map :chunk/file) chunks)]
-    (vec
-      (for [f files
-            sym (get-in index [:index/by-file f] [])
-            :let [chunk (get chunk-map (:sym/chunk-id sym))]
-            :when (and chunk (not (contains? chunk-ids (:chunk/id chunk))))]
-        chunk))))
-
-(defn- expand-with-graph
-  "Given a set of chunk-ids and a graph, return callers and callees.
-   Returns additional chunk-ids from callers/callees relationships."
-  [chunk-ids gr]
-  (let [edges (mapcat (fn [cid] (graph/find-edges-by-chunk gr cid)) chunk-ids)
-        caller-ids (into #{} (keep :edge/from-id) edges)
-        callee-ids (into #{} (keep :edge/to-id) edges)]
-    (set/difference (set/union caller-ids callee-ids) chunk-ids)))
-
-(defn- rank->search-result
-  [r]
-  {:result/chunk (:chunk r)
-   :result/score (:score r)
-   :result/rank (:rank r)
-   :result/re-rank (:re-rank r)})
-
-(defn- chunk->search-result
-  [chunk next-rank]
-  {:result/chunk chunk
-   :result/score 0.0
-   :result/rank next-rank
-   :result/re-rank 0.0})
-
-(defn- collect-expanded
-  "Return extra chunks from symbol index and graph expansion, deduplicated."
-  [chunk-ids index graph chunk-map]
-  (let [sym-chunks (when (and index chunk-map)
-                     (expand-with-symbols chunk-ids index chunk-map))
-        graph-ids (when (and graph chunk-map)
-                    (expand-with-graph chunk-ids graph))
-        graph-chunks (when (seq graph-ids)
-                       (vec (keep chunk-map graph-ids)))]
-    (distinct (concat sym-chunks graph-chunks))))
+(defn- fuse
+  "Reciprocal rank fusion of `rankings` (vectors of candidates, best
+   first): every candidate once, by the sum of 1/(k + rank) over the
+   rankings it is in. Ties keep the order of first appearance; a candidate
+   in several rankings is taken from the first of them."
+  [rankings]
+  (let [ids (distinct (mapcat (partial map (comp :id :unit)) rankings))
+        by-id (into {} (map (juxt (comp :id :unit) identity)) (apply concat (reverse rankings)))
+        fused-score (apply merge-with +
+                           (for [ranking rankings
+                                 [index {:keys [unit]}] (map-indexed vector ranking)]
+                             {(:id unit) (/ 1.0 (+ fusion-offset index 1))}))]
+    (mapv by-id (sort-by (comp - fused-score) ids))))
 
 (defn search
-  "Hybrid search: semantic search via Qdrant → reranking via Cross Encoder → optional expansion via symbol index and graph.
-   
-   Parameters (in config):
-     :search/top-k       - number of candidates from Qdrant (default 100)
-     :search/re-rank-top - number of results after reranking (default 10)
-   
-   Returns a vector of SearchResult maps:
-     {:result/chunk  CodeChunk
-      :result/score  float    ; original cosine distance from Qdrant
-      :result/rank   int      ; rank after reranking (1 = best)
-      :result/re-rank float}  ; reranker score"
-  ([cfg query]
-   (search cfg query nil nil nil))
-  ([cfg query index graph chunk-map]
-   (when-let [reranked (search-pipeline cfg query)]
-     (let [ranked (map-indexed (fn [i r] (assoc r :rank (inc i))) reranked)
-           chunk-ids (into #{} (keep (comp :chunk/id :chunk)) ranked)
-           extra (collect-expanded chunk-ids index graph chunk-map)
-           result-count (count ranked)]
-       (vec (concat (mapv rank->search-result ranked)
-                    (mapv #(chunk->search-result % (inc result-count)) extra)))))))
+  "Semantic search for `query`: vector search in Qdrant and lexical
+   matching against `units` (all Search units of the project), fused,
+   then reranked; at most `hit-count` hits. No expansion.
 
-(defn search-simple
-  "Simplified hybrid search without expansion.
-   Returns seq of {:chunk CodeChunk :score float :re-rank float}."
-  [cfg query]
-  (when-let [reranked (search-pipeline cfg query)]
-    (mapv (fn [r]
-            {:chunk (:chunk r)
-             :score (:score r)
-             :re-rank (:re-rank r)})
-          reranked)))
+   `:search/top-k` in `cfg` is the number of candidates from each of
+   Qdrant and the lexical matching, and of fused candidates reranked.
 
-(defn- read-chunk-source
-  "Try to read source code for a chunk from the file system.
-   Caches file contents to avoid repeated disk I/O within a search."
-  [file-path start-line end-line]
-  (try
-    (let [lines (or (get @file-cache-atom file-path)
-                    (let [lines (vec (s/split-lines (slurp file-path)))]
-                      (swap! file-cache-atom
-                             (fn [c]
-                               (if (>= (count c) cache-max-size)
-                                 (assoc (into {} (drop 1 c)) file-path lines)
-                                 (assoc c file-path lines))))
-                      lines))]
-      (s/join "\n" (subvec lines (dec start-line) end-line)))
-    (catch Exception _ nil)))
-
-(defn- enrich-result-chunks
-  "Build a chunk-map (chunk-id → CodeChunk) from symbol index records.
-   Reads source code from disk for each chunk."
-  [index]
-  (let [all-syms (vals (:index/by-qname index))]
-    (into {}
-          (keep (fn [sym]
-                  (when-let [cid (:sym/chunk-id sym)]
-                    (let [file (:sym/file sym)
-                          sline (:sym/line sym)
-                          eline (or (:sym/end-line sym) sline)]
-                      [cid {:chunk/id cid
-                            :chunk/ns (str (:sym/ns sym))
-                            :chunk/file file
-                            :chunk/type (:sym/type sym)
-                            :chunk/name (str (:sym/simple sym))
-                            :chunk/start-line sline
-                            :chunk/end-line eline
-                            :chunk/visibility (:sym/visibility sym)
-                            :chunk/source (read-chunk-source file sline eline)
-                            :chunk/language "clojure"
-                            :chunk/hash nil
-                            :sym/name (:sym/name sym)}]))))
-          all-syms)))
-
-(defn search-full
-  "Full hybrid search with symbol and graph expansion.
-   Returns vector of SearchResult maps."
-  [cfg query index graph]
-  (let [chunk-map (enrich-result-chunks index)]
-    (search cfg query index graph chunk-map)))
+   Returns a vector of {:unit SearchUnit :re-rank float}, best first, or
+   nil for a blank query. Without the reranker hits have no `:re-rank`
+   and keep the fused order."
+  [cfg query units hit-count]
+  (let [top-k (:search/top-k cfg)]
+    (when (and (seq query) (pos? top-k) (pos? hit-count))
+      (when-let [embedding (first (embeddings/generate [query] cfg))]
+        (let [candidates (->> (fuse [(qdrant-candidates cfg embedding top-k)
+                                     (lexical-candidates query units top-k)])
+                              (take top-k)
+                              vec)]
+          (->> (when (seq candidates)
+                 (embeddings/rerank query candidates cfg))
+               (take hit-count)
+               (mapv #(select-keys % [:unit :re-rank]))))))))

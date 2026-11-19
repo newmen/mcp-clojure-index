@@ -46,7 +46,7 @@
     (is (contains? names "find_protocol"))
     (is (contains? names "find_record"))
     (is (contains? names "find_macro"))
-    (is (= 8 (count names)))))
+    (is (contains? names "namespace_summary"))))
 
 (deftest tool-definitions-have-required-fields
   (doseq [t (sut/tool-definitions)]

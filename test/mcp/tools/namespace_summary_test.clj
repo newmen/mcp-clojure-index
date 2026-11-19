@@ -26,7 +26,7 @@
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added)."
-  #{"mcp.output-test" "mcp.tools" "mcp.tools.find-definition"})
+  #{"mcp.output-test" "mcp.tools.semantic-search" "mcp.tools.find-definition"})
 
 (defn- required-by
   [text]

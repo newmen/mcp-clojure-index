@@ -173,14 +173,6 @@
 ;; Lookups
 ;; ---------------------------------------------------------------------------
 
-(defn find-callers
-  [graph symbol]
-  (vec (sort (get (:callers graph) symbol []))))
-
-(defn find-callees
-  [graph symbol]
-  (vec (sort (get (:callees graph) symbol []))))
-
 (defn find-edges-by-chunk
   [graph chunk-id]
   (get (:by-chunk graph) chunk-id []))

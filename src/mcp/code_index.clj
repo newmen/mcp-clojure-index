@@ -223,6 +223,11 @@
   [index entry-key]
   (mapcat (comp entry-key :analysis) (vals (:files index))))
 
+(defn file-entries
+  "The clj-kondo analysis entries of kind `entry-key` in one indexed file
+   (`file-path` absolute)."
+  [index file-path entry-key]
+  (get-in index [:files file-path :analysis entry-key]))
 
 ;; ---------------------------------------------------------------------------
 ;; Definitions

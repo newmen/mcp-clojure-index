@@ -1,0 +1,3 @@
+{:timeout 30
+ :kw.core/uuid "ABC"
+ :nested {:timeout 5}}

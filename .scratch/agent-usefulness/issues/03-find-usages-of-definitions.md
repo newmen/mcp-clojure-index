@@ -4,13 +4,13 @@
 
 **Blocked by:** 02 (clj-kondo index and `find_definition`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Usages through an alias, `:refer`, `#'var` and value passing are all found and carry the right kind.
-- [ ] Several targets in one call produce one group per target.
-- [ ] Each line names the Enclosing definition.
-- [ ] Test paths are detected from project files with the documented fallback; `include_tests false` drops test Usages.
-- [ ] `kinds` filters the result.
-- [ ] Empty results report files checked and whether tests were included.
-- [ ] `find_callers` and `find_callees` no longer appear in `tools/list`.
-- [ ] Acceptance tests (spec cases 1 without `redef`/`in-comment`, and 2) on this code base plus fixtures where needed, asserting completeness against a hand-checked list and size within the budget.
+- [x] Usages through an alias, `:refer`, `#'var` and value passing are all found and carry the right kind.
+- [x] Several targets in one call produce one group per target.
+- [x] Each line names the Enclosing definition.
+- [x] Test paths are detected from project files with the documented fallback; `include_tests false` drops test Usages.
+- [x] `kinds` filters the result.
+- [x] Empty results report files checked and whether tests were included.
+- [x] `find_callers` and `find_callees` no longer appear in `tools/list`.
+- [x] Acceptance tests (spec cases 1 without `redef`/`in-comment`, and 2) on this code base plus fixtures where needed, asserting completeness against a hand-checked list and size within the budget.

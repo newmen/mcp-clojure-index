@@ -141,8 +141,8 @@
     (is (contains? tool-names "find_definition"))
     (is (not (contains? tool-names "find_symbol")))
     (is (not (contains? tool-names "find_namespace")))
-    (is (contains? tool-names "find_callers"))
-    (is (contains? tool-names "find_callees"))
+    (is (contains? tool-names "find_usages"))
+    (is (not (contains? tool-names "find_callers")))
     (is (contains? tool-names "find_implementations"))
     (is (not (contains? tool-names "find_protocol")))))
 

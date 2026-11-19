@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `:output/limit` and `:output/max-chars` are read from config with defaults 50 and 2000; values above the ceiling passed by a tool call are clamped to it.
-- [ ] An answer exceeding the budget is cut at a line boundary and ends with a Truncation note naming shown/total counts and the next `offset`.
-- [ ] `offset` returns the next page without repeating findings.
-- [ ] `semantic_search` accepts `limit`, returns one line per hit in the format above, never includes source bodies, and never adds expansion results.
-- [ ] Paths in answers are relative to the project root.
-- [ ] Tests cover clamping, truncation note, paging and the `semantic_search` line format (with Qdrant/Ollama stubbed).
+- [x] `:output/limit` and `:output/max-chars` are read from config with defaults 50 and 2000; values above the ceiling passed by a tool call are clamped to it.
+- [x] An answer exceeding the budget is cut at a line boundary and ends with a Truncation note naming shown/total counts and the next `offset`.
+- [x] `offset` returns the next page without repeating findings.
+- [x] `semantic_search` accepts `limit`, returns one line per hit in the format above, never includes source bodies, and never adds expansion results.
+- [x] Paths in answers are relative to the project root.
+- [x] Tests cover clamping, truncation note, paging and the `semantic_search` line format (with Qdrant/Ollama stubbed).

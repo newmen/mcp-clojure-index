@@ -1,5 +1,6 @@
 (ns mcp.tools
   (:require [clojure.string :as s]
+            [mcp.output :as output]
             [mcp.search :as search]
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]))
@@ -11,35 +12,48 @@
   (si/find-by-type index :macro))
 
 (defn- symbol->result
-  [sym]
+  [root-path sym]
   {:name      (str (:sym/name sym))
    :ns        (str (:sym/ns sym))
    :type      (name (:sym/type sym))
-   :file      (:sym/file sym)
+   :file      (output/relative-path root-path (:sym/file sym))
    :line      (:sym/line sym)
    :arglists  (when (:sym/arglists sym) (pr-str (:sym/arglists sym)))
    :doc       (:sym/doc sym)
    :visibility (name (:sym/visibility sym))})
 
-(defn- search->result
-  [r]
-  (let [chunk (:result/chunk r)]
-    {:id         (str (:chunk/id chunk))
-     :file       (:chunk/file chunk)
-     :symbol     (:chunk/name chunk)
-     :ns         (:chunk/ns chunk)
-     :type       (name (:chunk/type chunk))
-     :source     (:chunk/source chunk)
-     :start-line (:chunk/start-line chunk)
-     :end-line   (:chunk/end-line chunk)
-     :score      (:result/score r)
-     :re-rank    (:result/re-rank r)}))
+(defn- hit-docstring
+  [index chunk]
+  (when (and (:chunk/ns chunk) (:chunk/name chunk))
+    (get-in index [:index/by-qname (symbol (:chunk/ns chunk) (:chunk/name chunk)) :sym/doc])))
+
+(defn- hit->line
+  "Compact answer line for one semantic search hit:
+   `score  path:line  kind  ns/name  first docstring line`."
+  [root-path index {:keys [chunk re-rank score]}]
+  (->> [(format "%.2f" (double (or re-rank score 0.0)))
+        (str (output/relative-path root-path (:chunk/file chunk)) ":" (:chunk/start-line chunk))
+        (some-> (:chunk/type chunk) name)
+        (str (:chunk/ns chunk) "/" (:chunk/name chunk))
+        (output/first-line (hit-docstring index chunk))]
+       (remove s/blank?)
+       (s/join "  ")))
+
+(defn- semantic-search-config
+  "Ask the search for enough hits to fill the requested page."
+  [config params]
+  (let [page-size (min (:output/limit config)
+                       (or (:limit params) (:search/re-rank-top config)))]
+    (update config :search/re-rank-top
+            (fnil max 0) (+ (or (:offset params) 0) page-size))))
 
 (def tool-definitions
   [{:name "semantic_search"
-    :description "Search code semantically using vector search and reranking"
+    :description "Search code semantically using vector search and reranking. Answer: one line per hit (score  path:line  kind  ns/name  first docstring line), no source bodies; at most :output/limit lines and :output/max-chars characters."
     :inputSchema {:type "object"
-                  :properties {:query {:type "string" :description "Search query in natural language"}}
+                  :properties {:query {:type "string" :description "Search query in natural language"}
+                               :limit {:type "integer" :description "Maximum number of hits (can only lower the server limit)"}
+                               :offset {:type "integer" :description "Number of hits to skip, for paging"}}
                   :required ["query"]}}
    {:name "find_symbol"
     :description "Find a symbol (function, macro, var) by name"
@@ -82,76 +96,80 @@
   (->> (map (fn [[k v]] (str (name k) ": " v)) m)
        (s/join "\n")))
 
+(defn- symbols->answer
+  [config params syms]
+  (->> syms
+       (mapv (comp map->text (partial symbol->result (:index/root-path config))))
+       (output/render config params)))
+
 (defmulti handle-tool
   (fn [tool-name _args _state]
     (keyword tool-name)))
 
 (defmethod handle-tool :semantic_search
-  [_ params {:keys [config index graph-state]}]
+  [_ params {:keys [config index]}]
   (let [query (or (:query params) "")]
     (if (s/blank? query)
       {:content [{:type "text" :text "Query is empty"}]}
-      (let [results (search/search-full config query index graph-state)
-            output (if (empty? results)
+      (let [hits (search/search (semantic-search-config config params) query)
+            answer (if (empty? hits)
                      "No results found."
-                     (s/join "\n---\n" (mapv (fn [r i]
-                                               (str "Result #" (inc i) " (rank: " (:result/rank r) "):\n"
-                                                    (map->text (search->result r))))
-                                             results (range))))]
-        {:content [{:type "text" :text output}]}))))
+                     (output/render config params
+                                    (mapv (partial hit->line (:index/root-path config) index) hits)))]
+        {:content [{:type "text" :text answer}]}))))
 
 (defmethod handle-tool :find_symbol
-  [_ params {:keys [index]}]
+  [_ params {:keys [config index]}]
   (let [sym-name (or (:name params) "")
         results (si/find-symbol index sym-name)]
     (if (empty? results)
       {:content [{:type "text" :text (str "Symbol '" sym-name "' not found.")}]}
-      {:content [{:type "text" :text (s/join "\n---\n" (mapv (comp map->text symbol->result) results))}]})))
+      {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
 (defmethod handle-tool :find_namespace
-  [_ params {:keys [index]}]
+  [_ params {:keys [config index]}]
   (let [ns-name (or (:name params) "")
         result (si/find-namespace index ns-name)]
     (if (nil? result)
       {:content [{:type "text" :text (str "Namespace '" ns-name "' not found.")}]}
-      {:content [{:type "text" :text (pr-str result)}]})))
+      {:content [{:type "text" :text (output/render config params [(pr-str result)])}]})))
 
 (defmethod handle-tool :find_callers
-  [_ params {:keys [graph-state]}]
+  [_ params {:keys [config graph-state]}]
   (let [sym-str (or (:symbol params) "")
         sym (symbol sym-str)
         callers (graph/find-callers graph-state sym)]
     (if (empty? callers)
       {:content [{:type "text" :text (str "No callers found for '" sym-str "'.")}]}
-      {:content [{:type "text" :text (s/join "\n" callers)}]})))
+      {:content [{:type "text" :text (output/render config params (mapv str callers))}]})))
 
 (defmethod handle-tool :find_callees
-  [_ params {:keys [graph-state]}]
+  [_ params {:keys [config graph-state]}]
   (let [sym-str (or (:symbol params) "")
         sym (symbol sym-str)
         callees (graph/find-callees graph-state sym)]
     (if (empty? callees)
       {:content [{:type "text" :text (str "No callees found for '" sym-str "'.")}]}
-      {:content [{:type "text" :text (s/join "\n" callees)}]})))
+      {:content [{:type "text" :text (output/render config params (mapv str callees))}]})))
 
 (defmethod handle-tool :find_protocol
-  [_ params {:keys [index]}]
+  [_ params {:keys [config index]}]
   (let [protocol-name (or (:name params) "")
         results (si/find-by-protocol index protocol-name)]
     (if (empty? results)
       {:content [{:type "text" :text (str "Protocol '" protocol-name "' not found.")}]}
-      {:content [{:type "text" :text (s/join "\n---\n" (mapv (comp map->text symbol->result) results))}]})))
+      {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
 (defmethod handle-tool :find_record
-  [_ params {:keys [index]}]
+  [_ params {:keys [config index]}]
   (let [record-name (or (:name params) "")
         results (si/find-by-record index record-name)]
     (if (empty? results)
       {:content [{:type "text" :text (str "Record '" record-name "' not found.")}]}
-      {:content [{:type "text" :text (s/join "\n---\n" (mapv (comp map->text symbol->result) results))}]})))
+      {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
 (defmethod handle-tool :find_macro
-  [_ params {:keys [index]}]
+  [_ params {:keys [config index]}]
   (let [macro-name (or (:name params) "")
         all-macros (find-all-macros index)
         results (if (s/blank? macro-name)
@@ -161,7 +179,7 @@
       {:content [{:type "text" :text (if (s/blank? macro-name)
                                        "No macros found in index."
                                        (str "Macro '" macro-name "' not found."))}]}
-      {:content [{:type "text" :text (s/join "\n---\n" (mapv (comp map->text symbol->result) results))}]})))
+      {:content [{:type "text" :text (symbols->answer config params results)}]})))
 
 (defn make-initial-state
   [config]

@@ -34,7 +34,9 @@
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
    :index/exclude     []
    :search/top-k      100
-   :search/re-rank-top 10})
+   :search/re-rank-top 10
+   :output/limit      50
+   :output/max-chars  2000})
 
 (defn compile-exclude-patterns
   "Convert string exclude patterns to compiled regex patterns."

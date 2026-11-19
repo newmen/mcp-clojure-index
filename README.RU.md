@@ -65,9 +65,19 @@ ollama pull vishalraj/nomic-embed-code
 
 Ollama не может самостоятельно запускать модель reranking (у неё нет API для reranking), однако может скачать эту модель. В Linux-сборки Ollama входит `llama-server`, который можно использовать следующим образом:
 
+Bash:
+
 ```bash
 ollama pull qllama/bce-reranker-base_v1
 MODEL=$(ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
+```
+
+Fish:
+
+```
+ollama pull qllama/bce-reranker-base_v1
+set MODEL (ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
 LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
 ```
 

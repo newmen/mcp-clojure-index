@@ -7,7 +7,8 @@
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
             [mcp.tool :as tool]
-            [mcp.tools.find-definition]))
+            [mcp.tools.find-definition]
+            [mcp.tools.get-source]))
 
 (set! *warn-on-reflection* true)
 

@@ -235,9 +235,12 @@
 
 ;; Definition shape:
 ;;
-;; {:ns       mcp.output            ; absent for a namespace Definition
+;; {:ns       mcp.output            ; namespace of the file it is written in;
+;;                                  ;  absent for a namespace Definition
 ;;  :name     relative-path         ; symbol; a keyword (:app.core/uuid) for a spec
 ;;  :dispatch ":circle"             ; only for a defmethod, as written
+;;  :multimethod-ns mcp.tool        ; only for a defmethod: namespace of its
+;;                                  ;  multimethod, which (with :name) names it
 ;;  :kind     "defn"                ; defining form ("deftest", "defmethod", "s/def",
 ;;                                  ;  a lint-as project macro, ...), "ns", "protocol-method"
 ;;  :filename "/abs/src/mcp/output.clj"
@@ -286,7 +289,8 @@
   [analysis]
   (for [method-head (:var-usages analysis)
         :when (:defmethod method-head)]
-    (merge {:ns (:to method-head)
+    (merge {:ns (:from method-head)
+            :multimethod-ns (:to method-head)
             :name (:name method-head)
             :dispatch (:dispatch-val-str method-head)
             :kind "defmethod"
@@ -340,14 +344,31 @@
                   [(- def-row) (- def-col) end-row end-col (count (str def-name))]))
        first))
 
+(defn- name-ns
+  "The namespace that qualifies a Definition's name: its multimethod's for
+   a defmethod, else its own."
+  [{:keys [ns multimethod-ns]}]
+  (or multimethod-ns ns))
+
 (defn qualified-name
-  "`ns/name` of a Definition (followed by the dispatch value for a
-   defmethod), the keyword of a spec, or the namespace name of a namespace
-   Definition."
-  [{:keys [ns dispatch] def-name :name}]
+  "`ns/name` of a Definition (for a defmethod, its multimethod's `ns/name`
+   followed by the dispatch value), the keyword of a spec, or the namespace
+   name of a namespace Definition."
+  [{:keys [dispatch] def-name :name :as definition}]
   (cond (keyword? def-name) (str def-name)
-        ns (cond-> (str ns "/" def-name) dispatch (str " " dispatch))
+        (name-ns definition) (cond-> (str (name-ns definition) "/" def-name)
+                               dispatch (str " " dispatch))
         :else (str def-name)))
+
+(defn local-name
+  "Name of a Definition as written in its own namespace: `name`, followed
+   by the dispatch value for a defmethod, whose multimethod is qualified
+   when it lives in another namespace."
+  [{:keys [ns dispatch] def-name :name :as definition}]
+  (cond-> (if (= ns (name-ns definition))
+            (str def-name)
+            (str (name-ns definition) "/" def-name))
+    dispatch (str " " dispatch)))
 
 ;; ---------------------------------------------------------------------------
 ;; Name resolution
@@ -384,7 +405,7 @@
     (fn [definition]
       (and (= simple-sym (:name definition))
            (= dispatch (normalize-dispatch (:dispatch definition)))
-           (or (nil? namespaces) (contains? namespaces (:ns definition)))))))
+           (or (nil? namespaces) (contains? namespaces (name-ns definition)))))))
 
 (defn- keyword-matcher
   "Predicate on spec Definitions for a keyword as written: `:app.core/uuid`,

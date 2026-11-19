@@ -2,8 +2,10 @@
   "`namespace_summary` on this project's own code base."
   (:require [clojure.string :as s]
             [clojure.test :refer [deftest is testing]]
+            [mcp.code-index :as code-index]
             [mcp.test-project :as project]
-            [mcp.tools :as tools]))
+            [mcp.tools :as tools])
+  (:import (java.io File)))
 
 (set! *warn-on-reflection* true)
 
@@ -79,6 +81,24 @@
       (is (re-find #"truncated: shown \d+ of \d+" text))))
   (testing "default budget"
     (is (<= (count (answer {:ns "mcp.code-index"})) (:output/max-chars project/config)))))
+
+(def ^:private definitions-fixture-config
+  (assoc project/config :index/root-path
+         (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))
+
+(deftest defmethods-belong-to-the-namespace-of-their-file
+  (testing "a tool namespace lists its own defmethods with their dispatch values"
+    (let [lines (s/split-lines (answer {:ns "mcp.tools.get-source"}))]
+      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/spec :get_source") lines))
+      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/call :get_source") lines))))
+  (testing "the multimethod's namespace does not list defmethods written in other files"
+    (is (not (s/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
+  (testing "a defmethod of a local multimethod is named without its namespace"
+    (let [text (-> (tools/handle-tool "namespace_summary" {:ns "app.core"}
+                                      {:config definitions-fixture-config
+                                       :code-index (code-index/build definitions-fixture-config)})
+                   :content first :text)]
+      (is (some #{"15  public  defmethod  area :circle"} (s/split-lines text))))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

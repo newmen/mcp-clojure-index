@@ -47,11 +47,11 @@
                 (output/first-line doc)]))
 
 (defn- definition->line
-  [{:keys [row kind arglists doc private] def-name :name}]
+  [{:keys [row kind arglists doc private] :as definition}]
   (join-fields [(str row)
                 (if private "private" "public")
                 kind
-                (str def-name)
+                (code-index/local-name definition)
                 (s/join " " arglists)
                 (output/first-line doc)]))
 

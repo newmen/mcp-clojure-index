@@ -89,6 +89,15 @@
       (is (= #{[":app.core/uuid" "s/def" 23]} (resolved "::core/uuid")))
       (is (empty? (resolved ":other/uuid"))))))
 
+(deftest defmethod-written-in-another-namespace-keeps-its-multimethod-name
+  (let [idx (project/code-index)
+        expected #{["mcp.tool/call :get_source" (str project/root "/src/mcp/tools/get_source.clj")]}
+        resolved #(set (map (juxt sut/qualified-name :filename) (sut/resolve-name idx %)))]
+    (is (= expected (resolved "mcp.tool/call :get_source")))
+    (is (= expected (resolved "tool/call :get_source")))
+    (is (= #{'mcp.tools.get-source}
+           (set (map :ns (sut/resolve-name idx "mcp.tool/call :get_source")))))))
+
 (deftest enclosing-definition-of-usages-inside-these-forms
   (let [idx @fixture-index
         enclosing (fn [{:keys [filename name-row name-col]}]

@@ -30,7 +30,6 @@
    :ollama/embedding-model "vishalraj/nomic-embed-code"
    :ollama/reranker-model  "qllama/bce-reranker-base_v1"
    :server/transport  :stdio
-   :server/port       8080
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
    :index/exclude     []
    :search/top-k      100

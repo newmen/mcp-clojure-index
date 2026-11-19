@@ -5,8 +5,6 @@
             [mcp.code-index :as code-index]
             [mcp.server :as sut]
             [mcp.config :as config]
-            [mcp.symbol-index :as si]
-            [mcp.graph :as graph]
             [mcp.semantic-index :as semantic-index]
             [mcp.test-project :as project])
   (:import (java.nio.file Files)
@@ -131,9 +129,7 @@
 
 (deftest handle-method-tools-list
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/list"}
-        state {:config config/defaults
-               :index (si/empty-index)
-               :graph-state (graph/empty-graph)}
+        state {:config config/defaults}
         [response _new-state] (#'sut/handle-method msg state)
         tool-names (set (map :name (get-in response [:result :tools])))]
     (is (= 1 (:id response)))
@@ -149,14 +145,14 @@
 (deftest handle-method-tools-call-invalid-tool
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
              :params {:name "nonexistent_tool" :arguments {}}}
-        state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        state {:config config/defaults}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= 1 (:id response)))
     (is (get-in response [:error]))))
 
 (deftest process-message-valid
   (let [line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
-        state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        state {:config config/defaults}
         [response _new-state] (#'sut/process-message line state)]
     (is (some? response))
     (is (= 1 (:id response)))
@@ -195,7 +191,7 @@
     (is (= -32602 (get-in response [:error :code])))))
 
 (deftest process-message-full-cycle
-  (let [state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+  (let [state {:config config/defaults}
         init-line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}"
         list-line "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"
         [init-resp state1] (#'sut/process-message init-line state)
@@ -214,7 +210,7 @@
 
 (deftest handle-method-missing-params
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"}
-        state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+        state {:config config/defaults}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= 1 (:id response)))
     (is (= -32602 (get-in response [:error :code])))))
@@ -260,7 +256,7 @@
     (is (get-in response [:result :content]))))
 
 (deftest process-message-not-allowed-method
-  (let [state {:config config/defaults :index (si/empty-index) :graph-state (graph/empty-graph)}
+  (let [state {:config config/defaults}
         line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\"}"
         [response _new-state] (#'sut/process-message line state)]
     (is (some? response))

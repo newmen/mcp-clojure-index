@@ -1,5 +1,5 @@
 (ns mcp.config-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is]]
             [mcp.config :as sut]))
 
 (def fixtures-dir "test-resources/fixtures")

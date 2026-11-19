@@ -4,9 +4,9 @@
 
 **Blocked by:** 03, 04, 05, 06, 07, 08, 09, 10, 11
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] No namespace from the old parser/graph/symbol-index design remains; the full test suite passes.
-- [ ] `clj-kondo --lint src test` reports no warnings.
-- [ ] README lists exactly the tools in `tools/list` with their inputs and answer format.
-- [ ] README documents `:output/limit`, `:output/max-chars` and the optional external services.
+- [x] No namespace from the old parser/graph/symbol-index design remains; the full test suite passes.
+- [x] `clj-kondo --lint src test` reports no warnings.
+- [x] README lists exactly the tools in `tools/list` with their inputs and answer format.
+- [x] README documents `:output/limit`, `:output/max-chars` and the optional external services.

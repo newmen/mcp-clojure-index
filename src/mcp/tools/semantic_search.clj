@@ -7,6 +7,7 @@
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.search :as search]
+            [mcp.search-units :as search-units]
             [mcp.semantic-index :as semantic-index]
             [mcp.tool :as tool]))
 
@@ -15,7 +16,8 @@
 (def ^:private description
   (str "Find Clojure Definitions (functions, macros, tests, multimethods, specs, records, namespaces) "
        "and top-level EDN config entries by meaning, when you do not know their names. "
-       "Unlike grep, matches intent rather than text (vector search plus a reranker). "
+       "Unlike grep, matches intent rather than text (vector search and word matching on names "
+       "and docstrings, then a reranker). "
        "Answer: one line per hit (relevance score  path:line  kind  ns/name  first docstring line), "
        "no source bodies, at most :output/limit lines and :output/max-chars characters; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
@@ -73,7 +75,8 @@
      (if (s/blank? query)
        "query is empty"
        (try
-         (let [hits (search/search (search-config config params) query)
+         (let [hits (search/search (search-config config params) query
+                                    (search-units/search-units code-index))
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line (code-index/root code-index)) hits)]
            (if (empty? lines)

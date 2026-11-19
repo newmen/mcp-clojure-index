@@ -20,11 +20,10 @@ LLM agents spend most of their tokens on understanding code: `grep`, then readin
 - [Leiningen](https://leiningen.org/) 2.11+ (development and build only)
 - Only for `semantic_search` (optional):
   - [Qdrant](https://qdrant.tech/) (vector database)
-  - [Ollama](https://ollama.com/) with models:
-    - `vishalraj/nomic-embed-code` — code embeddings
-    - `qllama/bce-reranker-base_v1` — result reranking
+  - [Ollama](https://ollama.com/) with the `vishalraj/nomic-embed-code` model — code embeddings
+  - optionally, a reranker: llama.cpp's `llama-server --rerank` with `qllama/bce-reranker-base_v1` — sorts the hits precisely and gives them a relevance score
 
-If Qdrant or Ollama is not reachable, the server still starts and every precise tool answers; `semantic_search` answers that it is unavailable.
+If Qdrant or Ollama is not reachable, the server still starts and every precise tool answers; `semantic_search` answers that it is unavailable. Without the reranker `semantic_search` still works: hits are ordered by vector search fused with word matching on names and docstrings, and carry no score.
 
 ## Installation and running
 
@@ -41,12 +40,25 @@ Check: `curl http://localhost:6333/collections`
 </details>
 
 <details>
-<summary><b>Ollama</b> — embedding and reranking models</summary>
+<summary><b>Ollama</b> — embedding model</summary>
 
 ```bash
 ollama pull vishalraj/nomic-embed-code
-ollama pull qllama/bce-reranker-base_v1
 ```
+</details>
+
+<details>
+<summary><b>Reranker</b> (optional) — llama-server with the BCE model</summary>
+
+Ollama cannot run the reranking model itself (it has no rerank API), but it can download it, and Linux builds of Ollama ship `llama-server`, which can:
+
+```bash
+ollama pull qllama/bce-reranker-base_v1
+MODEL=$(ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
+```
+
+Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works the same way. Check: `curl http://localhost:8012/health`
 </details>
 
 ### 2. Configure
@@ -65,8 +77,9 @@ ollama pull qllama/bce-reranker-base_v1
 | `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |
 | `:ollama/url` | `"http://localhost:11434/v1"` | Ollama API address (semantic search only) |
 | `:ollama/embedding-model` | `"vishalraj/nomic-embed-code"` | Embedding model (semantic search only) |
-| `:ollama/reranker-model` | `"qllama/bce-reranker-base_v1"` | Reranking model (semantic search only) |
-| `:search/top-k` | `100` | Qdrant candidates passed to the reranker (semantic search only) |
+| `:reranker/url` | `"http://localhost:8012/v1"` | Reranker address, a `/v1/rerank` API such as `llama-server --rerank` (semantic search only, optional) |
+| `:reranker/model` | `"qllama/bce-reranker-base_v1"` | Model name sent to the reranker (semantic search only) |
+| `:search/top-k` | `100` | Candidates taken from vector search and from word matching each, and fused candidates passed to the reranker (semantic search only) |
 | `:search/re-rank-top` | `10` | Hits kept after reranking (semantic search only) |
 | `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
 
@@ -205,10 +218,11 @@ Answer: one line per Implementation (defrecord, deftype, extend-type, extend-pro
 ```
 Input:  query (string, required) — what the code does, in natural language
         limit, offset
-Search: query embedding → Qdrant top :search/top-k → reranker → top :search/re-rank-top
+Search: query embedding → Qdrant top :search/top-k ─┐
+        words of names and docstrings (BM25) ───────┴→ reciprocal rank fusion → reranker → top :search/re-rank-top
 Answer: one line per hit, no source bodies
         score  path:line  kind  ns/name  first docstring line
-        (score: the reranker's relevance score; left out when the reranker is unavailable)
+        (score: the reranker's relevance, 0..1; left out when the reranker is unavailable)
         ends with `embeddings stale for N files` while recent edits are being embedded
 ```
 
@@ -228,9 +242,10 @@ src/mcp/
 ├── tools/             — one namespace per tool
 ├── search_units.clj   — Search units for semantic search
 ├── semantic_index.clj — background embedding of Search units
-├── embeddings.clj     — embeddings and reranking via Ollama
+├── embeddings.clj     — embeddings via Ollama, reranking via a /v1/rerank server
+├── lexical.clj        — word matching (BM25) on Search unit names and docstrings
 ├── qdrant.clj         — vector storage (Qdrant HTTP API)
-└── search.clj         — vector search + reranking
+└── search.clj         — vector search + word matching, rank fusion, reranking
 ```
 
 ## Development
@@ -239,7 +254,7 @@ src/mcp/
 # Tests (no Qdrant or Ollama needed)
 lein test
 
-# Tests that need Qdrant and Ollama
+# Tests that need Qdrant and Ollama (they pass with or without the reranker)
 lein test :integration
 
 # Linter

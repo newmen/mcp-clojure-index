@@ -20,6 +20,8 @@
 ;;  :kind "defn"                    ; a Definition kind, or "edn"
 ;;  :name "shop.orders/order-total" ; qualified name, or the EDN key as written
 ;;  :doc  "First docstring line."   ; absent when there is none
+;;  :docstring "First line.\n More."  ; the whole docstring, for lexical matching;
+;;                                  ; absent when there is none, never stored in Qdrant
 ;;  :text "..."                     ; the embedding text
 ;;  :hash "sha-256 of :text"}       ; embedding cache key
 
@@ -50,7 +52,7 @@
     (> (count text) max-source-chars) (subs 0 max-source-chars)))
 
 (defn- unit
-  [{:keys [file row kind unit-name doc text-parts]}]
+  [{:keys [file row kind unit-name doc docstring text-parts]}]
   (let [text (->> text-parts (remove s/blank?) (s/join "\n"))]
     (cond-> {:id (unit-id file kind unit-name row)
              :file file
@@ -59,7 +61,8 @@
              :name unit-name
              :text text
              :hash (sha-256 text)}
-      doc (assoc :doc doc))))
+      doc (assoc :doc doc)
+      docstring (assoc :docstring docstring))))
 
 ;; ---------------------------------------------------------------------------
 ;; Definitions
@@ -82,6 +85,7 @@
            :kind kind
            :unit-name qualified-name
            :doc (output/first-line doc)
+           :docstring doc
            :text-parts [qualified-name
                         (s/join " " arglists)
                         doc

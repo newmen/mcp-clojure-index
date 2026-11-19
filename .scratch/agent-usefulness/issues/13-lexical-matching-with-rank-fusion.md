@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 (Semantic search on Search units)
 
-**Status:** needs-triage
+**Status:** resolved
 
 Observed on 2026-11-19 against the `semantic_project` fixture (local Qdrant, Ollama `vishalraj/nomic-embed-code` + `qllama/bce-reranker-base_v1`): 4 of 8 queries miss the top 3.
 
@@ -19,7 +19,11 @@ The other four queries pass: "decrease stock when an order is placed", "email th
 
 All scores sit in a narrow band (0.88-0.93), and `:db/connection-pool` ranks first for unrelated queries. This suggests the reranker is not reordering anything: `mcp.embeddings/rerank` is a placeholder that calls the embeddings endpoint and falls back to the vector score. Check that first, because a working cross-encoder may make lexical fusion unnecessary or less important.
 
-- [ ] Check whether `embeddings/rerank` actually reranks with the BCE model. Fix it or record why not.
-- [ ] Lexical scoring over Search unit names (words of `ns/name`, EDN key) and docstrings.
-- [ ] Reciprocal rank fusion of lexical and vector candidates before the reranker.
-- [ ] Acceptance case 9 passes: every expected Definition is in the top 3 and every answer fits the Output budget.
+- [x] Check whether `embeddings/rerank` actually reranks with the BCE model. Fix it or record why not.
+- [x] Lexical scoring over Search unit names (words of `ns/name`, EDN key) and docstrings.
+- [x] Reciprocal rank fusion of lexical and vector candidates before the reranker.
+- [x] Acceptance case 9 passes: every expected Definition is in the top 3 and every answer fits the Output budget.
+
+## Comments
+
+2026-11-19: `embeddings/rerank` never reranked. Ollama 0.32 has no rerank API and its embedding runner crashes on the BCE model; the error was swallowed and the vector order kept (the earlier scores were not reranker scores). The reranker now calls a `/v1/rerank` server (`llama-server --rerank`, shipped with Ollama on Linux) at `:reranker/url`; optional. Lexical BM25 over unit names and first docstring lines is fused with the vector candidates by RRF before it. Acceptance case 9 passes both without the reranker and with it. See ADR-0007.

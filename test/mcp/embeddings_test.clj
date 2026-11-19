@@ -2,7 +2,12 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [mcp.embeddings :as sut]
-            [mcp.config :as config]))
+            [clojure.data.json :as json]
+            [mcp.config :as config])
+  (:import (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
+           (java.net InetSocketAddress)))
+
+(set! *warn-on-reflection* true)
 
 ;; ---------------------------------------------------------------------------
 ;; Embedding cache
@@ -81,16 +86,96 @@
     (is (thrown? Exception (sut/generate ["test"])))))
 
 ;; ---------------------------------------------------------------------------
-;; rerank interface — architecture spec: (rerank query candidates)
+;; rerank: a /v1/rerank server (llama.cpp `llama-server --rerank`)
 ;; ---------------------------------------------------------------------------
 
-(deftest rerank-empty-candidates
-  (is (= [] (sut/rerank "test" []))))
+(defn- with-rerank-server
+  "Call `f` with the base URL of a local HTTP server whose `/rerank`
+   answers `status` and `response-body`, recording the request bodies in
+   `requests`."
+  [requests status response-body f]
+  (let [server (HttpServer/create (InetSocketAddress. "localhost" 0) 0)]
+    (.createContext server "/v1/rerank"
+                    (reify HttpHandler
+                      (handle [_this http-exchange]
+                        (let [^HttpExchange exchange http-exchange
+                              ^bytes body (.getBytes ^String (json/write-str response-body) "UTF-8")]
+                          (swap! requests conj (json/read-str (slurp (.getRequestBody exchange))
+                                                              :key-fn keyword))
+                          (.sendResponseHeaders exchange (int status) (long (alength body)))
+                          (with-open [out (.getResponseBody exchange)]
+                            (.write out body))))))
+    (.start server)
+    (try
+      (f (str "http://localhost:" (.getPort (.getAddress server)) "/v1"))
+      (finally
+        (.stop server 0)))))
+
+(def ^:private candidates
+  [{:text "order total" :unit {:id "a"}}
+   {:text "connection pool" :unit {:id "b"}}
+   {:text "apply discount" :unit {:id "c"}}])
+
+(deftest rerank-sends-the-query-and-candidate-texts
+  (let [requests (atom [])]
+    (with-rerank-server requests 200 {:results []}
+      (fn [url]
+        (sut/rerank "sum an order" candidates
+                    (assoc config/defaults :reranker/url url :reranker/model "bce"))))
+    (is (= [{:model "bce"
+             :query "sum an order"
+             :documents ["order total" "connection pool" "apply discount"]}]
+           @requests))))
+
+(deftest rerank-sends-only-the-start-of-long-texts
+  ;; the BCE model reads at most 512 tokens of query and text;
+  ;; 1000 characters of code stay below
+  (let [requests (atom [])
+        long-text (apply str (repeat 1500 "x"))]
+    (with-rerank-server requests 200 {:results []}
+      (fn [url]
+        (sut/rerank "a query" [{:text long-text}] (assoc config/defaults :reranker/url url))))
+    (is (= [(subs long-text 0 993)] (:documents (first @requests))))))
+
+(defn- rounded
+  [reranked]
+  (mapv #(update % :re-rank (fn [score] (/ (Math/round (* 1000.0 score)) 1000.0))) reranked))
+
+(deftest rerank-orders-candidates-by-relevance
+  ;; llama-server answers logits; the relevance is their sigmoid, in 0..1
+  (with-rerank-server (atom []) 200 {:results [{:index 2 :relevance_score 0.0}
+                                               {:index 0 :relevance_score (Math/log 3)}
+                                               {:index 1 :relevance_score (- (Math/log 3))}]}
+    (fn [url]
+      (is (= [(assoc (nth candidates 0) :re-rank 0.75)
+              (assoc (nth candidates 2) :re-rank 0.5)
+              (assoc (nth candidates 1) :re-rank 0.25)]
+             (rounded (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url))))))))
+
+(deftest rerank-error-keeps-candidates-without-relevance-score
+  (with-rerank-server (atom []) 500 {:error "model failed"}
+    (fn [url]
+      (is (= candidates
+             (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url)))))))
+
+(deftest rerank-answer-without-a-score-for-each-candidate-keeps-candidates
+  (doseq [results [[{:index 0 :relevance_score 0.5} {:index 1 :relevance_score 0.5}]
+                   [{:index 0 :relevance_score 0.5} {:index 1 :relevance_score nil}
+                    {:index 2 :relevance_score 0.5}]
+                   [{:index 0 :relevance_score 0.5} {:index 0 :relevance_score 0.5}
+                    {:index 2 :relevance_score 0.5}]]]
+    (with-rerank-server (atom []) 200 {:results results}
+      (fn [url]
+        (is (= candidates
+               (sut/rerank "sum an order" candidates (assoc config/defaults :reranker/url url))))))))
 
 (deftest rerank-unavailable-keeps-candidates-without-relevance-score
-  (let [candidates [{:text "hello" :score 0.5} {:text "world" :score 0.3}]]
-    (binding [sut/*config* (assoc config/defaults :ollama/url "http://localhost:19999")]
-      (is (= candidates (sut/rerank "test query" candidates))))))
+  (is (= candidates
+         (sut/rerank "sum an order" candidates
+                     (assoc config/defaults :reranker/url "http://localhost:19999/v1")))))
+
+(deftest rerank-empty-candidates
+  (is (= [] (sut/rerank "test" [] config/defaults))))
 
 ;; ---------------------------------------------------------------------------
 ;; dynamic *config* binding works
@@ -124,19 +209,6 @@
         (doseq [^java.io.File f (.listFiles (io/file "/tmp/mcp-test-cache-concurrent"))]
           (io/delete-file f true))
         (io/delete-file (io/file "/tmp/mcp-test-cache-concurrent") true)))))
-
-;; ---------------------------------------------------------------------------
-;; Edge cases: rerank with single candidate
-;; ---------------------------------------------------------------------------
-
-(deftest rerank-single-candidate-works
-  (let [candidates [{:text "some code" :score 0.9}]]
-    (is (= 1 (count (sut/rerank "test" candidates))))))
-
-(deftest rerank-very-long-query
-  (let [long-query (apply str (repeat 100 "query "))
-        candidates [{:text "short code" :score 0.5} {:text "longer code" :score 0.4}]]
-    (is (= 2 (count (sut/rerank long-query candidates))))))
 
 ;; ---------------------------------------------------------------------------
 ;; embed-units

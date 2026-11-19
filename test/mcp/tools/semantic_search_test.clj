@@ -67,7 +67,7 @@
   (is (= (str "0.91  src/shop/orders.clj:5  defn  shop.orders/order-total  "
               "Sum of price times quantity over all line items of an order.\n"
               "0.50  resources/config.edn:1  edn  :db/connection-pool")
-         (answer {:query "order total"}))))
+         (answer {:query "qwerty"}))))
 
 (deftest without-reranker-no-raw-vector-score-is-shown
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
@@ -76,11 +76,18 @@
     (is (= (str "src/shop/orders.clj:5  defn  shop.orders/order-total  "
                 "Sum of price times quantity over all line items of an order.\n"
                 "resources/config.edn:1  edn  :db/connection-pool")
-           (-> (tool/call :semantic_search {:query "order total"}
+           (-> (tool/call :semantic_search {:query "qwerty"}
                           {:config config
                            :code-index @fixture-index
                            :semantic-index (fresh-semantic-state)})
                :content first :text)))))
+
+(deftest a-definition-matched-by-its-words-is-found-without-the-vector-search
+  (is (= (str "src/shop/orders.clj:10  defn  shop.orders/apply-discount  "
+              "Reduce an amount by a percentage discount code.\n"
+              "src/shop/orders.clj:1  ns  shop.orders  Orders of the shop: totals, discounts and shipping.")
+         (with-redefs [embeddings/rerank (fn [_query candidates _cfg] candidates)]
+           (answer {:query "percentage discount"} (fresh-semantic-state) [])))))
 
 (deftest limit-and-offset-page-within-the-output-budget
   (let [many (mapv #(hit "src/shop/orders.clj" % "defn" (str "shop.orders/f" %) nil (- 1.0 (* % 0.01)))
@@ -105,7 +112,7 @@
                 "Sum of price times quantity over all line items of an order.\n"
                 "0.50  resources/config.edn:1  edn  :db/connection-pool\n"
                 "embeddings stale for 2 files")
-           (answer {:query "order total"} state hits)))))
+           (answer {:query "qwerty"} state hits)))))
 
 (deftest stale-note-fits-in-the-output-budget
   (let [many (mapv #(hit "src/shop/orders.clj" % "defn" (str "shop.orders/f" %) nil 0.5)

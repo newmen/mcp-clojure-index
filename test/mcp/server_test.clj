@@ -1,11 +1,15 @@
 (ns mcp.server-test
-  (:require [clojure.string :as s]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as s]
             [clojure.test :refer [deftest is]]
+            [mcp.code-index :as code-index]
             [mcp.server :as sut]
             [mcp.config :as config]
             [mcp.symbol-index :as si]
             [mcp.graph :as graph]
-            [mcp.test-project :as project]))
+            [mcp.test-project :as project])
+  (:import (java.nio.file Files)
+           (java.nio.file.attribute FileAttribute)))
 
 (set! *warn-on-reflection* true)
 
@@ -60,6 +64,25 @@
              :text "src/mcp/output.clj:38  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
            (get-in response [:result :content])))))
 
+(defn- find-definition-call
+  [state name-str]
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
+             :params {:name "find_definition" :arguments {:name name-str}}}]
+    (-> (#'sut/handle-method msg state) first :result :content first :text)))
+
+(deftest tools-call-answer-reflects-an-edit-made-just-before-it
+  (let [root (.getCanonicalPath (.toFile (Files/createTempDirectory "server-test" (make-array FileAttribute 0))))
+        file (io/file root "src/app/core.clj")
+        cfg (assoc config/defaults :index/root-path root)
+        _ (io/make-parents file)
+        _ (spit file "(ns app.core)\n(defn alpha [x] x)\n")
+        state {:config cfg :code-index-ref (atom (code-index/build cfg))}]
+    (is (= "src/app/core.clj:2  defn  app.core/alpha  [x]" (find-definition-call state "alpha")))
+    (spit file "(ns app.core)\n\n(defn beta [y] y)\n")
+    (.setLastModified file (+ 2000 (System/currentTimeMillis)))
+    (is (= "src/app/core.clj:3  defn  app.core/beta  [y]" (find-definition-call state "beta")))
+    (is (s/starts-with? (find-definition-call state "alpha") "not found: alpha"))))
+
 (deftest handle-method-initialize
   (let [msg {:jsonrpc "2.0" :id 1 :method "initialize" :params {:clientInfo {:name "test" :version "1.0"}}}
         state {:config config/defaults}
@@ -87,9 +110,9 @@
     (is (not (contains? tool-names "find_symbol")))
     (is (not (contains? tool-names "find_namespace")))
     (is (contains? tool-names "find_usages"))
-    (is (contains? tool-names "find_protocol"))
-    (is (contains? tool-names "find_record"))
-    (is (contains? tool-names "find_macro"))))
+    (is (not (contains? tool-names "find_callers")))
+    (is (contains? tool-names "find_implementations"))
+    (is (not (contains? tool-names "find_protocol")))))
 
 (deftest handle-method-tools-call-invalid-tool
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"

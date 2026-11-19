@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 (clj-kondo index and `find_definition`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Returns the source of one Definition with its line range header.
-- [ ] Ambiguous name returns candidates only.
-- [ ] A body larger than `:output/max-chars` is cut with a Truncation note giving the line range that was not shown.
-- [ ] Tested on this code base.
+- [x] Returns the source of one Definition with its line range header.
+- [x] Ambiguous name returns candidates only.
+- [x] A body larger than `:output/max-chars` is cut with a Truncation note giving the line range that was not shown.
+- [x] Tested on this code base.

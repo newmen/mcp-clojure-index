@@ -20,17 +20,17 @@
          :search/re-rank-top 10))
 
 (defn- make-sym
-  [sym-name file-path chunk-id & {:keys [ftype] :or {ftype :fn}}]
+  [sym-name file-path chunk-id]
   {:sym/name       (symbol (str "test.ns/" (name sym-name)))
    :sym/simple     sym-name
    :sym/ns         'test.ns
-   :sym/type       ftype
+   :sym/type       :fn
    :sym/file       file-path
    :sym/line       1
    :sym/arglists   nil
    :sym/doc        nil
-   :sym/protocol   (when (= :protocol ftype) (symbol (str "test.ns/" (name sym-name))))
-   :sym/record     (when (= :record ftype) (symbol (str "test.ns/" (name sym-name))))
+   :sym/protocol   nil
+   :sym/record     nil
    :sym/tag        nil
    :sym/chunk-id   chunk-id
    :sym/visibility :public
@@ -40,11 +40,12 @@
   (let [names (set (map :name (sut/tool-definitions)))]
     (is (contains? names "semantic_search"))
     (is (contains? names "find_definition"))
+    (is (contains? names "get_source"))
     (is (contains? names "find_usages"))
-    (is (contains? names "find_protocol"))
-    (is (contains? names "find_record"))
-    (is (contains? names "find_macro"))
-    (is (= 6 (count names)))))
+    (is (not (contains? names "find_callers")))
+    (is (contains? names "find_implementations"))
+    (is (not (contains? names "find_protocol")))
+    (is (contains? names "namespace_summary"))))
 
 (deftest tool-definitions-have-required-fields
   (doseq [t (sut/tool-definitions)]
@@ -61,57 +62,9 @@
     (is (contains? tool-names "semantic_search"))
     (is (contains? tool-names "find_definition"))
     (is (contains? tool-names "find_usages"))
-    (is (contains? tool-names "find_protocol"))
-    (is (contains? tool-names "find_record"))
-    (is (contains? tool-names "find_macro"))))
-
-(deftest find-protocol-found
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'MyProtocol "/f.clj" cid :ftype :protocol)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_protocol" {:name "test.ns/MyProtocol"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "MyProtocol"))))
-
-(deftest find-protocol-not-found
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_protocol" {:name "Missing"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-(deftest find-record-found
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'MyRecord "/f.clj" cid :ftype :record)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_record" {:name "test.ns/MyRecord"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "MyRecord"))))
-
-(deftest find-record-not-found
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_record" {:name "Missing"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-(deftest find-macro-all
-  (let [cid-1 (UUID/randomUUID)
-        cid-2 (UUID/randomUUID)
-        sym-1 (make-sym 'mac1 "/f1.clj" cid-1 :ftype :macro)
-        sym-2 (make-sym 'mac2 "/f2.clj" cid-2 :ftype :macro)
-        index (-> (si/empty-index) (si/add-file! [sym-1]) (si/add-file! [sym-2]))
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_macro" {} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "mac1"))
-    (is (s/includes? text "mac2"))))
-
-(deftest find-macro-no-macros
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_macro" {} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "No macros"))))
+    (is (not (contains? tool-names "find_callers")))
+    (is (contains? tool-names "find_implementations"))
+    (is (not (contains? tool-names "find_protocol")))))
 
 (deftest semantic-search-empty-query
   (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
@@ -189,57 +142,9 @@
 ;; Edge cases: tools with nil/empty arguments
 ;; ---------------------------------------------------------------------------
 
-(deftest find-protocol-with-nil-name
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_protocol" {:name nil} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-(deftest find-record-with-nil-name
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_record" {:name nil} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
 
 (deftest semantic-search-with-nil-query
   (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
         result (sut/handle-tool "semantic_search" {:query nil} state)
         text (:text (first (:content result)))]
     (is (s/includes? text "empty"))))
-
-(deftest find-macro-with-specific-name
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'my-macro "/f.clj" cid :ftype :macro)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_macro" {:name "my-macro"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "my-macro"))))
-
-(deftest find-macro-specific-name-not-found
-  (let [state {:config test-config :index (si/empty-index) :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_macro" {:name "nonexistent"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "not found"))))
-
-;; ---------------------------------------------------------------------------
-;; Edge cases: tools with fully populated index
-;; ---------------------------------------------------------------------------
-
-(deftest find-protocol-with-qualified-name
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'MyProtocol "/f.clj" cid :ftype :protocol)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_protocol" {:name "test.ns/MyProtocol"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "MyProtocol"))))
-
-(deftest find-record-with-qualified-name
-  (let [cid (UUID/randomUUID)
-        sym (make-sym 'MyRecord "/f.clj" cid :ftype :record)
-        index (si/add-file! (si/empty-index) [sym])
-        state {:config test-config :index index :graph-state (graph/empty-graph)}
-        result (sut/handle-tool "find_record" {:name "test.ns/MyRecord"} state)
-        text (:text (first (:content result)))]
-    (is (s/includes? text "MyRecord"))))

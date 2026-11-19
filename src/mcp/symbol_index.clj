@@ -11,13 +11,6 @@
 ;;   {:index/by-qname  {'ns/sym  SymbolRecord ...}   ;; qualified name -> record
 ;;    :index/by-simple {'sym     [SymbolRecord ...]}   ;; simple name -> records
 ;;    :index/by-file   {"/path"  [SymbolRecord ...]}   ;; file path -> records
-;;    :index/by-type   {:fn     [SymbolRecord ...]     ;; type -> records
-;;                      :macro  [...]
-;;                      :protocol [...]
-;;                      :record [...]
-;;                      :val    [...]}
-;;    :index/by-protocol {'ProtocolName [SymbolRecord ...]}  ;; protocol-name -> methods
-;;    :index/by-record   {'RecordName   [SymbolRecord ...]}  ;; record-name -> methods
 ;;    :index/namespaces {'ns.name NamespaceRecord ...}}  ;; ns-name -> NamespaceRecord
 ;; ---------------------------------------------------------------------------
 
@@ -26,9 +19,6 @@
   {:index/by-qname    {}
    :index/by-simple   {}
    :index/by-file     {}
-   :index/by-type     {:fn [] :macro [] :protocol [] :record [] :val []}
-   :index/by-protocol {}
-   :index/by-record   {}
    :index/namespaces  {}})
 
 ;; ---------------------------------------------------------------------------
@@ -87,21 +77,6 @@
                                 (update acc (:sym/file sym)
                                         (fnil conj []) sym))
                               {} symbols)
-    :index/by-type    (reduce (fn [acc sym]
-                                (update acc (:sym/type sym)
-                                        (fnil conj []) sym))
-                              {:fn [] :macro [] :protocol [] :record [] :val []}
-                              symbols)
-    :index/by-protocol (reduce (fn [acc sym]
-                                 (if-let [pname (:sym/protocol sym)]
-                                   (update acc pname (fnil conj []) sym)
-                                   acc))
-                               {} symbols)
-    :index/by-record   (reduce (fn [acc sym]
-                                 (if-let [rname (:sym/record sym)]
-                                   (update acc rname (fnil conj []) sym)
-                                   acc))
-                               {} symbols)
     :index/namespaces (when chunks
                         (reduce (fn [acc chunk]
                                   (if-let [ns-rec (extract-ns-record chunk)]
@@ -110,37 +85,8 @@
                                 {} chunks))}))
 
 ;; ---------------------------------------------------------------------------
-;; Lookups
-;; ---------------------------------------------------------------------------
-
-(defn find-by-type
-  [index type]
-  (get (:index/by-type index) type []))
-
-(defn find-by-protocol
-  [index protocol-name]
-  (get (:index/by-protocol index) (symbol (name protocol-name)) []))
-
-(defn find-by-record
-  [index record-name]
-  (get (:index/by-record index) (symbol (name record-name)) []))
-
-;; ---------------------------------------------------------------------------
 ;; Incremental update helpers
 ;; ---------------------------------------------------------------------------
-
-(defn- remove-from-inverted-index
-  [m removed-syms]
-  (reduce (fn [acc sym]
-            (let [k (or (:sym/protocol sym) (:sym/record sym))]
-              (if k
-                (let [remaining (remove (fn [r] (= (:sym/name r) (:sym/name sym)))
-                                        (get acc k []))]
-                  (if (empty? remaining)
-                    (dissoc acc k)
-                    (assoc acc k remaining)))
-                acc)))
-          m removed-syms))
 
 (defn remove-file!
   [index file-path]
@@ -148,8 +94,7 @@
     (if (empty? removed)
       index
       (let [removed-qnames (set (map :sym/name removed))
-            removed-simples (set (map :sym/simple removed))
-            removed-types (frequencies (map :sym/type removed))]
+            removed-simples (set (map :sym/simple removed))]
         (-> index
             (update :index/by-qname
                     (fn [m] (apply dissoc m removed-qnames)))
@@ -162,15 +107,7 @@
                                     (dissoc acc s)
                                     (assoc acc s remaining))))
                               m removed-simples)))
-            (update :index/by-file dissoc file-path)
-            (update :index/by-type
-                    (fn [m]
-                      (reduce-kv (fn [acc t cnt]
-                                   (let [remaining (drop-last cnt (get m t []))]
-                                     (assoc acc t remaining)))
-                                 m removed-types)))
-            (update :index/by-protocol remove-from-inverted-index removed)
-            (update :index/by-record remove-from-inverted-index removed))))))
+            (update :index/by-file dissoc file-path))))))
 
 (defn add-file!
   [index symbols]
@@ -188,27 +125,7 @@
                                       (fnil conj []) sym))
                             m symbols)))
           (update :index/by-file
-                  (fn [m] (assoc m file-path symbols)))
-          (update :index/by-type
-                  (fn [m]
-                    (reduce (fn [acc sym]
-                              (update acc (:sym/type sym)
-                                      (fnil conj []) sym))
-                            m symbols)))
-          (update :index/by-protocol
-                  (fn [m]
-                    (reduce (fn [acc sym]
-                              (if-let [pname (:sym/protocol sym)]
-                                (update acc pname (fnil conj []) sym)
-                                acc))
-                            m symbols)))
-          (update :index/by-record
-                  (fn [m]
-                    (reduce (fn [acc sym]
-                              (if-let [rname (:sym/record sym)]
-                                (update acc rname (fnil conj []) sym)
-                                acc))
-                            m symbols)))))))
+                  (fn [m] (assoc m file-path symbols)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Update file path in all index entries (rename without content change)

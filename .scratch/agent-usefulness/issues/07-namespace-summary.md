@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 (clj-kondo index and `find_definition`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Lists every Definition of the namespace with visibility, kind, line, arglists and first docstring line.
-- [ ] Lists the namespaces that require it.
-- [ ] Unknown namespace returns close candidates by name.
-- [ ] Obeys the Output budget; tested on a namespace of this code base.
+- [x] Lists every Definition of the namespace with visibility, kind, line, arglists and first docstring line.
+- [x] Lists the namespaces that require it.
+- [x] Unknown namespace returns close candidates by name.
+- [x] Obeys the Output budget; tested on a namespace of this code base.

@@ -68,12 +68,24 @@
       idx-ref (assoc :index @idx-ref)
       gr-ref (assoc :graph-state @gr-ref))))
 
+(defn- ensure-fresh-code-index!
+  "Re-analyse files changed on disk since the last answer, synchronously,
+   so a precise tool never answers from a stale index (ADR-0005)."
+  [state]
+  (when-let [code-index-ref (:code-index-ref state)]
+    (try
+      (swap! code-index-ref (partial code-index/refresh (:config state)))
+      (catch Exception e
+        (log/error e "Freshness check failed, answering from the last index"))))
+  state)
+
 (defn- handle-method
   [msg state]
   (let [method (:method msg)
         id (:id msg)
         params (:params msg)
-        fresh (live-state state)]
+        fresh (live-state (cond-> state
+                            (= "tools/call" method) ensure-fresh-code-index!))]
     (try
       (case method
         "initialize" (initialize-handler msg state)

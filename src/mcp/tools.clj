@@ -8,7 +8,9 @@
             [mcp.graph :as graph]
             [mcp.tool :as tool]
             [mcp.tools.find-definition]
-            [mcp.tools.find-implementations]))
+            [mcp.tools.find-implementations]
+            [mcp.tools.get-source]
+            [mcp.tools.namespace-summary]))
 
 (set! *warn-on-reflection* true)
 

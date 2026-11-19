@@ -53,19 +53,31 @@
   [root file-path]
   (subs file-path (min (count file-path) (inc (count root)))))
 
+(defn- excluded?
+  [cfg root ^File file]
+  (let [relative (relative-to root (.getPath file))]
+    (some #(re-find % relative) (:index/exclude cfg))))
+
 (defn- project-file?
   [cfg root ^File file]
-  (let [path (.getPath file)
-        relative (relative-to root path)]
-    (and (.isFile file)
-         (some #(s/ends-with? (s/lower-case path) %) (:index/include-extensions cfg))
-         (not-any? #(re-find % relative) (:index/exclude cfg)))))
+  (and (.isFile file)
+       (some #(s/ends-with? (s/lower-case (.getPath file)) %) (:index/include-extensions cfg))
+       (not (excluded? cfg root file))))
+
+(defn- walk
+  "Files under `root`, not descending into excluded directories."
+  [cfg root]
+  (->> (tree-seq (fn [^File file]
+                   (and (.isDirectory file) (not (excluded? cfg root file))))
+                 (fn [^File dir] (.listFiles dir))
+                 (io/file root))
+       (remove #(.isDirectory ^File %))))
 
 (defn- source-files
   "Absolute paths of all Clojure and EDN files of the project, minus
    configured excludes."
   [cfg root]
-  (->> (file-seq (io/file root))
+  (->> (walk cfg root)
        (filter (partial project-file? cfg root))
        (mapv #(.getCanonicalPath ^File %))))
 
@@ -160,6 +172,33 @@
                    :test-paths (detect-test-paths root)
                    :files {}}
                   (source-files cfg root))))
+
+;; ---------------------------------------------------------------------------
+;; Freshness (ADR-0005)
+;; ---------------------------------------------------------------------------
+
+(defn stale-files
+  "Absolute paths of the files whose index entries are out of date: files
+   whose modification time differs from the indexed one, files added to the
+   project and indexed files that no longer exist."
+  [cfg index]
+  (let [indexed (:files index)
+        current (source-files cfg (:root index))
+        changed-or-added (remove #(= (get-in indexed [% :mtime])
+                                     (.lastModified (io/file ^String %)))
+                                 current)
+        deleted (remove (set current) (keys indexed))]
+    (vec (concat changed-or-added deleted))))
+
+(defn refresh
+  "Bring `index` up to date with the files on disk, re-analysing only the
+   stale files (see `stale-files`). Returns `index` itself when nothing
+   changed. Precise tools call this before every answer."
+  [cfg index]
+  (let [stale (stale-files cfg index)]
+    (if (seq stale)
+      (update-files index stale)
+      index)))
 
 ;; ---------------------------------------------------------------------------
 ;; Files

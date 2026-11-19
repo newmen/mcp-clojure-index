@@ -15,7 +15,7 @@
 
 ;; Target shape (from `resolve-target`):
 ;;
-;; {:target/type :var                ; or :namespace
+;; {:target/type :var                ; or :namespace, :spec, :defmethod
 ;;  :target/name "app.core/get-uuid" ; how the answer names it
 ;;  :definition  {...}}              ; a Definition, see mcp.code-index
 ;;
@@ -99,38 +99,27 @@
 ;; Enclosing definition
 ;; ---------------------------------------------------------------------------
 
-(defn- defmethod-ranges
-  "`clojure.core/defmethod` forms of the file, named `multi dispatch-value`."
-  [{:keys [file-usages] :as ctx}]
-  (let [heads (->> file-usages (filter :defmethod) (group-by :row))]
-    (keep (fn [form]
-            (when-let [head (first (get heads (:row form)))]
-              (assoc form :enclosing (str (:to head) "/" (:name head) " "
-                                          (:dispatch-val-str head)))))
-          (core-macro-usages ctx 'defmethod))))
-
-(defn- definition-ranges
-  [{:keys [index filename] :as ctx}]
-  (concat (->> (code-index/file-entries index filename :var-definitions)
-               (map #(assoc % :enclosing (code-index/qualified-name %))))
-          (defmethod-ranges ctx)))
-
 (defn- enclosing-definition
   "Qualified name of the Definition whose body contains `entry`; the
    namespace when the entry lies outside every Definition."
-  [ctx entry]
-  (or (when-let [var-name (:from-var entry)]
-        (str (:from entry) "/" var-name))
-      (->> (definition-ranges ctx)
-           (filter #(encloses? % (position entry)))
-           (sort-by (juxt :row :col))
-           last
-           :enclosing)
-      (str (:from entry))))
+  [{:keys [index filename]} entry]
+  (let [[row col] (position entry)]
+    (or (when-let [var-name (:from-var entry)]
+          (str (:from entry) "/" var-name))
+        (some-> (code-index/enclosing-definition index filename row col)
+                code-index/qualified-name)
+        (str (:from entry)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Targets
 ;; ---------------------------------------------------------------------------
+
+(defn- definition-target-type
+  [{:keys [ns dispatch] def-name :name}]
+  (cond (keyword? def-name) :spec
+        dispatch :defmethod
+        ns :var
+        :else :namespace))
 
 (defn resolve-target
   "Resolve a target as written by an agent. Returns {:target t} for one
@@ -141,7 +130,7 @@
     (case (count definitions)
       0 {}
       1 (let [definition (first definitions)]
-          {:target {:target/type (if (:ns definition) :var :namespace)
+          {:target {:target/type (definition-target-type definition)
                     :target/name (code-index/qualified-name definition)
                     :definition definition}})
       {:candidates definitions})))
@@ -175,6 +164,12 @@
        vals
        (map first)
        (sort-by (juxt :filename :row :col))))
+
+(defmethod usages :default
+  [_index _target]
+  ;; TODO: spec and defmethod Targets have no Usages until keyword targets
+  ;; (ticket 05) are supported
+  [])
 
 (defmethod usages :var
   [index {{def-ns :ns def-name :name} :definition}]

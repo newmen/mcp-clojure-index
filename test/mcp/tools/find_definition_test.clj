@@ -4,7 +4,8 @@
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
-            [mcp.tools :as tools]))
+            [mcp.tools :as tools])
+  (:import (java.io File)))
 
 (set! *warn-on-reflection* true)
 
@@ -53,11 +54,38 @@
     (is (s/includes? (answer cfg {:name "test-config" :offset 2}) "mcp.tools-test/test-config"))
     (is (<= (count text) (:output/max-chars cfg)))))
 
+(def ^:private definitions-fixture
+  (delay (code-index/build
+          (assoc project/config :index/root-path
+                 (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))))
+
+(defn- fixture-answer
+  [args]
+  (-> (tools/handle-tool "find_definition" args
+                         {:config project/config :code-index @definitions-fixture})
+      :content first :text))
+
+(deftest finds-tests-methods-specs-and-project-macro-definitions
+  (testing "deftest"
+    (is (= "test/app/core_test.clj:5  deftest  app.core-test/helper-test  []"
+           (fixture-answer {:name "helper-test"}))))
+  (testing "defmethod with its dispatch value"
+    (is (= "src/app/core.clj:15  defmethod  app.core/area :circle"
+           (fixture-answer {:name "area :circle"}))))
+  (testing "s/def by keyword"
+    (is (= "src/app/core.clj:23  s/def  :app.core/uuid"
+           (fixture-answer {:name ":app.core/uuid"}))))
+  (testing "form of a project macro declared via lint-as"
+    (is (= "src/app/core.clj:26  defhandler  app.core/handle-uuid  [req]  Handles a uuid."
+           (fixture-answer {:name "handle-uuid"})))))
+
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "find_definition" (:name %)) %)
                    (:tools (tools/handle-tools-list {})))]
     (is (re-find #"alias" (:description spec)))
     (is (re-find #"grep" (:description spec)))
+    (is (re-find #"area :circle" (:description spec)))
+    (is (re-find #"::uuid" (:description spec)))
     (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))))
 
 (deftest old-lookup-tools-are-gone

@@ -2,7 +2,7 @@
 
 The first version returned everything it had: full source of every hit, every other definition in the same files, all graph neighbours of the hits, chunk UUIDs, scores and hashes. One semantic query produced 595k characters, and the agent dropped the server entirely. Every answer is now a Compact answer:
 
-- one line per finding: `path:line:col  kind  ns/enclosing-definition` (or the analogous fields for the tool);
+- one line per finding: `path:line:col  kind  ns/enclosing-definition` (or the analogous fields for the tool); `find_usages` also shows by default a fragment of up to 80 characters of the source line around the Usage (`context: false` turns it off), because acting on a Usage, e.g. after a signature change, needs the call's arguments, and an opt-in flag would be forgotten;
 - paths relative to the project root;
 - no function bodies unless explicitly requested through `get_source`;
 - no expansion of results with neighbours by file or by call graph;

@@ -1,0 +1,5 @@
+{:linters {:consistent-alias {:level :warning
+                              :aliases {clojure.string st
+                                        clojure.spec.alpha s
+                                        clojure.data.json json
+                                        clj-http.client http}}}}

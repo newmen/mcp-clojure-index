@@ -6,7 +6,7 @@ paths:
 
 # Clojure idioms
 
-- `(s/blank? x)`, not `(= x "")`.
+- `(st/blank? x)`, not `(= x "")`.
 - Use `->` / `->>` for pipelines instead of nested calls.
 - Compose predicates with `comp`: `(remove (comp #{:whitespace :newline} n/tag) xs)`, not an anonymous `fn`.
 - Use `when` instead of `if` with an empty-collection or `nil` else branch; don't allocate `[]` just to return "nothing".

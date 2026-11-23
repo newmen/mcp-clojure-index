@@ -34,7 +34,7 @@
 
 ;; JsonRpcMessage: a parsed request or notification, keyword keys.
 ;; JsonRpcResponse: what is written back for a request.
-;; ServerState: the config, the ProjectConfig it comes from, an atom of the
+;; ServerState: the config, the ProjectConfigState it comes from, an atom of the
 ;; code index and the SemanticIndex; `live-state` turns it into a ToolState.
 
 (s/def ::json-rpc-message (s/keys :req-un [::method] :opt-un [::jsonrpc ::id ::params]))
@@ -43,7 +43,7 @@
 
 (s/def ::server-state
   (s/keys :req-un [:mcp.config/config]
-          :opt-un [::code-index-ref :mcp.config/project-config
+          :opt-un [::code-index-ref :mcp.config/project-config-state
                    :mcp.semantic-index/semantic-index]))
 
 (defn- json-rpc-error
@@ -125,34 +125,19 @@
         (log/error e "Freshness check failed, answering from the last index"))))
   state)
 
-(defn- apply-settings-change
-  "Brings the parts of `state` built from the settings in line with
-   `new-config`, the settings that replaced `old-config`. Answers read
-   their hot keys from `:config` at call time, so for them taking the new
-   Config is all there is to do. A changed file set (`:index/exclude`,
-   `:index/include-extensions`) is reconciled by the freshness check that
-   follows: the code index drops the files that left it and analyses the
-   ones that joined, and the semantic index, handed the result without the
-   Search exclusions (`:search/exclude`), forgets and embeds the same
-   files, and those of a changed Search exclusion.
-
-  ServerState -> Config -> Config -> ServerState"
-  [state _old-config new-config]
-  (assoc state :config new-config))
-
 (defn- ensure-current-project-config
   "Re-reads the Project config when it changed on disk since the last
-   answer, and applies the settings that changed (ADR-0010).
+   answer and takes the Config it gives (ADR-0010). Answers read their hot
+   keys from `:config` at call time; a changed file set or Search
+   exclusion is reconciled by the freshness check that follows.
 
   ServerState -> IO ServerState"
   [state]
-  (if-let [project-config (:project-config state)]
-    (let [refreshed (config/refresh-project-config project-config)
-          old-config (:config state)
-          new-config (:config refreshed)]
-      (cond-> (assoc state :project-config refreshed)
-        (not (identical? old-config new-config))
-        (apply-settings-change old-config new-config)))
+  (if-let [project-config (:project-config-state state)]
+    (let [refreshed (config/refresh-project-config project-config)]
+      (assoc state
+             :project-config-state refreshed
+             :config (:config refreshed)))
     state))
 
 (defn- with-project-config-notices
@@ -161,7 +146,7 @@
 
   ServerState -> ToolResult -> ToolResult"
   [state tool-result]
-  (if-let [project-config (:project-config state)]
+  (if-let [project-config (:project-config-state state)]
     (let [{:keys [before after]} (config/project-config-notices project-config)
           add-notices (fn [text]
                         (st/join "\n" (remove nil? [before text after])))]
@@ -230,7 +215,7 @@
     (when-let [error (:before (config/project-config-notices project-config))]
       (log/warn error))
     {:config cfg
-     :project-config project-config
+     :project-config-state project-config
      :code-index-ref (atom (code-index/build cfg))}))
 
 (defn start

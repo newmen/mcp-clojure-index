@@ -66,7 +66,7 @@
   (let [value (get args arg-key)]
     (if (boolean? value) value default)))
 
-(defn strings
+(defn distinct-strings
   "The distinct non-blank strings, trimmed, of a tool argument that is one
    value or a list.
 

@@ -165,8 +165,8 @@
            (fixture-answer {:names ["app.signatures/page-size"]}))))
   (testing "a namespace has no signature, its second paragraph stays in the summary"
     (is (= (group "app.signatures"
-                (str "src/app/signatures.clj:1  ns  app.signatures  Type signature fixtures. "
-                     "(+64 chars)"))
+                  (str "src/app/signatures.clj:1  ns  app.signatures  Type signature fixtures. "
+                       "(+64 chars)"))
            (fixture-answer {:names ["app.signatures"]}))))
   (testing "ambiguous candidates show their signatures"
     (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
@@ -313,3 +313,31 @@
 (deftest empty-list-of-names-says-so
   (is (= "no names given" (fixture-answer {:names []})))
   (is (= "no names given" (fixture-answer {:names ["  "]}))))
+
+(defn- not-found-header
+  "The header of the group of `name-str`, found nowhere in the fixture.
+
+  String -> IO String"
+  [name-str]
+  (str name-str ": not found (checked "
+       (count (code-index/files @definitions-fixture)) " files, including tests)"))
+
+(deftest a-missing-name-takes-no-place-in-the-page
+  (let [names ["app.summaries/limit" "no-such-definition" "app.signatures/page-size" "nope"]]
+    (testing "a page of two Definitions shows both, with the missing names where they fall"
+      (is (= (str (group "app.summaries/limit" limit-line) "\n\n"
+                  (not-found-header "no-such-definition") "\n\n"
+                  (group "app.signatures/page-size" page-size-line) "\n\n"
+                  (not-found-header "nope"))
+             (fixture-answer {:names names :limit 2}))))
+    (testing "a missing name shows on the page of the Definition after it"
+      (is (= (str (group "app.summaries/limit" limit-line) "\n"
+                  "truncated: shown 1 of 2, pass offset=1 or narrow the query")
+             (fixture-answer {:names names :limit 1})))
+      (is (= (str (not-found-header "no-such-definition") "\n\n"
+                  (group "app.signatures/page-size" page-size-line) "\n\n"
+                  (not-found-header "nope"))
+             (fixture-answer {:names names :offset 1}))))
+    (testing "only missing names"
+      (is (= (str (not-found-header "no-such-definition") "\n\n" (not-found-header "nope"))
+             (fixture-answer {:names ["no-such-definition" "nope"]}))))))

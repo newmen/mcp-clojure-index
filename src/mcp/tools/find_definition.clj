@@ -135,13 +135,15 @@
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
   (let [{:keys [budget] :as ctx} (output/answer-context config params code-index)
-        groups (map (partial name-group code-index) (tool/strings (:names params)))]
+        groups (map (partial name-group code-index) (tool/distinct-strings (:names params)))]
     (tool/text-result
      (cond
        (empty? groups) "no names given"
        (= "full" (:doc params))
-       (output/render-grouped budget groups
-                              {:text-of (comp full-doc-text (partial full-doc-finding code-index))
-                               :cut #(cut-full-doc %1 (full-doc-finding code-index %2))})
+       (output/render-grouped budget
+                              (map #(update % :findings (partial map (partial full-doc-finding code-index)))
+                                   groups)
+                              {:text-of full-doc-text
+                               :cut cut-full-doc})
        :else (output/render-grouped budget groups
                                     {:text-of (partial output/definition->line ctx)})))))

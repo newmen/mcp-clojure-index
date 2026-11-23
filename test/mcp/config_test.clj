@@ -346,3 +346,10 @@
   (is (= (str "invalid server config " (.getAbsolutePath (java.io.File. ^String (fixture-path "config-pattern-invalid.edn")))
               ": :doc/signature :pattern regex does not compile: Signature: (.*")
          (load-error "config-pattern-invalid.edn"))))
+
+(deftest an-unknown-key-in-the-server-config-is-rejected-at-load
+  (let [file (java.io.File/createTempFile "config" ".edn")]
+    (spit file "{:search/exlude [\"gen\"] :output/limit 10}")
+    (is (= (str "invalid server config " (.getAbsolutePath file) ": unknown key :search/exlude")
+           (try (sut/load-config (.getPath file)) nil
+                (catch clojure.lang.ExceptionInfo e (ex-message e)))))))

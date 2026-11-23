@@ -1,0 +1,27 @@
+;; Semantic search scenarios of this repository for dev/token_benchmark.clj:
+;; a question in the agent's words (not the docstring's), the keywords an agent
+;; would grep for instead, and the Definition that answers it.
+[{:query "shorten a reply that would be longer than the allowed number of characters"
+  :grep ["truncat" "max-chars"] :expect "mcp.output/render"}
+ {:query "how is the distance between two strings computed for 'did you mean' suggestions"
+  :grep ["distance" "levenshtein"] :expect "mcp.tools.namespace-summary/edit-distance"}
+ {:query "word frequency ranking used alongside vectors"
+  :grep ["bm25" "frequency"] :expect "mcp.lexical/rank"}
+ {:query "combine several ranked result lists into one"
+  :grep ["fuse" "fusion" "merge.*rank"] :expect "mcp.search/fuse"}
+ {:query "store vectors of code fragments in the vector database"
+  :grep ["upsert" "qdrant"] :expect "mcp.qdrant/upsert!"}
+ {:query "detect that a function is replaced by a test double"
+  :grep ["with-redefs" "redef"] :expect "mcp.usages/redef?"}
+ {:query "где читаются тестовые каталоги из project.clj"
+  :grep ["test-paths" "project.clj"] :expect "mcp.code-index/lein-test-paths"}
+ {:query "переиндексировать файлы, изменённые на диске, перед ответом"
+  :grep ["mtime" "lastModified" "stale"] :expect "mcp.code-index/refresh"}
+ {:query "кэширование эмбеддингов на диске"
+  :grep ["cache" "embedding"] :expect "mcp.embeddings/cached-embedding"}
+ {:query "turn a raw reranker logit into a 0..1 relevance"
+  :grep ["logit" "sigmoid" "relevance"] :expect "mcp.embeddings/sigmoid"}
+ {:query "which namespaces does an alias like `c` stand for"
+  :grep ["alias"] :expect "mcp.code-index/alias-targets"}
+ {:query "отвечает на JSON-RPC запрос initialize"
+  :grep ["initialize" "json-rpc"] :expect "mcp.server/initialize-handler"}]

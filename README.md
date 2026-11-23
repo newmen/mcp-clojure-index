@@ -6,6 +6,22 @@ MCP server that answers an LLM agent's questions about a Clojure code base preci
 
 LLM agents spend most of their tokens on understanding code: `grep`, then reading files to see what each hit really is. This server answers questions like "where is X defined", "who uses X", "what is in this namespace" and "where is the code that does Y" with **compact** answers (one line per finding, hard size ceiling) that are **more complete than `grep`**: usages through any alias, `:refer`, `#'var`, `with-redefs`, functions passed as values, keywords in code and EDN. If an answer is ever bigger or less precise than what `grep` would give, that is a bug. See `docs/adr/` for the principles and `GLOSSARY.md` for the vocabulary.
 
+## How much it saves
+
+Characters an agent receives per question with the server, compared with `rg` plus reading files (characters stand in for tokens: both sides divide by the same chars-per-token factor). *Careful* is an agent that greps with a precise pattern and reads only the lines it needs; *typical* reads every file with a hit, as Claude Code does by default. Measured on two projects, 20 sampled functions each, every namespace, and 12 hand-written semantic questions:
+
+| Question | Careful agent | Typical agent |
+|---|---|---|
+| where is X defined (`find_definition`) | 64–77% | 98–99% |
+| the source of X (`get_source`) | 50–59% | 96–97% |
+| who uses X (`find_usages`) | 93–95% | 99–100% |
+| where is the code that does Y (`semantic_search`) | 87–98% | 97–99% |
+| what is in a namespace (`namespace_summary`) | **−36…−67%** (bigger) | 73–81% |
+
+`namespace_summary` is bigger than grepping the `(def` lines because it also gives arglists, docstrings, specs and who requires the namespace; against reading the file it saves 73–81%. Besides size, grep brought 3–7 lines per `find_usages` question that are not usages, which the agent still has to read.
+
+**These numbers vary from project to project**: they grow with file size and with how often names repeat, and they are for single questions — a session saves less, because the system prompt, reasoning, edits and test runs cost the same with or without the server. The method, the per-project numbers and the command to measure your own project are in [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
+
 ## Features
 
 - **Definitions from clj-kondo analysis** — vars, macros, tests (`deftest`), multimethods and their methods, specs (`s/def`), protocols, records, forms of project macros declared via `lint-as` in the project's `.clj-kondo/config.edn`

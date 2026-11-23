@@ -580,19 +580,14 @@
 (defn local-name
   "Name of a Definition as written in its own namespace: `name`, followed
    by the dispatch value for a defmethod, whose multimethod is qualified
-   when it lives in another namespace; a spec of the namespace's own
-   keyword is `::name`.
+   when it lives in another namespace.
 
   Definition -> String"
   [{:keys [ns dispatch] def-name :name :as definition}]
-  (if (keyword? def-name)
-    (if (= (some-> ns str) (namespace def-name))
-      (str "::" (name def-name))
-      (str def-name))
-    (cond-> (if (= ns (name-ns definition))
-              (str def-name)
-              (str (name-ns definition) "/" def-name))
-      dispatch (str " " dispatch))))
+  (cond-> (if (= ns (name-ns definition))
+            (str def-name)
+            (str (name-ns definition) "/" def-name))
+    dispatch (str " " dispatch)))
 
 ;; ---------------------------------------------------------------------------
 ;; Name resolution

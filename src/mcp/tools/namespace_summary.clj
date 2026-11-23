@@ -62,27 +62,37 @@
                 (output/relative-path root filename)
                 (docstring/docstring-summary doc)]))
 
-(defn- written-name
-  "The name of a Definition as its defining form shows it: `^:private name`
-   when it is private but its form (`def`, `defn`, `defmacro`, ...) does
-   not say so, as `defn-` does.
+(def ^:private self-private-kinds
+  "The kinds whose defining form says by itself that it is private.
+
+  #{String}"
+  #{"defn-"})
+
+(defn- name-as-written
+  "The name of a Definition of the namespace as its source writes it: a
+   spec as `::name` (a namespace lists only the specs of its own keywords),
+   else `code-index/local-name`, preceded by `^:private` when the Definition
+   is private and its kind is not `defn-`, which says so by itself.
 
   Definition -> String"
-  [{:keys [kind private] :as definition}]
-  (cond->> (code-index/local-name definition)
-    (and private (not (st/ends-with? kind "-"))) (str "^:private ")))
+  [{:keys [kind private] def-name :name :as definition}]
+  (if (keyword? def-name)
+    (str "::" (name def-name))
+    (cond->> (code-index/local-name definition)
+      (and private (not (self-private-kinds kind))) (str "^:private "))))
 
 (defn- summary-line
-  "The answer line of one Definition of the namespace; with `detail?`, also
-   its Type signature, found by `signature-strategy`, and Docstring summary.
+  "The answer line of one Definition of the namespace; with `:detail?`,
+   also its Type signature, found by `signature-strategy`, and Docstring
+   summary.
 
-  SignatureStrategy -> Boolean -> Definition -> String"
-  [signature-strategy detail? {:keys [row kind arglists] :as definition}]
+  SignatureStrategy -> {:detail? Boolean} -> Definition -> String"
+  [signature-strategy {:keys [detail?]} {:keys [row kind arglists] :as definition}]
   (let [{:keys [summary signature]} (when detail?
                                       (docstring/definition-doc signature-strategy definition))]
     (join-fields [(str row)
                   kind
-                  (written-name definition)
+                  (name-as-written definition)
                   (st/join " " arglists)
                   signature
                   summary])))
@@ -98,16 +108,16 @@
 
 (defn- summary
   "The answer for the namespace `ns-def`: header, Definitions, requirers;
-   with `detail?`, the Definition lines carry Type signatures and Docstring
-   summaries.
+   with `:detail?`, the Definition lines carry Type signatures and
+   Docstring summaries.
 
-  AnswerContext -> Boolean -> AnalysisEntry -> String"
-  [{:keys [budget index signature-strategy]} detail? ns-def]
+  AnswerContext -> {:detail? Boolean} -> AnalysisEntry -> String"
+  [{:keys [budget index signature-strategy]} opts ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
                    (sort-by (juxt :filename :row :col (comp str :name)))
-                   (mapv (partial summary-line signature-strategy detail?)))]
+                   (mapv (partial summary-line signature-strategy opts)))]
     (output/render-framed budget
                           {:header (header (code-index/root index) ns-def)}
                           (conj lines (required-by-line index ns-sym)))))
@@ -174,6 +184,6 @@
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
        (summary (output/answer-context config params code-index)
-                (tool/flag params :detail false)
+                {:detail? (tool/flag params :detail false)}
                 ns-def)
        (unknown-namespace-answer code-index asked-str)))))

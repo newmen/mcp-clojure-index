@@ -212,14 +212,37 @@
                   :content first :text st/split-lines set)]
     (is (contains? lines "23  s/def  ::uuid"))))
 
+(def ^:private visibility-fixture-config
+  (assoc project/config :index/root-path
+         (.getCanonicalPath (File. "test-resources/fixtures/visibility_project"))))
+
+(defn- visibility-fixture-lines
+  "The Definition lines of the answer for `app.visibility` in the
+   visibility fixture project.
+
+  IO [String]"
+  []
+  (-> (tool/call :namespace_summary {:ns "app.visibility"}
+                 {:config visibility-fixture-config
+                  :code-index (code-index/build visibility-fixture-config)})
+      :content first :text st/split-lines rest butlast vec))
+
 (deftest visibility-is-written-as-in-the-source
-  (let [lines (st/split-lines (answer {:ns "mcp.tools.namespace-summary" :limit 100}))]
-    (testing "a private def carries ^:private before its name"
-      (is (some (partial re-matches #"\d+  def  \^:private description") lines)))
-    (testing "defn- says it is private by itself"
-      (is (some (partial re-matches #"\d+  defn-  header  \[.*\]") lines)))
-    (testing "no visibility words"
-      (is (not-any? (partial re-find #"^\d+  (public|private)  ") lines)))))
+  (testing "every private form of the fixture"
+    (is (= ["5  defn-  hidden-fn  [x]"
+            "7  defmacro  ^:private hidden-macro  [x]"
+            "9  def  ^:private hidden-map"
+            "11  defprotocol  ^:private Hidden"
+            "12  protocol-method  hide  [this]"
+            "14  defrecord  ^:private ->HiddenRecord  [x]"
+            "14  defrecord  ^:private HiddenRecord"
+            "14  defrecord  ^:private map->HiddenRecord  [m]"
+            "16  s/def  ::own"]
+           (visibility-fixture-lines))))
+  (testing "this project's own code"
+    (let [lines (st/split-lines (answer {:ns "mcp.tools.namespace-summary" :limit 100}))]
+      (is (some (partial re-matches #"\d+  def  \^:private description") lines))
+      (is (some (partial re-matches #"\d+  defn-  header  \[.*\]") lines)))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

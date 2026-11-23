@@ -8,7 +8,7 @@ Real case, the large project (2026-11-23): a generated protobuf namespace `api.c
 
 Decide:
 
-- a spec Definition gets the namespace of its file in `:ns`, and the keyword keeps its own namespace in `:name`. `local-name` already writes such a spec in full and the file's own specs as `::name` (issue 01). Check what else reads `:ns` of a spec: `find_definition`/`keyword-matcher` (`::uuid`, `::c/uuid`), `find_usages`, `semantic_search` units, `enclosing-definition`;
+- a spec Definition gets the namespace of its file in `:ns`, and the keyword keeps its own namespace in `:name`. `namespace_summary` (`name-as-written`) then has to write such a spec in full; now it writes every spec as `::name`, since it lists only its own. Check what else reads `:ns` of a spec: `find_definition`/`keyword-matcher` (`::uuid`, `::c/uuid`), `find_usages`, `semantic_search` units, `enclosing-definition`;
 - or keep the current attribution and say in the `namespace_summary` description that specs of other namespaces' keywords are not listed.
 
 The first option makes summaries of generated namespaces like `contract/v1.cljc` bigger. That namespace is left out of the ADR-0009 sample, but an agent can still ask about it.

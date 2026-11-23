@@ -4,8 +4,8 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `call`, `keyword` and `edn` Usages carry their context. A long line is cut around the column, not at its start.
-- [ ] `context: false` gives the previous line format.
-- [ ] Answers stay within the budget, and paging still names the target on each page (acceptance case 8).
+- [x] `call`, `keyword` and `edn` Usages carry their context. A long line is cut around the column, not at its start.
+- [x] `context: false` gives the previous line format.
+- [x] Answers stay within the budget, and paging still names the target on each page (acceptance case 8).

@@ -260,13 +260,16 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
       call, value, var-ref, redef, in-comment, require, keyword, edn
       По умолчанию: все типы.
   include_tests (boolean, по умолчанию true)
+  context (boolean, по умолчанию true) — добавлять к строке контекст (Usage context)
   limit, offset
 
 Ответ:
   Для каждой цели — заголовок `target: N usages`,
   затем одна строка на каждое использование (Usage):
-  path:line:col  usage-kind  ns/enclosing-definition
+  path:line:col  usage-kind  ns/enclosing-definition  context
 ```
+
+Контекст (Usage context) — до 80 символов строки исходника вокруг использования, серии пробелов схлопнуты; `…` отмечает обрезанный конец.
 
 Если ничего не найдено, сервер сообщает, что именно было проверено. Например:
 

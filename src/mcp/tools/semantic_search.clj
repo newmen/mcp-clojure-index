@@ -11,7 +11,8 @@
             [mcp.search :as search]
             [mcp.search-units :as search-units]
             [mcp.semantic-index :as semantic-index]
-            [mcp.tool :as tool]))
+            [mcp.tool :as tool])
+  (:import (java.lang Character$UnicodeScript)))
 
 (set! *warn-on-reflection* true)
 
@@ -27,6 +28,8 @@
        "Definitions in Test paths are left out unless `include_tests` is true. "
        "Generated code can be left out for good with `:search/exclude` (path regexes) "
        "in the Project config `.clojure-index.edn` at the project root. "
+       "Describe what the code does in the words its docstrings would use, "
+       "not the identifiers you expect; a query in the docstrings' language matches best. "
        "Use find_definition for known names and get_source for bodies."))
 
 (defmethod tool/spec :semantic_search
@@ -121,16 +124,61 @@
   [text note]
   (cond-> text note (str "\n" note)))
 
+(defn- majority
+  "The value that makes up more than half of `values`; nil when none does.
+
+  [a] -> Maybe a"
+  [values]
+  (when-let [[value value-count] (some->> (seq (frequencies values)) (apply max-key val))]
+    (when (> (* 2 value-count) (count values))
+      value)))
+
+(defn- main-script
+  "The Unicode script of more than half of the letters of `text`; nil
+   when no script holds that many.
+
+  String -> Maybe Character$UnicodeScript"
+  [^String text]
+  (->> (.toArray (.codePoints text))
+       (filter #(Character/isLetter (int %)))
+       (map #(Character$UnicodeScript/of (int %)))
+       majority))
+
+(defn- script-name
+  "The English name of `script`, such as `Cyrillic` or `Old Italic`.
+
+  Character$UnicodeScript -> String"
+  [^Character$UnicodeScript script]
+  (->> (st/split (st/lower-case (.name script)) #"_")
+       (map st/capitalize)
+       (st/join " ")))
+
+(defn- descriptions-script
+  "The English name of the non-Latin script in which more than half of
+   the Descriptions of `units` are mostly written; nil when there is none.
+
+  [SearchUnit] -> Maybe String"
+  [units]
+  (let [script (->> (keep :doc units)
+                    (map #(or (main-script %) :mixed))
+                    majority)]
+    (when (and (instance? Character$UnicodeScript script)
+               (not= Character$UnicodeScript/LATIN script))
+      (script-name script))))
+
 (defn- confidence-note
   "The first line saying that no hit is confident: the best relevance of
-   `hits` is below `:search/min-relevance`. Nil when it is not, or when
-   the reranker gave no scores.
+   `hits` is below `:search/min-relevance`, with a hint to rephrase that
+   names the script of the Descriptions of the searched `units` when it is
+   not Latin. Nil when the best hit is confident, or when the reranker gave
+   no scores.
 
-  Config -> [Hit] -> Maybe String"
-  [config hits]
+  Config -> [SearchUnit] -> [Hit] -> Maybe String"
+  [config units hits]
   (when-let [best (some->> (seq (keep :re-rank hits)) (apply max) double)]
     (when (< best (config/setting config :search/min-relevance))
-      (format "no confident matches (best %.2f), try rephrasing" best))))
+      (str (format "no confident matches (best %.2f), try rephrasing in the docstrings' words" best)
+           (some->> (descriptions-script units) (format " (they are mostly in %s)"))))))
 
 ;; Besides answering, `semantic_search` checks the collection of the
 ;; SemanticIndex before searching it and, when it was deleted, emptied or
@@ -147,17 +195,17 @@
        "query is empty"
        (try
          (some-> semantic-index semantic-index/verify-collection!)
-         (let [hits (search/search config query
-                                   (search-units/search-units code-index)
-                                   (left-out-files full-index code-index include-tests?)
-                                   (hit-count config params))
+         (let [units (search-units/search-units code-index)
+               left-out (left-out-files full-index code-index include-tests?)
+               hits (search/search config query units left-out (hit-count config params))
                ctx (output/answer-context config params code-index)
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line ctx) hits)]
            (if (empty? lines)
              (with-note (str "no results for: " query " " (output/checked code-index include-tests?)) note)
              (output/render-framed (:budget ctx)
-                                   {:header (confidence-note config hits) :footer note}
+                                   {:header (confidence-note config (remove (comp left-out :filename) units) hits)
+                                    :footer note}
                                    lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))

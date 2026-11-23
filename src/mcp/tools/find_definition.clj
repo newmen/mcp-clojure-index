@@ -3,7 +3,7 @@
    compiler resolves it (ADR-0002), as Compact answer lines (ADR-0006)."
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as st]
-            [mcp.code-index :as code-index]
+            [mcp.in-namespace :as in-namespace]
             [mcp.output :as output]
             [mcp.text :as text]
             [mcp.tool :as tool]))
@@ -128,15 +128,13 @@
 
   CodeIndex -> Maybe String -> String -> AnswerGroup"
   [index ns-str name-str]
-  (let [{definitions :result :keys [unresolvable]}
-        (tool/lookup-in-namespace index ns-str (partial code-index/resolve-name index) seq name-str)
-        group (case (count definitions)
-                0 {:header (str name-str ": not found " (output/checked index))}
-                1 {:header name-str :findings definitions}
-                {:header (output/ambiguous-header "definitions" name-str (count definitions))
-                 :findings definitions})]
-    (cond-> group
-      unresolvable (update :header (partial str unresolvable "\n")))))
+  (let [{definitions :result :as name-lookup} (in-namespace/definitions index ns-str name-str)]
+    (in-namespace/headed name-lookup
+                         (case (count definitions)
+                           0 {:header (str name-str ": not found " (output/checked index))}
+                           1 {:header name-str :findings definitions}
+                           {:header (output/ambiguous-header "definitions" name-str (count definitions))
+                            :findings definitions}))))
 
 (defn- answer
   "The answer of `find_definition` for the AnswerGroups `groups`.
@@ -156,9 +154,10 @@
 
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [ns-str (tool/namespace-arg params)]
-    (tool/text-result
-     (or (tool/unknown-namespace code-index ns-str)
-         (answer (output/answer-context config params code-index)
-                 params
-                 (map (partial name-group code-index ns-str) (tool/distinct-strings (:names params))))))))
+  (tool/text-result
+   (in-namespace/answer code-index params
+                        (fn [ns-str]
+                          (answer (output/answer-context config params code-index)
+                                  params
+                                  (map (partial name-group code-index ns-str)
+                                       (tool/distinct-strings (:names params))))))))

@@ -34,7 +34,7 @@ Relevance of the expected hits with the chosen pair (for `:search/min-relevance`
 
 ## Threshold of `no confident matches`
 
-`:search/min-relevance` is `0.05`: `semantic_search` puts `no confident matches (best X), try rephrasing` before the hits when the best relevance of a query is below it. Measured with the chosen pair on the same day, best hit of each query:
+`:search/min-relevance` is `0.05`: `semantic_search` puts `no confident matches (best X), try rephrasing in the docstrings' words` (followed by ` (they are mostly in <script>)` when the Descriptions are mostly in a non-Latin script) before the hits when the best relevance of a query is below it. Measured with the chosen pair on the same day, best hit of each query:
 
 - 7 queries with no matching Search unit (JSON web tokens, 3D rendering, temperature conversion, push notifications, weather, satellite orbits; English and Russian), plus 5 more of the same kind in the measurement: 0.000–0.004 on `multilingual_project`, 0.000–0.024 on `semantic_project` (`convert temperature from Celsius to Fahrenheit` → `:smtp/server`).
 - The 12 queries of case 12: 0.129 (`запретить выдачу должникам`) to 0.983.

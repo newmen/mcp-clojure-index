@@ -10,6 +10,7 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as st]
             [mcp.code-index :as code-index]
+            [mcp.in-namespace :as in-namespace]
             [mcp.output :as output]
             [mcp.tool :as tool]
             [rewrite-clj.zip :as z]))
@@ -243,12 +244,12 @@
 
 (defmethod tool/call :find_implementations
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))
-        ns-str (tool/namespace-arg params)
-        {definitions :result :keys [unresolvable]}
-        (tool/lookup-in-namespace code-index ns-str (partial code-index/resolve-name code-index) seq name-str)]
+  (let [name-str (str (:name params))]
     (tool/text-result
-     (or (tool/unknown-namespace code-index ns-str)
-         (tool/under-line unresolvable
-                            (output/answer-context config params code-index)
-                            #(answer % name-str definitions))))))
+     (in-namespace/answer code-index params
+                          (fn [ns-str]
+                            (let [{definitions :result :keys [unresolvable]}
+                                  (in-namespace/definitions code-index ns-str name-str)]
+                              (output/under-line unresolvable
+                                                 (output/answer-context config params code-index)
+                                                 #(answer % name-str definitions))))))))

@@ -123,6 +123,13 @@
          (oversized-first-finding (or cut #(text/ellipsis-cut %1 (text-of %2)))
                                   max-chars page offset total)))))
 
+(defn- line-chars
+  "The characters `line` takes in an answer, with its line break.
+
+  String -> Long"
+  [line]
+  (inc (count line)))
+
 (defn render-framed
   "Renders `findings` inside an AnswerFrame.
 
@@ -133,12 +140,22 @@
   OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String"
   ([budget frame findings] (render-framed budget frame findings {}))
   ([budget {:keys [header footer]} findings options]
-   (let [frame-chars (+ (if header (inc (count header)) 0)
-                        (if footer (inc (count footer)) 0))
+   (let [frame-chars (+ (if header (line-chars header) 0)
+                        (if footer (line-chars footer) 0))
          body (render (update budget :max-chars - frame-chars) findings options)]
      (->> [header body footer]
           (remove st/blank?)
           (st/join "\n")))))
+
+(defn under-line
+  "The answer `answer-of` gives for `ctx`, under the line `line` when there
+   is one, its budget lowered to leave room for that line.
+
+  Maybe String -> AnswerContext -> (AnswerContext -> IO String) -> IO String"
+  [line ctx answer-of]
+  (if line
+    (str line "\n" (answer-of (update-in ctx [:budget :max-chars] - (line-chars line))))
+    (answer-of ctx)))
 
 ;; AnswerGroup: the answer for one name or target of a batch call,
 ;; {:header "app.core/get-uuid: 11 usages" :findings [...]}; the header

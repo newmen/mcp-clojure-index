@@ -450,7 +450,10 @@
   (is (= (group ":ns-app.beta/id" beta-id-line)
          (ns-answer {:names [":ns-app.beta/id"] :ns "ns-app.one"})))
   (is (= (group "ns-app.beta" "src/ns_app/beta.clj:1  ns  ns-app.beta  Beta store.")
-         (ns-answer {:names ["ns-app.beta"] :ns "ns-app.one"}))))
+         (ns-answer {:names ["ns-app.beta"] :ns "ns-app.one"})))
+  (testing "a qualifier that is neither an alias nor a namespace of the project"
+    (is (= "clojure.string/join: not found (checked 4 files, including tests)"
+           (ns-answer {:names ["clojure.string/join"] :ns "ns-app.one"})))))
 
 (deftest name-not-resolvable-in-the-namespace-lists-all-candidates
   (testing "a name the namespace neither defines nor refers"

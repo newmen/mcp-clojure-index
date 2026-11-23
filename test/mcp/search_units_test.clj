@@ -64,6 +64,24 @@
               "  (update stock product-id - quantity))")
          (:text (unit-named "shop.inventory/reserve-stock")))))
 
+(def ^:private definitions-index
+  (delay (code-index/build
+          (assoc project/config :index/root-path
+                 (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))))
+
+(deftest embedding-text-of-a-comment-described-spec-contains-its-description
+  (is (= (str ":app.comments/order-id\n"
+              "An order identifier: a non-blank\n"
+              "string. Assigned by the shop.\n"
+              "\n"
+              "String\n"
+              "(s/def ::order-id\n"
+              "  (s/and string? #(pos? (count %))))")
+         (->> (sut/search-units @definitions-index)
+              (filter (comp #{":app.comments/order-id"} :name))
+              first
+              :text))))
+
 (deftest edn-entry-embedding-text-is-key-and-entry-source
   (is (= (str ":db/connection-pool\n"
               ":db/connection-pool {:max-connections 10\n"

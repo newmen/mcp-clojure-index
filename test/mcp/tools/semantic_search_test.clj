@@ -426,6 +426,11 @@
 (deftest ^:integration russian-docstrings-are-found-by-english-and-russian-queries
   (is (= {} (top-3-misses project/config multilingual-root multilingual-top-3))))
 
+(deftest ^:integration a-spec-is-found-by-the-meaning-of-the-comment-above-it
+  (is (= {} (top-3-misses project/config multilingual-root
+                          {"формат номера билета читателя: буква отделения и цифры"
+                           ":library.readers/card-number"}))))
+
 ;; ---------------------------------------------------------------------------
 ;; Acceptance case 13: `no confident matches` (ADR-0008).
 ;; ---------------------------------------------------------------------------

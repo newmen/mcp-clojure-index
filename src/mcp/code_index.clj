@@ -75,6 +75,15 @@
 
 (def ^:private test-file-pattern #"_test\.clj[cs]?$")
 
+(def ^:private comment-line
+  "A line of a comment block that can be a Description: its text after the
+   leading semicolons and one space.
+
+  Pattern"
+  #"\s*;;+ ?(.*?)\s*")
+
+(declare file-lines)
+
 ;; ---------------------------------------------------------------------------
 ;; Project files
 ;; ---------------------------------------------------------------------------
@@ -216,7 +225,8 @@
 ;;  :fixed-arities #{2}             ; only for a function or macro: its fixed
 ;;  :varargs-min-arity 1            ;  arities and the least argument count of
 ;;                                  ;  its varargs arity (clj-kondo)
-;;  :doc      "Return ..."
+;;  :doc      "Return ..."           ; the Description: the docstring, or the `;;`
+;;                                  ;  block directly above the form (not for a namespace)
 ;;  :private  true}                 ; only when private
 ;;
 ;; clj-kondo reports `defmethod` and `s/def` forms only as usages, so their
@@ -305,13 +315,46 @@
                             spec-key)
                         range-keys))))
 
+(defn- comment-description
+  "The Description taken from the `;;` lines directly above line `row` of
+   a file's `lines`, with no blank line between; nil when there are none.
+
+  Each line loses its leading semicolons and one space; an empty `;;` line
+  separates paragraphs, as a blank line does in a docstring.
+
+  [String] -> Long -> Maybe String"
+  [lines row]
+  (let [description (->> (subvec lines 0 (min (count lines) (max 0 (dec row))))
+                         rseq
+                         (map #(re-matches comment-line %))
+                         (take-while some?)
+                         (map second)
+                         reverse
+                         (st/join "\n")
+                         st/trim)]
+    (when-not (st/blank? description)
+      description)))
+
+(defn- with-comment-description
+  "`definition` with the Description of the comment block above its form
+   as `:doc`, when it has no docstring. A namespace keeps its docstring
+   only, so a header comment above `(ns ...)` is never its Description.
+
+  [String] -> Definition -> Definition"
+  [lines {:keys [kind doc row] :as definition}]
+  (let [description (when (and (st/blank? doc) (not= "ns" kind) row)
+                      (comment-description lines row))]
+    (cond-> definition
+      description (assoc :doc description))))
+
 (defn- file-definitions
-  "The Definitions of one file's clj-kondo `analysis`, one per defining form.
+  "The Definitions of one file's clj-kondo `analysis`, one per defining form;
+   the file's `lines` give the Description of those without a docstring.
 
   A `.cljc` form analysed for several languages appears once.
 
-  Analysis -> [Definition]"
-  [analysis]
+  [String] -> Analysis -> [Definition]"
+  [lines analysis]
   (->> (concat (map var-definition->definition (:var-definitions analysis))
                (map namespace-definition->definition (:namespace-definitions analysis))
                (defmethod-definitions analysis)
@@ -319,7 +362,7 @@
        (map #(into {} (remove (comp nil? val)) %))
        (group-by (juxt :row :col :ns :name :dispatch))
        vals
-       (map first)))
+       (map (comp (partial with-comment-description lines) first))))
 
 ;; ---------------------------------------------------------------------------
 ;; Analysis
@@ -362,7 +405,7 @@
   [^String file-path analysis]
   {:mtime (.lastModified (io/file file-path))
    :analysis analysis
-   :definitions (vec (file-definitions analysis))})
+   :definitions (vec (file-definitions (file-lines file-path) analysis))})
 
 (defn update-files
   "Re-analyses `file-paths` (absolute) and replaces their entries and

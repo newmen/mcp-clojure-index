@@ -341,3 +341,60 @@
     (testing "only missing names"
       (is (= (str (not-found-header "no-such-definition") "\n\n" (not-found-header "nope"))
              (fixture-answer {:names ["no-such-definition" "nope"]}))))))
+
+;; ---------------------------------------------------------------------------
+;; Description from comments
+;; ---------------------------------------------------------------------------
+
+(def ^:private comment-answers
+  "The `find_definition` answers on the Description-from-comments fixture,
+   by name.
+
+  {String String}"
+  {":app.comments/order-id"
+   (str "src/app/comments.clj:15  s/def  :app.comments/order-id  String  "
+        "An order identifier: a non-blank string. (+21 chars)")
+   "app.comments/max-retries"
+   "src/app/comments.clj:19  def  app.comments/max-retries  Retries before giving up."
+   "app.comments/batch-size"
+   "src/app/comments.clj:9  def  app.comments/batch-size"
+   "app.comments/timeout-ms"
+   "src/app/comments.clj:22  def  app.comments/timeout-ms  Milliseconds to wait for a reply."
+   "app.comments"
+   "src/app/comments.clj:3  ns  app.comments"})
+
+(deftest a-comment-block-directly-above-a-form-is-its-description
+  (testing "a spec: the Type signature in the last paragraph, the Docstring summary of the rest"
+    (is (= (group ":app.comments/order-id" (comment-answers ":app.comments/order-id"))
+           (fixture-answer {:names [":app.comments/order-id"]}))))
+  (testing "a `def` under an indented `;;;` line"
+    (is (= (group "app.comments/max-retries" (comment-answers "app.comments/max-retries"))
+           (fixture-answer {:names ["app.comments/max-retries"]})))))
+
+(deftest a-comment-separated-by-a-blank-line-is-no-description
+  (is (= (group "app.comments/batch-size" (comment-answers "app.comments/batch-size"))
+         (fixture-answer {:names ["app.comments/batch-size"]}))))
+
+(deftest a-docstring-wins-over-a-comment
+  (is (= (group "app.comments/timeout-ms" (comment-answers "app.comments/timeout-ms"))
+         (fixture-answer {:names ["app.comments/timeout-ms"]}))))
+
+(deftest a-namespace-header-comment-is-no-description
+  (is (= (group "app.comments" (comment-answers "app.comments"))
+         (fixture-answer {:names ["app.comments"]}))))
+
+(deftest full-doc-shows-the-whole-comment-description
+  (is (= (group ":app.comments/order-id"
+                (str "src/app/comments.clj:15  s/def  :app.comments/order-id\n"
+                     "  An order identifier: a non-blank\n"
+                     "  string. Assigned by the shop.\n"
+                     "\n"
+                     "  String"))
+         (fixture-answer {:names [":app.comments/order-id"] :doc "full"}))))
+
+(deftest signature-strategy-of-the-config-applies-to-a-comment-description
+  (is (= (group ":app.comments/order-id"
+                (str "src/app/comments.clj:15  s/def  :app.comments/order-id  "
+                     "An order identifier: a non-blank string. (+28 chars)"))
+         (fixture-answer (assoc project/config :doc/signature nil)
+                         {:names [":app.comments/order-id"]}))))

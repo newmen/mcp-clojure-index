@@ -22,8 +22,9 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private relative-path-line
-  (str "src/mcp/output.clj:57  defn  mcp.output/relative-path  [root-path file-path]  "
-       "Returns `file-path` relative to the project root `root-path`; paths"))
+  (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+       "Returns `file-path` relative to the project root `root-path`; paths outside the root "
+       "are returned unchanged. (+32 chars)"))
 
 (deftest finds-definition-by-simple-alias-qualified-and-fully-qualified-name
   (testing "simple"
@@ -101,3 +102,35 @@
     (is (contains? names "find_definition"))
     (is (not (contains? names "find_symbol")))
     (is (not (contains? names "find_namespace")))))
+
+(def ^:private summary-answers
+  "The `find_definition` answers on the Docstring summary fixtures, by name.
+
+  {String String}"
+  {"app.summaries/relative-path"
+   (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+        "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
+        "(+71 chars)")
+   "app.summaries/limit"
+   "src/app/summaries.clj:13  def  app.summaries/limit  Lines per page."
+   "app.summaries/cache!"
+   "src/app/summaries.clj:17  defn  app.summaries/cache!  [x]  Stores x, e.g. (+45 chars)"
+   "app.summaries/clear!"
+   (str "src/app/summaries.clj:24  defn  app.summaries/clear!  []  "
+        "Calls `cache!` and `set-cached-tc!` with nil. (+5 chars)")})
+
+(deftest definition-line-shows-the-docstring-summary
+  (testing "a Russian docstring wrapped over several lines gives its whole first sentence"
+    (is (= (summary-answers "app.summaries/relative-path")
+           (fixture-answer {:name "app.summaries/relative-path"}))))
+  (testing "a full stop right before the closing quote ends the summary, nothing remains"
+    (is (= (summary-answers "app.summaries/limit")
+           (fixture-answer {:name "app.summaries/limit"}))))
+  (testing "`e.g.` cuts the sentence; a backticked `foo!` does not"
+    (is (= (summary-answers "app.summaries/cache!")
+           (fixture-answer {:name "app.summaries/cache!"})))
+    (is (= (summary-answers "app.summaries/clear!")
+           (fixture-answer {:name "app.summaries/clear!"}))))
+  (testing "every answer stays within the Output budget"
+    (is (every? #(<= (count (fixture-answer {:name %})) (:output/max-chars project/config))
+                (keys summary-answers)))))

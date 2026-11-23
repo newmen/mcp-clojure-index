@@ -12,11 +12,12 @@
 (def ^:private description
   (str "Summarise a Clojure namespace without reading its file. "
        "Unlike grep, lists every Definition (public and private, including tests, protocols "
-       "and records) with its arglists and first docstring line, and which namespaces require it. "
-       "Answer: a header line (ns name  path  first docstring line), then one line per Definition "
-       "(line  public|private  kind  name  [arglists]  first docstring line), then `required by: ...`; "
+       "and records) with its arglists and Docstring summary, and which namespaces require it. "
+       "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
+       "(line  public|private  kind  name  [arglists]  Docstring summary), then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
-       "Use get_source for a body."))
+       "Use get_source for a body. "
+       tool/freshness-note))
 
 (def ^:private max-candidates 5)
 
@@ -45,13 +46,13 @@
 
 (defn- header
   "The header line of the namespace `ns-def`, a clj-kondo namespace
-   definition entry: `ns name  path  first docstring line`.
+   definition entry: `ns name  path  Docstring summary`.
 
   String -> AnalysisEntry -> String"
   [root {:keys [filename doc] ns-name :name}]
   (join-fields [(str "ns " ns-name)
                 (output/relative-path root filename)
-                (output/first-line doc)]))
+                (output/docstring-summary doc)]))
 
 (defn- summary-line
   "The answer line of one Definition of the namespace.
@@ -63,7 +64,7 @@
                 kind
                 (code-index/local-name definition)
                 (st/join " " arglists)
-                (output/first-line doc)]))
+                (output/docstring-summary doc)]))
 
 (defn- required-by-line
   "The closing line naming the namespaces that require `ns-sym`.

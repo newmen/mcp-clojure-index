@@ -4,11 +4,11 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Default `:output/max-chars` is 4000 in `config.clj` defaults, `resources/config.edn` and both READMEs.
-- [ ] A Russian docstring wrapped over several source lines gives its whole first sentence.
-- [ ] `(+N chars)` is present exactly when text remains after the first sentence.
-- [ ] A sentence ending in `.` right before the closing quote ends there; `e.g.` cuts; a backticked `foo!` does not.
-- [ ] Tool descriptions and `instructions` state the freshness guarantee.
-- [ ] Answers stay within the budget (acceptance cases 1, 4, 5).
+- [x] Default `:output/max-chars` is 4000 in `config.clj` defaults, `resources/config.edn` and both READMEs.
+- [x] A Russian docstring wrapped over several source lines gives its whole first sentence.
+- [x] `(+N chars)` is present exactly when text remains after the first sentence.
+- [x] A sentence ending in `.` right before the closing quote ends there; `e.g.` cuts; a backticked `foo!` does not.
+- [x] Tool descriptions and `instructions` state the freshness guarantee.
+- [x] Answers stay within the budget (acceptance cases 1, 4, 5).

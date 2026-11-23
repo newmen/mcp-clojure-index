@@ -107,7 +107,7 @@ curl http://localhost:8012/health
 | `:index/include-extensions`    | `[".clj" ".cljc" ".cljs" ".edn"]`                                      | Расширения файлов, подлежащих анализу                                                                                                                                                    |
 | `:index/exclude`               | `[]`                                                                   | Директории, исключаемые из анализа. Директории `.calva`, `.claude`, `.clj-kondo`, `.cpcache`, `.git`, `.kilo`, `.lsp`, `.mcp`, `logs`, `target`, `tmp` всегда исключаются                |
 | `:output/limit`                | `50`                                                                   | Бюджет вывода: максимальное количество найденных сущностей в одном ответе. Параметр `limit` отдельного вызова может только уменьшить это значение                                        |
-| `:output/max-chars`            | `2000`                                                                 | Бюджет вывода: максимальное количество символов в одном ответе                                                                                                                           |
+| `:output/max-chars`            | `4000`                                                                 | Бюджет вывода: максимальное количество символов в одном ответе                                                                                                                           |
 | `:qdrant/host`, `:qdrant/port` | `"localhost"`, `6333`                                                  | Адрес Qdrant (только для семантического поиска)                                                                                                                                          |
 | `:qdrant/collection`           | Переменная окружения `QD_COLLECTION`, иначе `<project dir>-collection` | Имя коллекции Qdrant (только для семантического поиска)                                                                                                                                  |
 | `:qdrant/recreate?`            | `false`                                                                | Удалить и заново создать коллекцию при запуске (только для семантического поиска)                                                                                                        |
@@ -226,7 +226,7 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 - `limit` — ограничение количества результатов (может только уменьшать значение `:output/limit`).
 - `offset` — количество пропускаемых результатов (для постраничной выдачи).
 
-Все ответы соблюдают ограничения Output budget.
+Все ответы соблюдают ограничения Output budget. Docstring summary в строках ответа — первое предложение docstring, за которым следует `(+N chars)`, если текст продолжается. Перед каждым ответом индекс перечитывается из изменённых файлов (по mtime), поэтому правки видны сразу.
 
 ### find_definition
 
@@ -241,7 +241,7 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 
 Ответ:
   Одна строка на каждое определение (Definition):
-  path:line  kind  ns/name  [arglists]  первая строка docstring
+  path:line  kind  ns/name  [arglists]  Docstring summary
 ```
 
 Пример:
@@ -283,10 +283,10 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
 
 Ответ:
   Заголовок:
-      ns name  path  первая строка docstring
+      ns name  path  Docstring summary
 
   Для каждого Definition:
-      line  public|private  kind  name  [arglists]  первая строка docstring
+      line  public|private  kind  name  [arglists]  Docstring summary
 
   Последняя строка:
       required by: ns1, ns2, ...
@@ -343,7 +343,7 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
   Одна строка на каждый результат.
   Исходные тела функций не возвращаются.
 
-  score  path:line  kind  ns/name  первая строка docstring
+  score  path:line  kind  ns/name  Docstring summary
 
   score — оценка релевантности от reranker в диапазоне 0..1.
           Не возвращается, если reranker недоступен.

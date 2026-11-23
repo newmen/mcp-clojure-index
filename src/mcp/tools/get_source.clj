@@ -13,7 +13,8 @@
        "(simple, alias-qualified such as `c/get-uuid`, or fully qualified); an ambiguous name returns the candidates, not several bodies. "
        "Answer: a `path:start-end` header line, then the source, at most :output/limit lines and "
        ":output/max-chars characters; a longer body ends with a truncation note, "
-       "pass `offset` (in lines of the body) for the rest."))
+       "pass `offset` (in lines of the body) for the rest. "
+       tool/freshness-note))
 
 (defmethod tool/spec :get_source
   [_tool-key]

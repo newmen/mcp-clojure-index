@@ -51,18 +51,19 @@
         instructions (get-in response [:result :instructions])]
     (is (<= 4 (count (st/split-lines instructions)) 6))
     (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
-                    "path:line" "size ceiling" "get_source"]]
+                    "path:line" "size ceiling" "get_source"
+                    "re-read from changed files" "edits are visible immediately"]]
       (is (st/includes? instructions phrase) phrase))
     (testing "says only what the spec lists"
       (is (not (st/includes? instructions "find_definition"))))))
 
 (deftest handle-method-tools-call-find-definition-without-qdrant
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
-             :params {:name "find_definition" :arguments {:name "mcp.output/first-line"}}}
+             :params {:name "find_definition" :arguments {:name "mcp.output/relative-path"}}}
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:72  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
+             :text "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged. (+32 chars)"}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -80,16 +81,17 @@
              :params {:name tool-name :arguments arguments}}]
     (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
 
-(def ^:private first-line-definition
-  (str "src/mcp/output.clj:72  defn  mcp.output/first-line  [text]  "
-       "The first non-blank line of `text`, trimmed; nil if none."))
+(def ^:private relative-path-definition
+  (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+       "Returns `file-path` relative to the project root `root-path`; paths outside the root "
+       "are returned unchanged. (+32 chars)"))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
   (let [state {:config services-down-config
                :code-index-ref (atom (project/code-index))
                :semantic-index (semantic-index/create services-down-config)}]
-    (is (= first-line-definition
-           (tool-call state "find_definition" {:name "mcp.output/first-line"})))
+    (is (= relative-path-definition
+           (tool-call state "find_definition" {:name "mcp.output/relative-path"})))
     (is (= (str "semantic search unavailable (Qdrant or Ollama not reachable); "
                 "the precise tools (find_definition, get_source, ...) still work")
            (tool-call state "semantic_search" {:query "first line of a docstring"})))))
@@ -102,7 +104,7 @@
                :semantic-index semantic-index}]
     (with-redefs [semantic-index/sync-async! (fn [synced-index index]
                                                (reset! synced [synced-index index]))]
-      (tool-call state "find_definition" {:name "mcp.output/first-line"}))
+      (tool-call state "find_definition" {:name "mcp.output/relative-path"}))
     (is (= [semantic-index @(:code-index-ref state)] @synced))))
 
 (defn- find-definition-call

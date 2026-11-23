@@ -1,6 +1,6 @@
 (ns mcp.output-test
   (:require [clojure.string :as st]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [mcp.output :as sut]))
 
 (set! *warn-on-reflection* true)
@@ -53,3 +53,34 @@
   (is (= "src/a.clj" (sut/relative-path "/home/p/proj/" "/home/p/proj/src/a.clj")))
   (is (= "src/a.clj" (sut/relative-path "/home/p/proj" "src/a.clj")))
   (is (= "/elsewhere/a.clj" (sut/relative-path "/home/p/proj" "/elsewhere/a.clj"))))
+
+(deftest docstring-summary-joins-wrapped-lines-of-the-first-sentence
+  (is (= "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. (+32 chars)"
+         (sut/docstring-summary
+          "Возвращает путь к файлу относительно корня
+   проекта, если файл лежит внутри него.
+
+  Maybe String -> String -> String"))))
+
+(deftest docstring-summary-counts-remaining-chars-only-when-text-remains
+  (is (= "One sentence." (sut/docstring-summary "One sentence.")))
+  (is (= "One sentence." (sut/docstring-summary "  One\n  sentence.  \n")))
+  (is (= "First. (+7 chars)" (sut/docstring-summary "First.\n\n  Second.")))
+  (is (= "No full stop at all" (sut/docstring-summary "No full stop at all")))
+  (is (nil? (sut/docstring-summary nil)))
+  (is (nil? (sut/docstring-summary "  \n "))))
+
+(deftest docstring-summary-ends-at-sentence-marks-outside-backticks
+  (testing "`e.g.` cuts the sentence, as accepted by the spec"
+    (is (= "Caches a value, e.g. (+19 chars)"
+           (sut/docstring-summary "Caches a value, e.g. `foo!` in the atom."))))
+  (testing "a backticked `foo!` does not cut"
+    (is (= "Calls `set-cached-tc!` before reading. (+5 chars)"
+           (sut/docstring-summary "Calls `set-cached-tc!` before reading.\n\n  IO ()"))))
+  (testing "`!`, `?` and `…` end a sentence too"
+    (is (= "Stop! (+4 chars)" (sut/docstring-summary "Stop! Now.")))
+    (is (= "Why? (+4 chars)" (sut/docstring-summary "Why? Now.")))
+    (is (= "Wait… (+4 chars)" (sut/docstring-summary "Wait… Now."))))
+  (testing "a mark not followed by whitespace does not cut"
+    (is (= "Uses mcp.output/budget.edn for the rules"
+           (sut/docstring-summary "Uses mcp.output/budget.edn for the rules")))))

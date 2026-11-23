@@ -59,7 +59,7 @@
    :search/top-k      100
    :search/re-rank-top 10
    :output/limit      50
-   :output/max-chars  2000})
+   :output/max-chars  4000})
 
 (defn compile-exclude-patterns
   "Compiles string exclude patterns into regexes.

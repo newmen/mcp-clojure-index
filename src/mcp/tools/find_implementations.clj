@@ -22,7 +22,8 @@
        "extend-protocol and reify for a protocol, defmethod for a multimethod, also when "
        "the protocol is referred to through an alias; the name resolves like in find_definition. "
        "Answer: one line per Implementation (path:line  ns/type or dispatch value  method), "
-       "at most :output/limit lines and :output/max-chars characters. Use get_source for bodies."))
+       "at most :output/limit lines and :output/max-chars characters. Use get_source for bodies. "
+       tool/freshness-note))
 
 (def ^:private implementable-kinds
   #{"defprotocol" "defmulti"})

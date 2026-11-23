@@ -23,6 +23,12 @@
 
 (defrecord OutputBudget [limit max-chars offset])
 
+(def ^:private sentence-marks
+  "The characters that end a sentence of a Docstring summary.
+
+  #{Character}"
+  #{\. \! \? \…})
+
 ;; ---------------------------------------------------------------------------
 ;; Budget
 ;; ---------------------------------------------------------------------------
@@ -69,15 +75,43 @@
 ;; Text
 ;; ---------------------------------------------------------------------------
 
-(defn first-line
-  "The first non-blank line of `text`, trimmed; nil if none.
+(defn- sentence-end
+  "The index just past the first sentence of the whitespace-collapsed
+   `text`; nil when the whole text is one sentence.
+
+  A sentence ends at `.`, `!`, `?` or `…` outside backticks, followed by
+  a space or by the end of the text.
+
+  String -> Maybe Long"
+  [^String text]
+  (loop [index 0
+         in-backticks? false]
+    (when (< index (count text))
+      (let [character (.charAt text index)
+            next-index (inc index)]
+        (cond
+          (= \` character) (recur next-index (not in-backticks?))
+          (and (not in-backticks?)
+               (sentence-marks character)
+               (or (= next-index (count text))
+                   (= \space (.charAt text next-index)))) next-index
+          :else (recur next-index in-backticks?))))))
+
+(defn docstring-summary
+  "The Docstring summary of `doc`: its first sentence with the source line
+   breaks joined; nil when the docstring is blank.
+
+  When text remains after the first sentence, the summary ends with
+  `(+N chars)`, N being the remaining length with whitespace collapsed.
 
   Maybe String -> Maybe String"
-  [text]
-  (some->> (some-> text st/split-lines)
-           (map st/trim)
-           (remove st/blank?)
-           first))
+  [doc]
+  (let [text (-> (or doc "") (st/replace #"\s+" " ") st/trim)]
+    (when-not (st/blank? text)
+      (let [end (or (sentence-end text) (count text))
+            remaining (st/trim (subs text end))]
+        (cond-> (subs text 0 end)
+          (not (st/blank? remaining)) (str " (+" (count remaining) " chars)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Rendering
@@ -165,7 +199,7 @@
 (defn definition->line
   "The Compact answer line of a Definition.
 
-  The line is `path:line  kind  ns/name  [arglists]  first docstring line`.
+  The line is `path:line  kind  ns/name  [arglists]  Docstring summary`.
 
   CodeIndex -> Definition -> String"
   [index {:keys [filename row kind arglists doc] :as definition}]
@@ -173,7 +207,7 @@
         kind
         (code-index/qualified-name definition)
         (st/join " " arglists)
-        (first-line doc)]
+        (docstring-summary doc)]
        (remove st/blank?)
        (st/join "  ")))
 

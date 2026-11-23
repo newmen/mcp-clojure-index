@@ -15,8 +15,9 @@
        "a defmethod as name plus dispatch value (`area :circle`); a spec by keyword "
        "(`:app.core/uuid`, `::uuid`, `::c/uuid`); "
        "an ambiguous name returns the candidates. "
-       "Answer: one line per Definition (path:line  kind  ns/name  [arglists]  first docstring line), "
-       "at most :output/limit lines and :output/max-chars characters. Use get_source for the body."))
+       "Answer: one line per Definition (path:line  kind  ns/name  [arglists]  Docstring summary), "
+       "at most :output/limit lines and :output/max-chars characters. Use get_source for the body. "
+       tool/freshness-note))
 
 (defmethod tool/spec :find_definition
   [_tool-key]

@@ -21,7 +21,8 @@
        "`comment` (kind in-comment). "
        "Answer: grouped by target, one line per Usage (path:line:col  usage-kind  "
        "ns/enclosing-definition), at most :output/limit lines and :output/max-chars characters; "
-       "`kinds` and `include_tests` narrow it."))
+       "`kinds` and `include_tests` narrow it. "
+       tool/freshness-note))
 
 (defmethod tool/spec :find_usages
   [_tool-key]

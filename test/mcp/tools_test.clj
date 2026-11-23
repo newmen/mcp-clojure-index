@@ -1,5 +1,6 @@
 (ns mcp.tools-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as st]
+            [clojure.test :refer [deftest is]]
             [mcp.tools :as sut]
             [mcp.config :as config]))
 
@@ -31,4 +32,17 @@
     (is (contains? t :inputSchema))
     (let [schema (:inputSchema t)]
       (is (= "object" (:type schema))))))
+
+(deftest precise-tool-descriptions-state-the-freshness-guarantee
+  (let [precise #{"find_definition" "find_usages" "find_implementations"
+                  "get_source" "namespace_summary"}
+        descriptions (->> (sut/tool-definitions)
+                          (filter (comp precise :name))
+                          (map (juxt :name :description)))]
+    (is (= precise (set (map first descriptions))))
+    (doseq [[tool-name description] descriptions]
+      (is (st/includes? description
+                        (str "The index is re-read from changed files (by mtime) before every answer, "
+                             "so edits are visible immediately."))
+          tool-name))))
 

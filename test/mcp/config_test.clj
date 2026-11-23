@@ -78,7 +78,7 @@
 (deftest load-config-defaults-output-budget
   (let [cfg (sut/load-config (fixture-path "config.edn"))]
     (is (= 50 (:output/limit cfg)))
-    (is (= 2000 (:output/max-chars cfg)))))
+    (is (= 4000 (:output/max-chars cfg)))))
 
 (deftest load-config-compiles-exclude-patterns
   (let [cfg (sut/load-config (fixture-path "config.edn"))

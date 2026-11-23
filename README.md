@@ -81,7 +81,7 @@ Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works
 | `:index/include-extensions` | `[".clj" ".cljc" ".cljs" ".edn"]` | File extensions to analyse |
 | `:index/exclude` | `[]` | Directories to exclude; `.calva`, `.claude`, `.clj-kondo`, `.cpcache`, `.git`, `.kilo`, `.lsp`, `.mcp`, `logs`, `target`, `tmp` are always excluded |
 | `:output/limit` | `50` | Output budget: the maximum number of findings in one answer; a call's `limit` can only lower it |
-| `:output/max-chars` | `2000` | Output budget: the maximum number of characters in one answer |
+| `:output/max-chars` | `4000` | Output budget: the maximum number of characters in one answer |
 | `:qdrant/host`, `:qdrant/port` | `"localhost"`, `6333` | Qdrant (semantic search only) |
 | `:qdrant/collection` | `QD_COLLECTION` env, else `<project dir>-collection` | Qdrant collection (semantic search only) |
 | `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |
@@ -167,7 +167,7 @@ After configuration, restart Kilo Code. The MCP server `clojure-code-index` will
 
 ## Available MCP tools
 
-These are exactly the tools returned by `tools/list`. Names can be simple (`relative-path`), alias-qualified as written in some namespace (`output/relative-path`) or fully qualified (`mcp.output/relative-path`); an ambiguous name returns the candidates. Every tool except `get_source` accepts `limit` (can only lower `:output/limit`) and `offset` (findings to skip, for paging). Every answer obeys the Output budget.
+These are exactly the tools returned by `tools/list`. Names can be simple (`relative-path`), alias-qualified as written in some namespace (`output/relative-path`) or fully qualified (`mcp.output/relative-path`); an ambiguous name returns the candidates. Every tool except `get_source` accepts `limit` (can only lower `:output/limit`) and `offset` (findings to skip, for paging). Every answer obeys the Output budget. The Docstring summary in answer lines is the first sentence of the docstring, followed by `(+N chars)` when more text remains. The index is re-read from changed files (by mtime) before every answer, so edits are visible immediately.
 
 ### find_definition
 
@@ -176,7 +176,7 @@ Input:  name (string, required) — simple, alias-qualified or fully qualified;
         `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
         limit, offset
 Answer: one line per Definition
-        path:line  kind  ns/name  [arglists]  first docstring line
+        path:line  kind  ns/name  [arglists]  Docstring summary
 ```
 
 Example: `src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...`
@@ -200,8 +200,8 @@ An empty result states what was searched, e.g. `no usages of x (checked 214 file
 ```
 Input:  ns (string, required) — fully qualified namespace name
         limit, offset
-Answer: header   ns name  path  first docstring line
-        per Definition   line  public|private  kind  name  [arglists]  first docstring line
+Answer: header   ns name  path  Docstring summary
+        per Definition   line  public|private  kind  name  [arglists]  Docstring summary
         last line        required by: ns1, ns2, ... (or `none`)
 ```
 
@@ -231,7 +231,7 @@ Input:  query (string, required) — what the code does, in natural language
 Search: query embedding → Qdrant top :search/top-k ─┐
         words of names and docstrings (BM25) ───────┴→ reciprocal rank fusion → reranker → top :search/re-rank-top
 Answer: one line per hit, no source bodies
-        score  path:line  kind  ns/name  first docstring line
+        score  path:line  kind  ns/name  Docstring summary
         (score: the reranker's relevance, 0..1; left out when the reranker is unavailable)
         ends with `embeddings stale for N files` while recent edits are being embedded
 ```

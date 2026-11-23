@@ -18,7 +18,7 @@
        "and top-level EDN config entries by meaning, when you do not know their names. "
        "Unlike grep, matches intent rather than text (vector search and word matching on names "
        "and docstrings, then a reranker). "
-       "Answer: one line per hit (relevance score  path:line  kind  ns/name  first docstring line), "
+       "Answer: one line per hit (relevance score  path:line  kind  ns/name  Docstring summary), "
        "no source bodies, at most :output/limit lines and :output/max-chars characters; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
        "Use find_definition for known names and get_source for bodies."))
@@ -43,7 +43,7 @@
 
 (defn- hit->line
   "The Compact answer line of a Hit:
-   `score  path:line  kind  ns/name  first docstring line`.
+   `score  path:line  kind  ns/name  Docstring summary`.
 
   The score is the reranker's relevance score (ADR-0006); without the
   reranker there is none, never a raw vector score.
@@ -54,7 +54,7 @@
         (str (output/relative-path root (:filename unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
-        (output/first-line (:doc unit))]
+        (output/docstring-summary (:doc unit))]
        (remove st/blank?)
        (st/join "  ")))
 

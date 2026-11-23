@@ -48,6 +48,14 @@
   {:limit {:type "integer" :description "Maximum number of findings (can only lower the server's Output budget)"}
    :offset {:type "integer" :description "Number of findings to skip, for paging"}})
 
+(def freshness-note
+  "The sentence of every precise tool's description that states the
+   freshness guarantee (ADR-0005).
+
+  String"
+  (str "The index is re-read from changed files (by mtime) before every answer, "
+       "so edits are visible immediately."))
+
 (defn text-result
   "A `tools/call` result carrying one text block.
 

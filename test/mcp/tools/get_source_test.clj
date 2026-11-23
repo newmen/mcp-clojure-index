@@ -19,26 +19,27 @@
                         (tool/call :get_source args
                                    {:config cfg :code-index (project/code-index)}))))
 
-(def ^:private first-line-source
-  (str "src/mcp/output.clj:72-80\n"
-       "(defn first-line\n"
-       "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
+(def ^:private relative-path-source
+  (str "src/mcp/output.clj:63-72\n"
+       "(defn relative-path\n"
+       "  \"Returns `file-path` relative to the project root `root-path`; paths\n"
+       "   outside the root are returned unchanged.\n"
        "\n"
-       "  Maybe String -> Maybe String\"\n"
-       "  [text]\n"
-       "  (some->> (some-> text st/split-lines)\n"
-       "           (map st/trim)\n"
-       "           (remove st/blank?)\n"
-       "           first))"))
+       "  Maybe String -> String -> String\"\n"
+       "  [root-path file-path]\n"
+       "  (let [prefix (str (st/replace (or root-path \"\") #\"/+$\" \"\") \"/\")]\n"
+       "    (if (st/starts-with? (str file-path) prefix)\n"
+       "      (subs file-path (count prefix))\n"
+       "      file-path)))"))
 
 (deftest returns-source-of-one-definition-with-line-range-header
   (testing "simple name"
-    (is (= first-line-source (answer {:name "first-line"}))))
+    (is (= relative-path-source (answer {:name "relative-path"}))))
   (testing "fully qualified name"
-    (is (= first-line-source (answer {:name "mcp.output/first-line"})))))
+    (is (= relative-path-source (answer {:name "mcp.output/relative-path"})))))
 
 (deftest alias-qualified-name-resolves-like-find-definition
-  (is (= first-line-source (answer {:name "output/first-line"}))))
+  (is (= relative-path-source (answer {:name "output/relative-path"}))))
 
 (deftest ambiguous-name-returns-candidates-not-bodies
   (let [[header & candidates] (st/split-lines (answer {:name "test-config"}))]
@@ -53,24 +54,24 @@
                   (answer {:name "no-such-definition"}))))
 
 (deftest body-over-budget-ends-with-truncation-note-and-pages-by-line
-  (let [cfg (assoc project/config :output/max-chars 100)
-        text (answer cfg {:name "mcp.output/first-line"})]
-    (is (= (str "src/mcp/output.clj:72-80\n"
-                "(defn first-line\n"
-                "truncated: shown 1 of 9, pass offset=1 or narrow the query")
+  (let [cfg (assoc project/config :output/max-chars 110)
+        text (answer cfg {:name "mcp.output/relative-path"})]
+    (is (= (str "src/mcp/output.clj:63-72\n"
+                "(defn relative-path\n"
+                "truncated: shown 1 of 10, pass offset=1 or narrow the query")
            text))
-    (is (<= (count text) 100)))
+    (is (<= (count text) 110)))
   (testing "offset skips lines of the body"
-    (is (= (str "src/mcp/output.clj:72-80\n"
-                "           (remove st/blank?)\n"
-                "           first))")
-           (answer {:name "mcp.output/first-line" :offset 7}))))
+    (is (= (str "src/mcp/output.clj:63-72\n"
+                "      (subs file-path (count prefix))\n"
+                "      file-path)))")
+           (answer {:name "mcp.output/relative-path" :offset 8}))))
   (testing "limit lowers the number of lines"
-    (is (= (str "src/mcp/output.clj:72-80\n"
-                "(defn first-line\n"
-                "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
-                "truncated: shown 2 of 9, pass offset=2 or narrow the query")
-           (answer {:name "mcp.output/first-line" :limit 2})))))
+    (is (= (str "src/mcp/output.clj:63-72\n"
+                "(defn relative-path\n"
+                "  \"Returns `file-path` relative to the project root `root-path`; paths\n"
+                "truncated: shown 2 of 10, pass offset=2 or narrow the query")
+           (answer {:name "mcp.output/relative-path" :limit 2})))))
 
 (deftest ambiguous-candidates-obey-limit-and-offset
   (let [lines (st/split-lines (answer {:name "test-config" :limit 1 :offset 1}))]

@@ -1,7 +1,9 @@
 (ns mcp.tools.namespace-summary
   "`namespace_summary`: what a namespace contains, without reading the file,
    as Compact answer lines (ADR-0006): one line per Definition, then the
-   namespaces that require it."
+   namespaces that require it. Type signatures and Docstring summaries only
+   on request (`detail`), so the default answer stays near the size of
+   grepping the `(def` lines (ADR-0009)."
   (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.docstring :as docstring]
@@ -12,10 +14,11 @@
 
 (def ^:private description
   (str "Summarise a Clojure namespace without reading its file. "
-       "Unlike grep, lists every Definition (public and private, including tests, protocols "
-       "and records) with its arglists, Type signature and Docstring summary, and which namespaces require it. "
+       "Unlike grep, lists every Definition (public and private, including tests, protocols, "
+       "records and specs) with its arglists, and which namespaces require it. "
        "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
-       "(line  public|private  kind  name  [arglists]  Type signature  Docstring summary), then `required by: ...`; "
+       "(line  public|private  kind  name  [arglists]; `detail: true` adds  Type signature  Docstring summary), "
+       "then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
        "Use get_source for a body. "
        tool/freshness-note))
@@ -30,7 +33,9 @@
    :description description
    :inputSchema {:type "object"
                  :properties (merge {:ns {:type "string"
-                                          :description "Fully qualified namespace name, e.g. my.app.core"}}
+                                          :description "Fully qualified namespace name, e.g. my.app.core"}
+                                     :detail {:type "boolean"
+                                              :description "Add each Definition's Type signature and Docstring summary (default false)"}}
                                     tool/paging-properties)
                  :required ["ns"]}})
 
@@ -56,12 +61,13 @@
                 (docstring/docstring-summary doc)]))
 
 (defn- summary-line
-  "The answer line of one Definition of the namespace, its Type signature
-   found by `signature-strategy`.
+  "The answer line of one Definition of the namespace; with `detail?`, also
+   its Type signature, found by `signature-strategy`, and Docstring summary.
 
-  SignatureStrategy -> Definition -> String"
-  [signature-strategy {:keys [row kind arglists private] :as definition}]
-  (let [{:keys [summary signature]} (docstring/definition-doc signature-strategy definition)]
+  SignatureStrategy -> Boolean -> Definition -> String"
+  [signature-strategy detail? {:keys [row kind arglists private] :as definition}]
+  (let [{:keys [summary signature]} (when detail?
+                                      (docstring/definition-doc signature-strategy definition))]
     (join-fields [(str row)
                   (if private "private" "public")
                   kind
@@ -80,15 +86,17 @@
            "none")))
 
 (defn- summary
-  "The answer for the namespace `ns-def`: header, Definitions, requirers.
+  "The answer for the namespace `ns-def`: header, Definitions, requirers;
+   with `detail?`, the Definition lines carry Type signatures and Docstring
+   summaries.
 
-  AnswerContext -> AnalysisEntry -> String"
-  [{:keys [budget index signature-strategy]} ns-def]
+  AnswerContext -> Boolean -> AnalysisEntry -> String"
+  [{:keys [budget index signature-strategy]} detail? ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
                    (sort-by (juxt :filename :row :col (comp str :name)))
-                   (mapv (partial summary-line signature-strategy)))]
+                   (mapv (partial summary-line signature-strategy detail?)))]
     (output/render-framed budget
                           {:header (header (code-index/root index) ns-def)}
                           (conj lines (required-by-line index ns-sym)))))
@@ -154,5 +162,7 @@
   (let [asked-str (st/trim (str (:ns params)))]
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
-       (summary (output/answer-context config params code-index) ns-def)
+       (summary (output/answer-context config params code-index)
+                (tool/flag params :detail false)
+                ns-def)
        (unknown-namespace-answer code-index asked-str)))))

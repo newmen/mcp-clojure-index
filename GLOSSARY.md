@@ -55,7 +55,7 @@ An answer that contains one line per finding with only what the agent needs for 
 _Avoid_: summary, brief output
 
 **Docstring summary**:
-The first sentence of a Definition's docstring, as one line even when the source wraps it; it stands for the docstring in every list answer.
+The first sentence of a Definition's docstring, as one line even when the source wraps it; it stands for the docstring in every list answer (in `namespace_summary` only with `detail: true`).
 _Avoid_: first line, short doc
 
 **Type signature**:

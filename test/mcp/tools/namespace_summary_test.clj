@@ -21,8 +21,59 @@
                         (tool/call :namespace_summary args
                                    {:config cfg :code-index (project/code-index)}))))
 
+(def ^:private output-header
+  "The hand-checked header line of the answer for `mcp.output`.
+
+  String"
+  "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006).")
+
 (def ^:private output-definitions
-  "Hand-checked Definitions of `src/mcp/output.clj`.
+  "Hand-checked Definitions of `src/mcp/output.clj` in the default answer,
+   without Type signatures and Docstring summaries.
+
+  [String]"
+  ["15  public  s/def  :mcp.output/header"
+   "17  public  s/def  :mcp.output/footer"
+   "19  public  s/def  :mcp.output/answer-frame"
+   "25  public  s/def  :mcp.output/output-budget"
+   "27  public  defrecord  ->OutputBudget  [limit max-chars offset]"
+   "27  public  defrecord  OutputBudget"
+   "27  public  defrecord  map->OutputBudget  [m]"
+   "33  public  defn  budget  [cfg {:keys [limit offset]}]"
+   "46  private  defn-  truncation-note  [shown-until total]"
+   "60  public  defn  relative-path  [root-path file-path]"
+   "75  private  defn-  answer-text  [shown offset total]"
+   "86  private  defn-  oversized-first-finding  [cut max-chars page offset total]"
+   "104  public  s/def  :mcp.output/text-of"
+   "106  public  s/def  :mcp.output/cut"
+   "108  public  s/def  :mcp.output/render-options"
+   "110  public  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]"
+   "126  public  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]"
+   "148  public  s/def  :mcp.output/what"
+   "150  public  s/def  :mcp.output/text"
+   "152  public  s/def  :mcp.output/finding-of"
+   "154  public  s/def  :mcp.output/finding-cut"
+   "156  private  defn-  single-finding-note  [what shown total]"
+   "164  public  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]"
+   "195  public  s/def  :mcp.output/budget"
+   "197  public  s/def  :mcp.output/index"
+   "199  public  s/def  :mcp.output/signature-strategy"
+   "201  public  s/def  :mcp.output/answer-context"
+   "203  public  defrecord  ->AnswerContext  [budget index signature-strategy]"
+   "203  public  defrecord  AnswerContext"
+   "203  public  defrecord  map->AnswerContext  [m]"
+   "205  public  defn  answer-context  [cfg args index]"
+   "212  public  defn  checked  [index] [index include-tests?]"
+   "226  public  defn  not-found  [index name-str]"
+   "235  public  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]"
+   "248  public  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]"
+   "268  public  defn  ambiguous-header  [what name-str candidate-count]"
+   "276  public  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]"
+   "287  public  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]"])
+
+(def ^:private output-detailed-definitions
+  "Hand-checked Definitions of `src/mcp/output.clj` in the answer with
+   `detail: true`.
 
   [String]"
   ["15  public  s/def  :mcp.output/header"
@@ -89,9 +140,13 @@
 
 (deftest summarises-every-definition-of-a-namespace
   (let [[header & lines] (st/split-lines (answer roomy-config {:ns "mcp.output"}))]
-    (is (= "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
-           header))
+    (is (= output-header header))
     (is (= output-definitions (butlast lines)))))
+
+(deftest detail-adds-type-signatures-and-docstring-summaries
+  (let [[header & lines] (st/split-lines (answer roomy-config {:ns "mcp.output" :detail true}))]
+    (is (= output-header header))
+    (is (= output-detailed-definitions (butlast lines)))))
 
 (deftest lists-namespaces-that-require-it
   (let [text (answer roomy-config {:ns "mcp.output"})
@@ -154,5 +209,5 @@
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)
                    (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
-    (is (= #{:ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= #{:ns :detail :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["ns"] (get-in spec [:inputSchema :required])))))

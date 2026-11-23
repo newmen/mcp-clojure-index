@@ -15,7 +15,7 @@ Decisions:
 | where is `name` defined | `find_definition` | `rg '\(def\S*\s+name(\s\|$)'` + 15 lines from each hit | same `rg` + each hit file |
 | source of `ns/name` | `get_source` | same `rg` + the body and 10 lines past it (the end is not known in advance) | same `rg` + the file |
 | who uses `ns/name` | `find_usages`, every page | `rg` of the name as a whole symbol, alias-qualified or not, + ±10 lines around each hit (to tell the enclosing definition) | `rg -F name` + each hit file |
-| what is in `ns` | `namespace_summary`, every page | `rg '^\s*\(def'` in the file + `rg -F ns` for who requires it | the file + `rg -F ns` |
+| what is in `ns` | `namespace_summary` (default, without `detail`), every page | `rg '^\s*\(def'` in the file + `rg -F ns` for who requires it | the file + `rg -F ns` |
 | where is the code that does Y | `semantic_search`, first page | `rg -i` of 1–3 keywords + ±15 lines around the first 5 hits | same `rg` + the 3 files with the most hits |
 
 - **Precision is counted next to size.** For `find_usages`: careful grep hits that are not Usages (*noise*: strings, docstrings, comments, other definitions with the same name) and Usages grep misses. For `semantic_search`: whether the expected Definition is on the answer page, and whether any grep hit lies inside it.
@@ -32,8 +32,8 @@ lein run -m clojure.main -i dev/token_benchmark.clj \
 
 On 2026-11-23, the defaults of `resources/config.edn` (`:output/max-chars` 4000, `bge-m3`, `qllama/bge-reranker-v2-m3`). Two projects:
 
-- **this repository**: 40 indexed files, 310 KB, 755 Definitions; 20 source namespaces; 12 semantic questions (`dev/benchmark/mcp-clojure-index.edn`).
-- **a large project**: 232 indexed files, 1.8 MB, 6535 Definitions, of which one generated protobuf namespace (650 KB, 3400 Definitions) is left out of the sample; 181 namespaces; 12 semantic questions.
+- **this repository**: 40 indexed files, 310 KB, 755 Definitions; 20 source namespaces (22 when `namespace_summary` was remeasured); 12 semantic questions (`dev/benchmark/mcp-clojure-index.edn`).
+- **a large project**: 232 indexed files, 1.8 MB, 6535 Definitions, of which one generated protobuf namespace (650 KB, 3400 Definitions) is left out of the sample; 181 namespaces (201 when `namespace_summary` was remeasured); 12 semantic questions.
 
 Saving = 1 − MCP / baseline over all questions of a scenario, median per question in parentheses.
 
@@ -42,7 +42,7 @@ Saving = 1 − MCP / baseline over all questions of a scenario, median per quest
 | `find_definition` | 64% (69%) | 99% (98%) | 77% (81%) | 98% (98%) |
 | `get_source` | 50% (54%) | 97% (97%) | 59% (67%) | 96% (94%) |
 | `find_usages` | 93% (93%) | 99% (99%) | 95% (90%) | 100% (98%) |
-| `namespace_summary` | **−67% (−137%)** | 73% (74%) | **−36% (−25%)** | 81% (80%) |
+| `namespace_summary` | **+31% (−2%)** | 89% (89%) | **−19% (−28%)** | 84% (81%) |
 | `semantic_search` | 87% (87%) | 97% (97%) | 98% (97%) | 99% (99%) |
 
 Precision:
@@ -50,7 +50,7 @@ Precision:
 - `find_usages`: the careful pattern brought 59 (this repository) and 138 (large project) lines over the 20 questions that are not Usages; it missed no Usage of the sampled names in either project.
 - `semantic_search`: the expected Definition was on the answer page for 12/12 and 11/12 questions; some grep hit fell inside it for 12/12 and 11/12 (different misses: `token` matched the access token reader by grep but not by the search, `same timestamp` the opposite). Grep "finds" it among the hit lines the agent still has to read: a median of 44 lines (10–240) in this repository and 628 (4–3662) in the large project.
 
-`namespace_summary` is the one answer bigger than the careful baseline (17 of 20 and 122 of 181 namespaces): `rg '^\s*\(def'` gives only the definition lines, while the summary adds arglists, Docstring summaries, specs and the requiring namespaces, and pages through 3000–4000 characters per namespace. It saves 73–81% against reading the file, which is what an agent does to learn what a namespace contains.
+`namespace_summary` is the one answer often bigger than the careful baseline (13 of 22 and 138 of 201 namespaces). The first measurement gave Type signatures and Docstring summaries on every line and was bigger by 67% and 36% (17 of 20 and 122 of 181 namespaces); they are now opt-in (`detail: true`), and the default answer was remeasured on the same day, when the projects had grown to 22 and 201 namespaces. With `detail: true` the same code gives −61% (−132%) and −40% (−39%) against careful (19 of 22 and 142 of 201 namespaces bigger), 73% and 81% against typical. What remains of the excess is information `rg '^\s*\(def'` does not give: specs (`(s/def` does not match `\(def`), protocol methods, the constructors a `defrecord` generates, arglists that start on the next line, and the requiring namespaces. Following ADR-0001, the baseline that answers the question is reading the file, against which it saves 84–89%.
 
 ## Consequences
 

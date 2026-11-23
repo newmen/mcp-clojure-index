@@ -24,9 +24,9 @@ LLM-агенты тратят большую часть своих токено�
 | исходный код X (`get_source`) | 50–59% | 96–97% |
 | кто использует X (`find_usages`) | 93–95% | 99–100% |
 | где код, который делает Y (`semantic_search`) | 87–98% | 97–99% |
-| что в namespace (`namespace_summary`) | **−36…−67%** (больше) | 73–81% |
+| что в namespace (`namespace_summary`) | −19…**+31%** (медиана −2…−28%: часто больше) | 84–89% |
 
-`namespace_summary` больше, чем `grep` строк `(def`, потому что даёт ещё arglists, docstring, спеки и список namespace, которые его требуют; по сравнению с чтением файла экономия 73–81%. Кроме размера: на каждый вопрос `find_usages` grep приносил 3–7 строк, которые не являются использованиями, но агенту всё равно приходится их читать.
+`namespace_summary` бывает больше, чем `grep` строк `(def`, потому что даёт ещё arglists, спеки, методы протоколов и список namespace, которые его требуют, а этот grep их пропускает; по сравнению с чтением файла, которое и отвечает на вопрос, экономия 84–89%. Type signature и Docstring summary для Definition — только с `detail: true`. Кроме размера: на каждый вопрос `find_usages` grep приносил 3–7 строк, которые не являются использованиями, но агенту всё равно приходится их читать.
 
 **Эти цифры меняются от проекта к проекту**: они растут с размером файлов и с тем, насколько часто повторяются имена, и относятся к отдельным вопросам. Сессия в целом экономит меньше: системный промпт, рассуждения, правки и запуск тестов стоят столько же с сервером и без него. Методика, цифры по каждому проекту и команда для замера своего проекта — в [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
 
@@ -329,6 +329,7 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
 ```text
 Входные параметры:
   ns (string, обязательный) — полностью квалифицированное имя namespace
+  detail (boolean, по умолчанию false) — добавить Type signature и Docstring summary
   limit, offset
 
 Ответ:
@@ -336,7 +337,8 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
       ns name  path  Docstring summary
 
   Для каждого Definition:
-      line  public|private  kind  name  [arglists]  Docstring summary
+      line  public|private  kind  name  [arglists]
+      с detail: line  public|private  kind  name  [arglists]  Type signature  Docstring summary
 
   Последняя строка:
       required by: ns1, ns2, ...

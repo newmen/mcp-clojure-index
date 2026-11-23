@@ -10,4 +10,6 @@ The first version returned everything it had: full source of every hit, every ot
 - no internal fields (ids, hashes, raw vector scores); the only score shown is relevance in `semantic_search`;
 - an empty result says what was searched (`no usages (checked 214 files, including tests)`), so "not found" is distinguishable from "not searched".
 
+`namespace_summary` is the opposite case: its Definition lines show Type signatures and Docstring summaries only with `detail: true`. The agent asks what a namespace contains to pick the next name to look at, and names with arglists are enough for that; with every docstring the answer was bigger than grepping the `(def` lines (ADR-0009).
+
 This is separate from the Output budget (ADR-0004): the budget caps the size, while this decision defines what is allowed into an answer at all. Do not "enrich" answers with extra context; if the agent needs more, it asks with another call.

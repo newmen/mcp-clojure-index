@@ -8,19 +8,22 @@ LLM agents spend most of their tokens on understanding code: `grep`, then readin
 
 ## How much it saves
 
-Characters an agent receives per question with the server, compared with `rg` plus reading files (characters stand in for tokens: both sides divide by the same chars-per-token factor). *Careful* is an agent that greps with a precise pattern and reads only the lines it needs; *typical* reads every file with a hit, as Claude Code does by default. Measured on two projects, 20 sampled functions each, every namespace, and 12 hand-written semantic questions:
+**About 90% fewer tokens on questions about the code** than Claude's built-in tools (Grep and reading files). **Over a whole session it saves about 12–15%** of all tokens.
 
-| Question | Careful agent | Typical agent |
-|---|---|---|
-| where is X defined (`find_definition`) | 64–77% | 98–99% |
-| the source of X (`get_source`) | 50–59% | 96–97% |
-| who uses X (`find_usages`) | 93–95% | 99–100% |
-| where is the code that does Y (`semantic_search`) | 87–98% | 97–99% |
-| what is in a namespace (`namespace_summary`) | −2…+36% (median −8…+10%) | 86–90% |
+| What the agent asks | Tool | Built-in tools | With the server | Saved |
+|---|---|---|---|---|
+| Where is X defined, with its arglists, Type signature¹ and Docstring summary | `find_definition` | ~2,100 tokens | ~75 tokens | **96%** |
+| The source of X | `get_source` | ~1,600 tokens | ~110 tokens | **93%** |
+| Who uses X | `find_usages` | ~9,600 tokens | ~130 tokens | **99%** |
+| Where is the code that does Y | `semantic_search` | ~17,000 tokens | ~390 tokens | **98%** |
+| What is in a namespace | `namespace_summary` | ~840 tokens | ~250 tokens | **71%** |
+| **A whole working session** | | | | **~12–15%** |
 
-`namespace_summary` can be bigger than grepping the `(def` lines because it also gives arglists, specs, protocol methods and who requires the namespace, which that grep misses; against reading the file, which is what answers the question, it saves 86–90%. Each Definition line carries its Type signature; Docstring summaries come only with `detail: true`. Besides size, grep brought 3–7 lines per `find_usages` question that are not usages, which the agent still has to read.
+¹ With `:doc/signature` in the config (see [Configure](#2-configure)); both measured projects set it.
 
-**These numbers vary from project to project**: they grow with file size and with how often names repeat, and they are for single questions — a session saves less, because the system prompt, reasoning, edits and test runs cost the same with or without the server. The method, the per-project numbers and the command to measure your own project are in [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
+A session saves less because navigation is only part of it: in 123 real Claude Code sessions on two projects, grep and reading code that was not edited afterwards took 16% of the input tokens (13% in a median session); the system prompt, reasoning, edits and test runs cost the same with or without the server. The answers are also more precise: grep brought 7–10 lines per "who uses X" question that are not usages.
+
+How it was measured: 20 sampled functions of each of two projects (this repository and a 220-file application), every namespace, and 12 hand-written "where is the code that does Y" questions; the baseline is what Claude Code does without the server — grep, then read 42% of the files whole and the rest in windows, the share counted in its transcripts. Even against an ideal agent that greps a precise pattern and reads only the lines it needs, the server saves 50–98% on every question except `namespace_summary`, which is then the same size but also gives arglists, Type signatures, specs and who requires the namespace. **The numbers vary from project to project**: they grow with file size and with how often names repeat. The method, the per-project numbers and the commands to measure your own project are in [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
 
 ## Features
 

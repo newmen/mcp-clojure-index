@@ -10,7 +10,11 @@
    QUERIES-EDN holds the semantic search scenarios of that project, a vector
    of SemanticScenario; pass \"\" to skip the
    semantic scenarios. SKIP-REGEX (optional) matches files no question is
-   asked about, such as generated code; grep still searches them."
+   asked about, such as generated code; grep still searches them.
+
+   The measured project's Project config (`.clojure-index.edn`) applies, as
+   in the server: with its `:doc/signature`, every Definition line carries
+   its Type signature."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -40,8 +44,9 @@
 ;;  :grep   ["truncat" "max-chars"]      ; the keywords an agent greps instead
 ;;  :expect "mcp.output/render"}         ; the Definition that answers it
 ;;
-;; ReportRow (one scenario of the summary): the totals of :mcp, :careful and
-;; :typical, the total and median savings in percent, and the scenario's own
+;; ReportRow (one scenario of the summary): the totals of :mcp, :careful,
+;; :typical and :claude (the mix of the two baselines Claude Code shows,
+;; see `whole-file-share`), the total and median savings in percent, and the scenario's own
 ;; counters (:grep-noise and :grep-missed, or :mcp-found and :grep-found).
 
 (s/def ::scenario #{:find-definition :get-source :find-usages :namespace-summary :semantic-search})
@@ -73,6 +78,26 @@
 
   Long"
   20)
+
+(def ^:private whole-file-share
+  "The share of Clojure file reads Claude Code makes of the whole file
+   (`cat`, Read without offset/limit); the rest read a window (`sed -n`,
+   `head`, Read with offset/limit). Counted over 776 reads in the Claude
+   Code transcripts of the two measured projects, 2026-11-23. The
+   *Claude* baseline is the careful one with this share replaced by the
+   typical one.
+
+  Double"
+  0.42)
+
+(defn- claude-baseline
+  "The characters Claude Code receives for a question, the careful and
+   typical baselines mixed by `whole-file-share`.
+
+  Measurement -> Long"
+  [{:keys [careful typical]}]
+  (Math/round (+ (* (- 1.0 whole-file-share) (double careful))
+                 (* whole-file-share (double typical)))))
 
 (def ^:private seed
   "Seed of the Definition sample, so a rerun asks the same questions.
@@ -441,8 +466,11 @@
              :mcp (total :mcp)
              :careful (total :careful)
              :typical (total :typical)
+             :claude (total claude-baseline)
+             :saving-claude (saving (total :mcp) (total claude-baseline))
              :saving-careful (saving (total :mcp) (total :careful))
              :saving-typical (saving (total :mcp) (total :typical))
+             :median-claude (median (map #(saving (:mcp %) (claude-baseline %)) group))
              :median-careful (median (map #(saving (:mcp %) (:careful %)) group))
              :median-typical (median (map #(saving (:mcp %) (:typical %)) group))
              :mcp-bigger (count (filter #(> (:mcp %) (:careful %)) group))}
@@ -459,10 +487,12 @@
 
   String -> [SemanticScenario] -> Maybe Pattern -> IO [Measurement]"
   [root-path queries skip-files]
-  (let [cfg (-> (config/load-config "resources/config.edn")
+  (let [cfg (-> (config/load-settings "resources/config.edn")
                 (assoc :index/root-path root-path)
                 (dissoc :qdrant/collection)
                 config/resolve-config
+                config/start-project-config
+                :config
                 config/validate-config)
         index (code-index/build cfg)
         semantic (semantic-index/create cfg)

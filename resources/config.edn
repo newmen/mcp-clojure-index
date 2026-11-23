@@ -9,4 +9,5 @@
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
  :index/exclude     ["dev" "test-resources"]
  :output/limit      50
- :output/max-chars  4000}
+ :output/max-chars  4000
+ :doc/signature     {:strategy :last-paragraph}}

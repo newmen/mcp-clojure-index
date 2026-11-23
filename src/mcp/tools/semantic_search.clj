@@ -49,15 +49,16 @@
    `score  path:line  kind  ns/name  Docstring summary`.
 
   The score is the reranker's relevance score (ADR-0006); without the
-  reranker there is none, never a raw vector score.
+  reranker there is none, never a raw vector score. The line shows no
+  Type signature, but `signature-strategy` keeps it out of the summary.
 
-  String -> Hit -> String"
-  [root {:keys [unit re-rank]}]
+  SignatureStrategy -> String -> Hit -> String"
+  [signature-strategy root {:keys [unit re-rank]}]
   (->> [(some->> re-rank double (format "%.2f"))
         (str (output/relative-path root (:filename unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
-        (output/docstring-summary (:doc unit))]
+        (:summary (output/definition-doc signature-strategy unit))]
        (remove st/blank?)
        (st/join "  ")))
 
@@ -97,7 +98,7 @@
                                          (not (code-index/test-file? code-index (:filename unit)))))
                                    (hit-count config params))
                note (some-> semantic-index (stale-note code-index))
-               lines (mapv (partial hit->line (code-index/root code-index)) hits)]
+               lines (mapv (partial hit->line (:doc/signature config) (code-index/root code-index)) hits)]
            (if (empty? lines)
              (->> [(str "no results for: " query " " (output/checked code-index include-tests?)) note]
                   (remove nil?)

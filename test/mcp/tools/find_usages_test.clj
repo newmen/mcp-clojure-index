@@ -135,6 +135,18 @@
               "test/plain/b.clj:4  defn  plain.b/check  []")
          (answer @plain-project {:targets ["check"]}))))
 
+(deftest ambiguous-candidates-carry-no-type-signature
+  (let [definitions-project (code-index/build
+                             (assoc project/config :index/root-path
+                                    (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))]
+    (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+                "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]  "
+                "Путь к файлу относительно корня.\n"
+                "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+                "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
+                "(+38 chars)")
+           (answer definitions-project {:targets ["relative-path"]})))))
+
 (deftest defmethod-target-points-to-its-multimethod
   (let [definitions-project (code-index/build
                              (assoc project/config :index/root-path
@@ -146,10 +158,11 @@
 (deftest finds-usages-on-own-code-base
   (testing (str "line and column numbers are left out: they move with every edit; "
                 "code inside a defmethod is enclosed by `multimethod dispatch-value`")
-    (is (= ["mcp.output/definition->line: 3 usages"
+    (is (= ["mcp.output/definition->line: 4 usages"
+            "src/mcp/output.clj:L:C  call  mcp.output/definition->line"
             "src/mcp/output.clj:L:C  value  mcp.output/ambiguous"
             "src/mcp/tools/find_definition.clj:L:C  call  mcp.tool/call :find_definition"
-            "src/mcp/tools/find_usages.clj:L:C  value  mcp.tools.find-usages/target-group"
+            "src/mcp/tools/find_usages.clj:L:C  call  mcp.tools.find-usages/target-group"
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
            (map #(st/replace % #":\d+:\d+  " ":L:C  ")

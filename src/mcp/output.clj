@@ -113,6 +113,79 @@
         (cond-> (subs text 0 end)
           (not (st/blank? remaining)) (str " (+" (count remaining) " chars)"))))))
 
+;; SignatureStrategy: the value of `:doc/signature` in the config, the
+;; built-in strategy that finds a Definition's Type signature:
+;; {:strategy :last-paragraph} or {:strategy :pattern :regex "..."};
+;; nil turns signatures off.
+
+(s/def ::strategy keyword?)
+
+(s/def ::regex string?)
+
+(s/def ::signature-strategy (s/nilable (s/keys :req-un [::strategy] :opt-un [::regex])))
+
+;; DefinitionDoc: what a Definition line shows of its docstring,
+;; {:summary "First sentence. (+N chars)" :signature "String -> Long"};
+;; either may be nil.
+
+(s/def ::summary (s/nilable string?))
+
+(s/def ::signature (s/nilable string?))
+
+(s/def ::definition-doc (s/keys :req-un [::summary ::signature]))
+
+(defn- collapse-whitespace
+  "`text` with every run of whitespace replaced by one space, trimmed;
+   nil when nothing remains.
+
+  String -> Maybe String"
+  [text]
+  (let [collapsed (-> text (st/replace #"\s+" " ") st/trim)]
+    (when-not (st/blank? collapsed)
+      collapsed)))
+
+(defmulti split-signature
+  "Splits the docstring `doc` into its Type signature and the text the
+   Docstring summary is taken from, with the strategy of `signature-strategy`.
+
+  A new strategy is a `defmethod` of this multimethod.
+
+  SignatureStrategy -> String -> {:text String :signature Maybe String}"
+  (fn [signature-strategy _doc] (:strategy signature-strategy)))
+
+(defmethod split-signature :default
+  [_signature-strategy doc]
+  {:text doc :signature nil})
+
+(defmethod split-signature :last-paragraph
+  [_signature-strategy doc]
+  (let [paragraphs (remove st/blank? (st/split doc #"\n\s*\n"))]
+    (if (next paragraphs)
+      {:text (st/join "\n\n" (butlast paragraphs))
+       :signature (collapse-whitespace (last paragraphs))}
+      {:text doc :signature nil})))
+
+(defmethod split-signature :pattern
+  [{:keys [regex]} doc]
+  (let [^java.util.regex.Matcher matcher (re-matcher (re-pattern regex) doc)]
+    (if (.find matcher)
+      {:text (str (subs doc 0 (.start matcher)) " " (subs doc (.end matcher)))
+       :signature (some-> (.group matcher 1) collapse-whitespace)}
+      {:text doc :signature nil})))
+
+(defn definition-doc
+  "The Docstring summary and Type signature of `definition`, the
+   signature found by `signature-strategy` and left out of the summary.
+
+  Namespaces have no Type signature.
+
+  SignatureStrategy -> Definition -> DefinitionDoc"
+  [signature-strategy {:keys [kind doc]}]
+  (if (or (st/blank? doc) (= "ns" kind))
+    {:summary (docstring-summary doc) :signature nil}
+    (let [{:keys [text signature]} (split-signature signature-strategy doc)]
+      {:summary (docstring-summary text) :signature signature})))
+
 ;; ---------------------------------------------------------------------------
 ;; Rendering
 ;; ---------------------------------------------------------------------------
@@ -199,17 +272,25 @@
 (defn definition->line
   "The Compact answer line of a Definition.
 
-  The line is `path:line  kind  ns/name  [arglists]  Docstring summary`.
+  The line is `path:line  kind  ns/name  [arglists]  Type signature
+  Docstring summary`, the signature found by `signature-strategy`.
+  `{:signature? false}` leaves the signature out of the line (it stays out
+  of the summary).
 
-  CodeIndex -> Definition -> String"
-  [index {:keys [filename row kind arglists doc] :as definition}]
-  (->> [(str (relative-path (code-index/root index) filename) ":" row)
-        kind
-        (code-index/qualified-name definition)
-        (st/join " " arglists)
-        (docstring-summary doc)]
-       (remove st/blank?)
-       (st/join "  ")))
+  SignatureStrategy -> CodeIndex -> Definition -> String
+  SignatureStrategy -> CodeIndex -> Definition -> {:signature? Boolean} -> String"
+  ([signature-strategy index definition]
+   (definition->line signature-strategy index definition {:signature? true}))
+  ([signature-strategy index {:keys [filename row kind arglists] :as definition} {:keys [signature?]}]
+   (let [{:keys [summary signature]} (definition-doc signature-strategy definition)]
+     (->> [(str (relative-path (code-index/root index) filename) ":" row)
+           kind
+           (code-index/qualified-name definition)
+           (st/join " " arglists)
+           (when signature? signature)
+           summary]
+          (remove st/blank?)
+          (st/join "  ")))))
 
 (defn ambiguous-header
   "The header line for `name-str` that denotes `candidate-count`
@@ -221,22 +302,23 @@
 
 (defn ambiguous
   "The answer for `name-str` that denotes several `definitions`: an
-   `ambiguous-header`, then one line per candidate within the Output budget.
+   `ambiguous-header`, then one line per candidate, with its Type
+   signature, within the Output budget.
 
-  OutputBudget -> CodeIndex -> String -> String -> [Definition] -> String"
-  [budget index what name-str definitions]
+  OutputBudget -> SignatureStrategy -> CodeIndex -> String -> String -> [Definition] -> String"
+  [budget signature-strategy index what name-str definitions]
   (render-framed budget
                  {:header (ambiguous-header what name-str (count definitions))}
-                 (mapv (partial definition->line index) definitions)))
+                 (mapv (partial definition->line signature-strategy index) definitions)))
 
 (defn one-definition
   "The answer for `name-str` that resolved to `definitions`: `not-found`
    for none, `(answer-fn definition)` for exactly one, the `ambiguous`
    candidates otherwise.
 
-  OutputBudget -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
-  [budget index name-str definitions answer-fn]
+  OutputBudget -> SignatureStrategy -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
+  [budget signature-strategy index name-str definitions answer-fn]
   (case (count definitions)
     0 (not-found index name-str)
     1 (answer-fn (first definitions))
-    (ambiguous budget index "definitions" name-str definitions)))
+    (ambiguous budget signature-strategy index "definitions" name-str definitions)))

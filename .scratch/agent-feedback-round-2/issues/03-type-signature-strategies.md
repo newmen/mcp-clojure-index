@@ -4,11 +4,11 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Russian fixture with a signature paragraph shows the signature as its own field.
-- [ ] A `def` whose signature is a bare type (no `->`) gets it.
-- [ ] A one-paragraph docstring has no signature, and its paragraph is the summary.
-- [ ] `:pattern` works, and a config without `:doc/signature` shows no signatures.
-- [ ] `find_usages` candidates and `semantic_search` lines carry no signature.
-- [ ] Acceptance cases 1–3 and 6; this code base's own docstrings (ticket 01) are used as a fixture too.
+- [x] A Russian fixture with a signature paragraph shows the signature as its own field.
+- [x] A `def` whose signature is a bare type (no `->`) gets it.
+- [x] A one-paragraph docstring has no signature, and its paragraph is the summary.
+- [x] `:pattern` works, and a config without `:doc/signature` shows no signatures.
+- [x] `find_usages` candidates and `semantic_search` lines carry no signature.
+- [x] Acceptance cases 1–3 and 6; this code base's own docstrings (ticket 01) are used as a fixture too.

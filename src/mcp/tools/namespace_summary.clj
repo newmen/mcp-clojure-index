@@ -12,9 +12,9 @@
 (def ^:private description
   (str "Summarise a Clojure namespace without reading its file. "
        "Unlike grep, lists every Definition (public and private, including tests, protocols "
-       "and records) with its arglists and Docstring summary, and which namespaces require it. "
+       "and records) with its arglists, Type signature and Docstring summary, and which namespaces require it. "
        "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
-       "(line  public|private  kind  name  [arglists]  Docstring summary), then `required by: ...`; "
+       "(line  public|private  kind  name  [arglists]  Type signature  Docstring summary), then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
        "Use get_source for a body. "
        tool/freshness-note))
@@ -55,16 +55,19 @@
                 (output/docstring-summary doc)]))
 
 (defn- summary-line
-  "The answer line of one Definition of the namespace.
+  "The answer line of one Definition of the namespace, its Type signature
+   found by `signature-strategy`.
 
-  Definition -> String"
-  [{:keys [row kind arglists doc private] :as definition}]
-  (join-fields [(str row)
-                (if private "private" "public")
-                kind
-                (code-index/local-name definition)
-                (st/join " " arglists)
-                (output/docstring-summary doc)]))
+  SignatureStrategy -> Definition -> String"
+  [signature-strategy {:keys [row kind arglists private] :as definition}]
+  (let [{:keys [summary signature]} (output/definition-doc signature-strategy definition)]
+    (join-fields [(str row)
+                  (if private "private" "public")
+                  kind
+                  (code-index/local-name definition)
+                  (st/join " " arglists)
+                  signature
+                  summary])))
 
 (defn- required-by-line
   "The closing line naming the namespaces that require `ns-sym`.
@@ -78,13 +81,13 @@
 (defn- summary
   "The answer for the namespace `ns-def`: header, Definitions, requirers.
 
-  OutputBudget -> CodeIndex -> AnalysisEntry -> String"
-  [budget index ns-def]
+  OutputBudget -> SignatureStrategy -> CodeIndex -> AnalysisEntry -> String"
+  [budget signature-strategy index ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
                    (sort-by (juxt :filename :row :col (comp str :name)))
-                   (mapv summary-line))]
+                   (mapv (partial summary-line signature-strategy)))]
     (output/render-framed budget
                           {:header (header (code-index/root index) ns-def)}
                           (conj lines (required-by-line index ns-sym)))))
@@ -150,5 +153,5 @@
   (let [asked-str (st/trim (str (:ns params)))]
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
-       (summary (output/budget config params) code-index ns-def)
+       (summary (output/budget config params) (:doc/signature config) code-index ns-def)
        (unknown-namespace-answer code-index asked-str)))))

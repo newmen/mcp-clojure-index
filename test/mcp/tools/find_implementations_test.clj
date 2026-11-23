@@ -56,6 +56,13 @@
   (is (= "not a protocol or multimethod: make-shape (impl.shapes/make-shape defn)"
          (answer {:name "make-shape"}))))
 
+(deftest ambiguous-candidates-show-their-type-signatures
+  (is (= (str "ambiguous: 2 protocols or multimethods named paint, pass a qualified name\n"
+              "src/impl/other.clj:12  defmulti  impl.other/paint  Figure -> IO ()  "
+              "Paints a figure in another way.\n"
+              "src/impl/shapes.clj:42  defmulti  impl.shapes/paint  Shape -> IO ()  Paints a shape.")
+         (answer {:name "paint"}))))
+
 (deftest miss-reports-what-was-searched
   (testing "unknown name"
     (is (= "not found: Nope (checked 2 files, including tests)"

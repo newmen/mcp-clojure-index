@@ -38,3 +38,9 @@
 
 (defprotocol Unused
   (nothing [this]))
+
+(defmulti paint
+  "Paints a shape.
+
+  Shape -> IO ()"
+  :kind)

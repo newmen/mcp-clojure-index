@@ -23,8 +23,9 @@
 
 (def ^:private relative-path-line
   (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+       "Maybe String -> String -> String  "
        "Returns `file-path` relative to the project root `root-path`; paths outside the root "
-       "are returned unchanged. (+32 chars)"))
+       "are returned unchanged."))
 
 (deftest finds-definition-by-simple-alias-qualified-and-fully-qualified-name
   (testing "simple"
@@ -68,11 +69,13 @@
 (defn- fixture-answer
   "The answer text of `find_definition` on the definitions fixture.
 
-  ToolArgs -> IO String"
-  [args]
-  (project/answer-text project/config
-                       (tool/call :find_definition args
-                                  {:config project/config :code-index @definitions-fixture})))
+  ToolArgs -> IO String
+  Config -> ToolArgs -> IO String"
+  ([args] (fixture-answer project/config args))
+  ([cfg args]
+   (project/answer-text cfg
+                        (tool/call :find_definition args
+                                   {:config cfg :code-index @definitions-fixture}))))
 
 (deftest finds-tests-methods-specs-and-project-macro-definitions
   (testing "deftest"
@@ -109,15 +112,16 @@
   {String String}"
   {"app.summaries/relative-path"
    (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+        "Maybe String -> String -> String  "
         "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
-        "(+71 chars)")
+        "(+38 chars)")
    "app.summaries/limit"
    "src/app/summaries.clj:13  def  app.summaries/limit  Lines per page."
    "app.summaries/cache!"
-   "src/app/summaries.clj:17  defn  app.summaries/cache!  [x]  Stores x, e.g. (+45 chars)"
+   "src/app/summaries.clj:17  defn  app.summaries/cache!  [x]  Any -> IO ()  Stores x, e.g. (+32 chars)"
    "app.summaries/clear!"
-   (str "src/app/summaries.clj:24  defn  app.summaries/clear!  []  "
-        "Calls `cache!` and `set-cached-tc!` with nil. (+5 chars)")})
+   (str "src/app/summaries.clj:24  defn  app.summaries/clear!  []  IO ()  "
+        "Calls `cache!` and `set-cached-tc!` with nil.")})
 
 (deftest definition-line-shows-the-docstring-summary
   (testing "a Russian docstring wrapped over several lines gives its whole first sentence"
@@ -134,3 +138,39 @@
   (testing "every answer stays within the Output budget"
     (is (every? #(<= (count (fixture-answer {:name %})) (:output/max-chars project/config))
                 (keys summary-answers)))))
+
+(deftest definition-line-shows-the-type-signature-after-the-arglists
+  (testing "a `def` whose signature is a bare type"
+    (is (= "src/app/signatures.clj:6  def  app.signatures/page-size  Long  Rows per page."
+           (fixture-answer {:name "app.signatures/page-size"}))))
+  (testing "a namespace has no signature, its second paragraph stays in the summary"
+    (is (= (str "src/app/signatures.clj:1  ns  app.signatures  Type signature fixtures. "
+                "(+64 chars)")
+           (fixture-answer {:name "app.signatures"}))))
+  (testing "ambiguous candidates show their signatures"
+    (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+                "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]  "
+                "String -> String  Путь к файлу относительно корня.\n"
+                (summary-answers "app.summaries/relative-path"))
+           (fixture-answer {:name "relative-path"}))))
+  (testing "this code base's own docstrings"
+    (is (= relative-path-line (answer {:name "mcp.output/relative-path"})))))
+
+(deftest signature-strategy-comes-from-the-config
+  (testing "`:pattern` takes the first group of the regex"
+    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+                "Maybe String -> String  "
+                "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
+                "(+38 chars)")
+           (fixture-answer (assoc project/config :doc/signature
+                                  {:strategy :pattern :regex "(Maybe String -> String) -> String"})
+                           {:name "app.summaries/relative-path"}))))
+  (testing "a config without `:doc/signature` shows no signatures"
+    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+                "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
+                "(+71 chars)")
+           (fixture-answer (dissoc project/config :doc/signature)
+                           {:name "app.summaries/relative-path"})))
+    (is (= "src/app/signatures.clj:6  def  app.signatures/page-size  Rows per page. (+4 chars)"
+           (fixture-answer (assoc project/config :doc/signature nil)
+                           {:name "app.signatures/page-size"})))))

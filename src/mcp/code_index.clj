@@ -11,7 +11,7 @@
   (:require [clj-kondo.core :as kondo]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as s])
+            [clojure.string :as st])
   (:import (java.io File PushbackReader)))
 
 (set! *warn-on-reflection* true)
@@ -63,7 +63,7 @@
 (defn- project-file?
   [cfg root ^File file]
   (and (.isFile file)
-       (some #(s/ends-with? (s/lower-case (.getPath file)) %) (:index/include-extensions cfg))
+       (some #(st/ends-with? (st/lower-case (.getPath file)) %) (:index/include-extensions cfg))
        (not (excluded? cfg root file))))
 
 (defn- walk
@@ -107,7 +107,7 @@
   [^File deps-edn]
   (when (.isFile deps-edn)
     (->> (:aliases (edn/read-string (slurp deps-edn)))
-         (filter (comp #(s/includes? % "test") name key))
+         (filter (comp #(st/includes? % "test") name key))
          (mapcat (comp :extra-paths val))
          seq)))
 
@@ -253,7 +253,7 @@
    project declares none (fallback), is named like a test file."
   [index ^String file-path]
   (boolean
-   (or (some #(s/starts-with? file-path (str % "/")) (:test-paths index))
+   (or (some #(st/starts-with? file-path (str % "/")) (:test-paths index))
        (and (:test-names? index) (re-find test-file-pattern file-path)))))
 
 (defn entries
@@ -472,20 +472,20 @@
   "[ns-part simple-name] of `name-str` (`a/b` -> [\"a\" \"b\"]); ns-part is nil
    for a simple name."
   [name-str]
-  (let [slash (s/index-of name-str "/")]
+  (let [slash (st/index-of name-str "/")]
     (if (and slash (pos? slash) (< slash (dec (count name-str))))
       [(subs name-str 0 slash) (subs name-str (inc slash))]
       [nil name-str])))
 
 (defn- normalize-dispatch
   [dispatch-str]
-  (some-> dispatch-str (s/replace #"\s+" " ")))
+  (some-> dispatch-str (st/replace #"\s+" " ")))
 
 (defn- symbol-matcher
   "Predicate on Definitions for `name-str`, optionally followed by a
    defmethod dispatch value (`area :circle`)."
   [index name-str]
-  (let [[head dispatch] (s/split name-str #"\s+" 2)
+  (let [[head dispatch] (st/split name-str #"\s+" 2)
         [ns-part simple] (split-name head)
         simple-sym (symbol simple)
         dispatch (normalize-dispatch dispatch)
@@ -500,8 +500,8 @@
   "Predicate on spec Definitions for a keyword as written: `:app.core/uuid`,
    `::uuid` (in any namespace) or `::c/uuid` (alias-qualified)."
   [index keyword-str]
-  (let [auto-resolved? (s/starts-with? keyword-str "::")
-        [ns-part simple] (split-name (s/replace keyword-str #"^::?" ""))
+  (let [auto-resolved? (st/starts-with? keyword-str "::")
+        [ns-part simple] (split-name (st/replace keyword-str #"^::?" ""))
         namespaces (cond (and auto-resolved? ns-part)
                          (conj (alias-targets index ns-part) (symbol ns-part))
                          ns-part #{(symbol ns-part)})]
@@ -520,10 +520,10 @@
    that defmethod; a keyword (`:app.core/uuid`, `::uuid`, `::c/uuid`)
    denotes its spec. More than one result means the name is ambiguous."
   [index name-str]
-  (let [name-str (s/trim (or name-str ""))]
-    (when-not (or (s/blank? name-str) (= ":" name-str) (= "::" name-str))
+  (let [name-str (st/trim (or name-str ""))]
+    (when-not (or (st/blank? name-str) (= ":" name-str) (= "::" name-str))
       (->> (definitions index)
-           (filter (if (s/starts-with? name-str ":")
+           (filter (if (st/starts-with? name-str ":")
                      (keyword-matcher index name-str)
                      (symbol-matcher index name-str)))
            (sort-by (juxt :filename :row))

@@ -2,7 +2,7 @@
   "Search units: what semantic search embeds and returns. One unit per
    Definition of the precise index (`mcp.code-index`) and one per top-level
    entry of an EDN map. Pure: reads source files, never Qdrant or Ollama."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [rewrite-clj.zip :as z])
   (:import (java.nio.charset StandardCharsets)
@@ -41,7 +41,7 @@
 
 (defn- unit-id
   [file-path kind unit-name row]
-  (let [key-str (s/join "|" [file-path kind unit-name row])]
+  (let [key-str (st/join "|" [file-path kind unit-name row])]
     (UUID/nameUUIDFromBytes (.getBytes ^String key-str StandardCharsets/UTF_8))))
 
 (defn- truncate
@@ -51,7 +51,7 @@
 
 (defn- unit
   [{:keys [filename row kind unit-name doc text-parts]}]
-  (let [text (->> text-parts (remove s/blank?) (s/join "\n"))]
+  (let [text (->> text-parts (remove st/blank?) (st/join "\n"))]
     (cond-> {:id (unit-id filename kind unit-name row)
              :filename filename
              :row row
@@ -69,7 +69,7 @@
   "Source of the form spanning `row:col` to `end-row:end-col` in `lines`."
   [lines form-range]
   (some->> (code-index/form-lines lines form-range)
-           (s/join "\n")))
+           (st/join "\n")))
 
 (defn definition-unit
   "Search unit of `definition`; `lines-by-file` maps absolute file paths
@@ -83,7 +83,7 @@
            :unit-name qualified-name
            :doc doc
            :text-parts [qualified-name
-                        (s/join " " arglists)
+                        (st/join " " arglists)
                         doc
                         (some-> (form-source (get lines-by-file filename) definition)
                                 truncate)]})))
@@ -139,7 +139,7 @@
 (defn- edn-units
   [index]
   (->> (code-index/files index)
-       (filter #(s/ends-with? (s/lower-case %) ".edn"))
+       (filter #(st/ends-with? (st/lower-case %) ".edn"))
        (mapcat edn-file-units)))
 
 ;; ---------------------------------------------------------------------------

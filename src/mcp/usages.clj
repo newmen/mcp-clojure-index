@@ -8,7 +8,7 @@
      each Target type has its own `usages` method.
    - `var-usage-kind-rules` classifies a var-usage into a Usage kind; the
      first rule whose predicate holds wins."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [rewrite-clj.zip :as z]))
 
@@ -105,7 +105,7 @@
   [{:keys [lines] :as ctx} var-usage]
   (let [pos (position var-usage)]
     (when-let [forms (seq (filter #(code-index/contains-position? % pos) (core-macro-usages ctx 'with-redefs)))]
-      (let [source (s/join "\n" @lines)]
+      (let [source (st/join "\n" @lines)]
         (some #(some #{pos} (redef-key-positions source %)) forms)))))
 
 (def ^:private var-usage-kind-rules
@@ -170,10 +170,10 @@
    Target; `::name` and `::alias/name` denote the namespaces they resolve
    to in the project."
   [index keyword-str]
-  (let [auto-resolved? (s/starts-with? keyword-str "::")
-        [ns-part keyword-name] (code-index/split-name (s/replace keyword-str #"^::?" ""))]
+  (let [auto-resolved? (st/starts-with? keyword-str "::")
+        [ns-part keyword-name] (code-index/split-name (st/replace keyword-str #"^::?" ""))]
     (cond
-      (s/blank? keyword-name) {}
+      (st/blank? keyword-name) {}
       (not auto-resolved?) {:target (keyword-target (some-> ns-part symbol) keyword-name)}
       :else (let [namespaces (auto-resolved-namespaces index ns-part keyword-name)]
               (case (count namespaces)
@@ -188,8 +188,8 @@
   [index target-str]
   (let [definitions (code-index/resolve-name index target-str)]
     (case (count definitions)
-      0 (if (s/starts-with? (s/trim (or target-str "")) ":")
-          (resolve-keyword index (s/trim target-str))
+      0 (if (st/starts-with? (st/trim (or target-str "")) ":")
+          (resolve-keyword index (st/trim target-str))
           {})
       1 (let [definition (first definitions)]
           {:target {:target/type (definition-target-type definition)
@@ -243,7 +243,7 @@
 
 (defn- keyword-kind
   [_ctx keyword-entry]
-  (if (s/ends-with? (:filename keyword-entry) ".edn") "edn" "keyword"))
+  (if (st/ends-with? (:filename keyword-entry) ".edn") "edn" "keyword"))
 
 (defn- keyword-usages
   "Usages of the keyword `:keyword-ns/keyword-name` (`keyword-ns` a symbol

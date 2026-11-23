@@ -1,7 +1,7 @@
 (ns mcp.tools.semantic-search-test
   "`semantic_search` on Search units, with Qdrant and Ollama replaced by
    stand-ins or unreachable."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.embeddings :as embeddings]
@@ -97,8 +97,8 @@
                   "truncated: shown 1 of 10, pass offset=1 or narrow the query")
              (answer {:query "f" :limit 1} (fresh-semantic-state) many))))
     (testing "offset returns the next page"
-      (is (s/starts-with? (answer {:query "f" :offset 1 :limit 1} (fresh-semantic-state) many)
-                          "0.98  src/shop/orders.clj:2  defn  shop.orders/f2\n")))
+      (is (st/starts-with? (answer {:query "f" :offset 1 :limit 1} (fresh-semantic-state) many)
+                           "0.98  src/shop/orders.clj:2  defn  shop.orders/f2\n")))
     (testing "the answer never exceeds :output/max-chars"
       (is (<= (count (answer {:query "f"} (fresh-semantic-state) many))
               (:output/max-chars config))))))
@@ -118,7 +118,7 @@
   (let [many (mapv #(hit "src/shop/orders.clj" % "defn" (str "shop.orders/f" %) nil 0.5)
                    (range 1 81))
         text (answer {:query "f"} (semantic-index/make-state) many)]
-    (is (s/ends-with? text "\nembeddings stale for 6 files"))
+    (is (st/ends-with? text "\nembeddings stale for 6 files"))
     (is (<= (count text) (:output/max-chars config)))))
 
 (deftest no-hits-says-so
@@ -135,8 +135,8 @@
                              :code-index @fixture-index
                              :semantic-index (fresh-semantic-state)})
                  :content first :text)]
-    (is (s/starts-with? text "semantic search unavailable (Qdrant or Ollama not reachable"))
-    (is (s/includes? text "find_definition"))))
+    (is (st/starts-with? text "semantic search unavailable (Qdrant or Ollama not reachable"))
+    (is (st/includes? text "find_definition"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Acceptance case 9: real Qdrant and Ollama
@@ -154,10 +154,10 @@
 
 (defn- top-names
   [text]
-  (->> (s/split-lines text)
+  (->> (st/split-lines text)
        (take 3)
        ;; `[score]  path:line  kind  ns/name ...`: the score is absent without the reranker
-       (map #(nth (drop-while (partial re-matches #"\d+\.\d+") (s/split % #"  ")) 2 nil))))
+       (map #(nth (drop-while (partial re-matches #"\d+\.\d+") (st/split % #"  ")) 2 nil))))
 
 (defn- temp-cache-dir
   []
@@ -176,7 +176,7 @@
         (let [text (-> (tool/call :semantic_search {:query query}
                                   {:config cfg :code-index @fixture-index :semantic-index state})
                        :content first :text)]
-          (is (some #(and % (s/starts-with? % expected)) (top-names text))
+          (is (some #(and % (st/starts-with? % expected)) (top-names text))
               (str query " => " expected "\n" text))
           (is (<= (count text) (:output/max-chars cfg)))))
       (finally

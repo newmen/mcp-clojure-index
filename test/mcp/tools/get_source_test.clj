@@ -1,6 +1,6 @@
 (ns mcp.tools.get-source-test
   "`get_source` on this project's own code base."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.test-project :as project]
             [mcp.tool :as tool]
@@ -20,9 +20,9 @@
        "(defn first-line\n"
        "  \"First non-blank line of `text` (e.g. a docstring), trimmed; nil if none.\"\n"
        "  [text]\n"
-       "  (some->> (some-> text s/split-lines)\n"
-       "           (map s/trim)\n"
-       "           (remove s/blank?)\n"
+       "  (some->> (some-> text st/split-lines)\n"
+       "           (map st/trim)\n"
+       "           (remove st/blank?)\n"
        "           first))"))
 
 (deftest returns-source-of-one-definition-with-line-range-header
@@ -35,7 +35,7 @@
   (is (= first-line-source (answer {:name "output/first-line"}))))
 
 (deftest ambiguous-name-returns-candidates-not-bodies
-  (let [[header & candidates] (s/split-lines (answer {:name "test-config"}))]
+  (let [[header & candidates] (st/split-lines (answer {:name "test-config"}))]
     (is (= "ambiguous: 3 definitions named test-config, pass a qualified name" header))
     (is (= [["test/mcp/qdrant_test.clj" "mcp.qdrant-test/test-config"]
             ["test/mcp/search_test.clj" "mcp.search-test/test-config"]
@@ -56,7 +56,7 @@
     (is (<= (count text) 100)))
   (testing "offset skips lines of the body"
     (is (= (str "src/mcp/output.clj:39-45\n"
-                "           (remove s/blank?)\n"
+                "           (remove st/blank?)\n"
                 "           first))")
            (answer {:name "mcp.output/first-line" :offset 5}))))
   (testing "limit lowers the number of lines"
@@ -67,7 +67,7 @@
            (answer {:name "mcp.output/first-line" :limit 2})))))
 
 (deftest ambiguous-candidates-obey-limit-and-offset
-  (let [lines (s/split-lines (answer {:name "test-config" :limit 1 :offset 1}))]
+  (let [lines (st/split-lines (answer {:name "test-config" :limit 1 :offset 1}))]
     (is (= 3 (count lines)))
     (is (re-matches #"test/mcp/search_test.clj:\d+  def  mcp.search-test/test-config" (second lines)))
     (is (= "truncated: shown 2 of 3, pass offset=2 or narrow the query" (last lines)))))

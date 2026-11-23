@@ -2,7 +2,7 @@
   "`semantic_search`: Search units by meaning, as Compact answer lines
    (ADR-0006). Needs Qdrant and Ollama; without them it says so and the
    precise tools keep working (ADR-0003)."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
@@ -51,8 +51,8 @@
         (:kind unit)
         (:name unit)
         (output/first-line (:doc unit))]
-       (remove s/blank?)
-       (s/join "  ")))
+       (remove st/blank?)
+       (st/join "  ")))
 
 (defn- hit-count
   "How many hits to ask the search for: `:search/re-rank-top`, or more
@@ -72,9 +72,9 @@
 
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
-  (let [query (s/trim (str (:query params)))]
+  (let [query (st/trim (str (:query params)))]
     (tool/text-result
-     (if (s/blank? query)
+     (if (st/blank? query)
        "query is empty"
        (try
          (let [hits (search/search config query
@@ -85,7 +85,7 @@
            (if (empty? lines)
              (->> [(str "no results for: " query " " (output/checked code-index)) note]
                   (remove nil?)
-                  (s/join "\n"))
+                  (st/join "\n"))
              (output/render-framed config params {:footer note} lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))

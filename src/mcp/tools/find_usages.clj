@@ -1,7 +1,7 @@
 (ns mcp.tools.find-usages
   "`find_usages`: every Usage of one or more targets, grouped by target, as
    Compact answer lines (ADR-0006) within the Output budget (ADR-0004)."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]
@@ -50,7 +50,7 @@
 (defn- usage->line
   [root {:keys [filename row col kind enclosing]}]
   (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
-    (not (s/blank? enclosing)) (str "  " enclosing)))
+    (not (st/blank? enclosing)) (str "  " enclosing)))
 
 (defn- wanted?
   [index {:keys [kinds include-tests?]} {:keys [filename kind]}]
@@ -99,8 +99,8 @@
   [value]
   (->> (if (sequential? value) value [value])
        (remove nil?)
-       (map (comp s/trim str))
-       (remove s/blank?)))
+       (map (comp st/trim str))
+       (remove st/blank?)))
 
 (defmethod tool/call :find_usages
   [_tool-key params {:keys [config code-index]}]

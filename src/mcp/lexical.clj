@@ -4,7 +4,7 @@
    total) and of its docstring. Pure; complements the vector
    search, which misses Definitions whose names and docstrings say
    exactly what the query asks for."
-  (:require [clojure.string :as s]))
+  (:require [clojure.string :as st]))
 
 (set! *warn-on-reflection* true)
 
@@ -36,9 +36,9 @@
    too short or the word ends with a double `s` (`address`)."
   [word]
   (or (some (fn [suffix]
-              (when (and (s/ends-with? word suffix)
+              (when (and (st/ends-with? word suffix)
                          (>= (- (count word) (count suffix)) min-stem-length)
-                         (not (s/ends-with? word "ss")))
+                         (not (st/ends-with? word "ss")))
                 (subs word 0 (- (count word) (count suffix)))))
             suffixes)
       word))
@@ -49,17 +49,17 @@
   [word]
   (let [stripped (strip-suffix word)]
     (cond-> stripped
-      (and (s/ends-with? stripped "e") (> (count stripped) min-stem-length))
+      (and (st/ends-with? stripped "e") (> (count stripped) min-stem-length))
       (subs 0 (dec (count stripped))))))
 
 (defn- words
   "Stemmed words of `text`, without stop words; camelCase is split."
   [text]
-  (->> (s/split (-> (str text)
-                    (s/replace #"(\p{Ll}|\p{N})(\p{Lu})" "$1 $2")
-                    s/lower-case)
+  (->> (st/split (-> (str text)
+                    (st/replace #"(\p{Ll}|\p{N})(\p{Lu})" "$1 $2")
+                    st/lower-case)
                 #"[^\p{L}\p{N}]+")
-       (remove s/blank?)
+       (remove st/blank?)
        (remove stop-words)
        (map stem)))
 

@@ -1,6 +1,6 @@
 (ns mcp.output
   "Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]))
 
 (set! *warn-on-reflection* true)
@@ -27,8 +27,8 @@
   "Return `file-path` relative to the project root `root-path`; paths
    outside the root are returned unchanged."
   [root-path file-path]
-  (let [prefix (str (s/replace (or root-path "") #"/+$" "") "/")]
-    (if (s/starts-with? (str file-path) prefix)
+  (let [prefix (str (st/replace (or root-path "") #"/+$" "") "/")]
+    (if (st/starts-with? (str file-path) prefix)
       (subs file-path (count prefix))
       file-path)))
 
@@ -39,9 +39,9 @@
 (defn first-line
   "First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
   [text]
-  (some->> (some-> text s/split-lines)
-           (map s/trim)
-           (remove s/blank?)
+  (some->> (some-> text st/split-lines)
+           (map st/trim)
+           (remove st/blank?)
            first))
 
 ;; ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@
   (let [shown-until (+ offset (count shown))]
     (cond-> (vec shown)
       (< shown-until total) (conj (truncation-note shown-until total))
-      true (->> (s/join "\n")))))
+      true (->> (st/join "\n")))))
 
 (defn- oversized-first-finding
   "Answer for a page whose first finding alone exceeds `:output/max-chars`:
@@ -89,8 +89,8 @@
                        (if footer (inc (count footer)) 0))
         body (render (update cfg :output/max-chars - frame-chars) args findings)]
     (->> [header body footer]
-         (remove s/blank?)
-         (s/join "\n"))))
+         (remove st/blank?)
+         (st/join "\n"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared answers
@@ -119,10 +119,10 @@
   (->> [(str (relative-path (code-index/root index) filename) ":" row)
         kind
         (code-index/qualified-name definition)
-        (s/join " " arglists)
+        (st/join " " arglists)
         (first-line doc)]
-       (remove s/blank?)
-       (s/join "  ")))
+       (remove st/blank?)
+       (st/join "  ")))
 
 (defn ambiguous-header
   "Header line for `name-str` that denotes `candidate-count` candidates,

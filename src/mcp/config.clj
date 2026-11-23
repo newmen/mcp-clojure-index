@@ -1,6 +1,6 @@
 (ns mcp.config
   (:require [clojure.java.io :as io]
-            [clojure.string :as s]
+            [clojure.string :as st]
             [clojure.edn :as edn])
   (:import (java.io PushbackReader)
            (java.lang System)))
@@ -19,7 +19,7 @@
 
 (defn- pattern->regex
   [pattern]
-  (let [escaped (s/replace pattern "." "\\.")]
+  (let [escaped (st/replace pattern "." "\\.")]
     (re-pattern escaped)))
 
 (def defaults
@@ -56,13 +56,13 @@
 
 (defn- not-blank
   [^String s]
-  (when (and s (not (s/blank? s))) s))
+  (when (and s (not (st/blank? s))) s))
 
 (defn- non-root-path
   "Return the path if it is a non-blank string and not the root directory."
   [^String path]
   (when (and path
-             (not (s/blank? path))
+             (not (st/blank? path))
              (not= path "/"))
     path))
 
@@ -94,10 +94,10 @@
                       (non-root-path (get-env "VSCODE_CWD"))
                       (*user-dir-fn*)
                       ".")
-        norm-root (s/replace root-path #"/$" "")
+        norm-root (st/replace root-path #"/$" "")
         collection (or (:qdrant/collection cfg)
                        (not-blank (get-env "QD_COLLECTION"))
-                       (str (last (s/split norm-root #"/")) "-collection")
+                       (str (last (st/split norm-root #"/")) "-collection")
                        "clojure-code-index")
         cache-dir (or (:embedding/cache-dir cfg)
                       (str norm-root "/.mcp/embedding-cache"))]

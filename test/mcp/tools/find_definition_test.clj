@@ -1,6 +1,6 @@
 (ns mcp.tools.find-definition-test
   "Acceptance case 4 of the spec, on this project's own code base."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
@@ -34,7 +34,7 @@
          (answer {:name "mcp.output"}))))
 
 (deftest ambiguous-simple-name-returns-candidates
-  (let [[header & candidates] (s/split-lines (answer {:name "test-config"}))]
+  (let [[header & candidates] (st/split-lines (answer {:name "test-config"}))]
     (is (= "ambiguous: 3 definitions named test-config, pass a qualified name" header))
     (is (= [["test/mcp/qdrant_test.clj" "mcp.qdrant-test/test-config"]
             ["test/mcp/search_test.clj" "mcp.search-test/test-config"]
@@ -50,9 +50,9 @@
 (deftest answer-respects-output-budget
   (let [cfg (assoc project/config :output/limit 2)
         text (answer cfg {:name "test-config"})]
-    (is (= 4 (count (s/split-lines text))))
-    (is (s/ends-with? text "truncated: shown 2 of 3, pass offset=2 or narrow the query"))
-    (is (s/includes? (answer cfg {:name "test-config" :offset 2}) "mcp.tools-test/test-config"))
+    (is (= 4 (count (st/split-lines text))))
+    (is (st/ends-with? text "truncated: shown 2 of 3, pass offset=2 or narrow the query"))
+    (is (st/includes? (answer cfg {:name "test-config" :offset 2}) "mcp.tools-test/test-config"))
     (is (<= (count text) (:output/max-chars cfg)))))
 
 (def ^:private definitions-fixture

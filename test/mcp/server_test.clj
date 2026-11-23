@@ -1,6 +1,6 @@
 (ns mcp.server-test
   (:require [clojure.java.io :as io]
-            [clojure.string :as s]
+            [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.server :as sut]
@@ -49,12 +49,12 @@
 (deftest initialize-returns-instructions-to-prefer-the-server-over-grep
   (let [[response _state] (#'sut/initialize-handler {:id 1 :method "initialize"} {})
         instructions (get-in response [:result :instructions])]
-    (is (<= 4 (count (s/split-lines instructions)) 6))
+    (is (<= 4 (count (st/split-lines instructions)) 6))
     (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
                     "path:line" "size ceiling" "get_source"]]
-      (is (s/includes? instructions phrase) phrase))
+      (is (st/includes? instructions phrase) phrase))
     (testing "says only what the spec lists"
-      (is (not (s/includes? instructions "find_definition"))))))
+      (is (not (st/includes? instructions "find_definition"))))))
 
 (deftest handle-method-tools-call-find-definition-without-qdrant
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"

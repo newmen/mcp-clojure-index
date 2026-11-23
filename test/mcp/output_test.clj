@@ -1,5 +1,5 @@
 (ns mcp.output-test
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is]]
             [mcp.output :as sut]))
 
@@ -42,7 +42,7 @@
   (let [huge (apply str (repeat 500 "x"))
         answer (sut/render {:output/limit 50 :output/max-chars 100} {} [huge "b.clj:1"])]
     (is (<= (count answer) 100))
-    (is (s/ends-with? answer "truncated: shown 1 of 2, pass offset=1 or narrow the query"))))
+    (is (st/ends-with? answer "truncated: shown 1 of 2, pass offset=1 or narrow the query"))))
 
 (deftest render-without-truncation-has-no-note
   (is (= "a.clj:1  defn  a/one\na.clj:2  defn  a/two"

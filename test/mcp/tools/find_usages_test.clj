@@ -2,7 +2,7 @@
   "Acceptance cases 1, 2 and 3 of the spec, on
    fixture projects under `test-resources/usages/` and on this project's
    own code base."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
@@ -30,7 +30,7 @@
 
 (defn- answer-lines
   [code-index args]
-  (s/split-lines (answer code-index args)))
+  (st/split-lines (answer code-index args)))
 
 (def ^:private get-uuid-usages
   ["src/app/core.clj:10:11  value  app.core/uses-value"
@@ -79,11 +79,11 @@
                                                        :kinds ["call" "value" "var-ref"
                                                                "redef" "require"]})]
     (is (= "app.core/get-uuid: 12 usages" header))
-    (is (= (sort (remove #(s/includes? % "in-comment") get-uuid-usages)) (sort usages)))))
+    (is (= (sort (remove #(st/includes? % "in-comment") get-uuid-usages)) (sort usages)))))
 
 (deftest test-usages-are-dropped-when-tests-are-excluded
   (testing "Test path from project.clj :test-paths"
-    (is (not-any? #(s/starts-with? % "spec/")
+    (is (not-any? #(st/starts-with? % "spec/")
                   (answer-lines @lein-project {:targets ["get-uuid"] :include_tests false})))
     (is (= "app.core/get-uuid: 11 usages"
            (first (answer-lines @lein-project {:targets ["get-uuid"] :include_tests false})))))
@@ -128,7 +128,7 @@
             "src/mcp/tools/find_usages.clj:L:C  value  mcp.tools.find-usages/target-group"
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
-           (map #(s/replace % #":\d+:\d+  " ":L:C  ")
+           (map #(st/replace % #":\d+:\d+  " ":L:C  ")
                 (answer-lines (project/code-index)
                               {:targets ["mcp.output/definition->line"
                                          "output/oversized-first-finding"]}))))))
@@ -185,8 +185,8 @@
         text (answer cfg @lein-project {:targets ["get-uuid"]})
         next-page (answer cfg @lein-project {:targets ["get-uuid"] :offset 4})]
     (is (<= (count text) (:output/max-chars cfg)))
-    (is (s/ends-with? text "truncated: shown 4 of 13, pass offset=4 or narrow the query"))
-    (is (s/starts-with? next-page "app.core/get-uuid: 13 usages\n"))))
+    (is (st/ends-with? text "truncated: shown 4 of 13, pass offset=4 or narrow the query"))
+    (is (st/starts-with? next-page "app.core/get-uuid: 13 usages\n"))))
 
 (deftest description-says-why-it-beats-grep
   (let [spec (some #(when (= "find_usages" (:name %)) %)

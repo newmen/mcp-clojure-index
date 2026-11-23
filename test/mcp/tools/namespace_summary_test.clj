@@ -1,6 +1,6 @@
 (ns mcp.tools.namespace-summary-test
   "`namespace_summary` on this project's own code base."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
@@ -40,13 +40,13 @@
 
 (defn- required-by
   [text]
-  (some->> (s/split-lines text)
+  (some->> (st/split-lines text)
            (some #(second (re-matches #"required by: (.*)" %)))
-           (#(s/split % #", "))
+           (#(st/split % #", "))
            set))
 
 (deftest summarises-every-definition-of-a-namespace
-  (let [[header & lines] (s/split-lines (answer {:ns "mcp.output"}))]
+  (let [[header & lines] (st/split-lines (answer {:ns "mcp.output"}))]
     (is (= "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
            header))
     (is (= output-definitions (butlast lines)))))
@@ -54,12 +54,12 @@
 (deftest lists-namespaces-that-require-it
   (let [text (answer {:ns "mcp.output"})
         requirers (required-by text)]
-    (is (s/starts-with? (last (s/split-lines text)) "required by: "))
+    (is (st/starts-with? (last (st/split-lines text)) "required by: "))
     (is (every? requirers output-requirers))
     (is (not (contains? requirers "mcp.output")))))
 
 (deftest namespace-nobody-requires
-  (is (s/ends-with? (answer {:ns "mcp.output-test"}) "required by: none")))
+  (is (st/ends-with? (answer {:ns "mcp.output-test"}) "required by: none")))
 
 (deftest unknown-namespace-returns-close-candidates
   (testing "misspelt"
@@ -67,7 +67,7 @@
       (is (re-matches #"not found: namespace mcp\.outptu \(checked \d+ files, including tests\); close: .*mcp\.output.*"
                       (answer {:ns "mcp.outptu"})))))
   (testing "partial name"
-    (is (s/includes? (answer {:ns "find-definition"}) "mcp.tools.find-definition")))
+    (is (st/includes? (answer {:ns "find-definition"}) "mcp.tools.find-definition")))
   (testing "nothing close"
     (is (re-matches #"not found: namespace zzzzzzzz \(checked \d+ files, including tests\)"
                     (answer {:ns "zzzzzzzz"})))))
@@ -75,12 +75,12 @@
 (deftest answer-respects-output-budget
   (let [cfg (assoc project/config :output/limit 3)
         text (answer cfg {:ns "mcp.output"})
-        lines (s/split-lines text)]
+        lines (st/split-lines text)]
     (is (= 5 (count lines)))
     (is (= (take 3 output-definitions) (take 3 (rest lines))))
     (is (re-matches #"truncated: shown 3 of \d+, pass offset=3 or narrow the query" (last lines)))
     (is (= (drop 3 (take 6 output-definitions))
-           (take 3 (rest (s/split-lines (answer cfg {:ns "mcp.output" :offset 3}))))))
+           (take 3 (rest (st/split-lines (answer cfg {:ns "mcp.output" :offset 3}))))))
     (is (<= (count text) (:output/max-chars cfg))))
   (testing "character ceiling"
     (let [cfg (assoc project/config :output/max-chars 300)
@@ -96,17 +96,17 @@
 
 (deftest defmethods-belong-to-the-namespace-of-their-file
   (testing "a tool namespace lists its own defmethods with their dispatch values"
-    (let [lines (s/split-lines (answer {:ns "mcp.tools.get-source"}))]
+    (let [lines (st/split-lines (answer {:ns "mcp.tools.get-source"}))]
       (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/spec :get_source") lines))
       (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/call :get_source") lines))))
   (testing "the multimethod's namespace does not list defmethods written in other files"
-    (is (not (s/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
+    (is (not (st/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
   (testing "a defmethod of a local multimethod is named without its namespace"
     (let [text (-> (tool/call :namespace_summary {:ns "app.core"}
                               {:config definitions-fixture-config
                                :code-index (code-index/build definitions-fixture-config)})
                    :content first :text)]
-      (is (some #{"15  public  defmethod  area :circle"} (s/split-lines text))))))
+      (is (some #{"15  public  defmethod  area :circle"} (st/split-lines text))))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

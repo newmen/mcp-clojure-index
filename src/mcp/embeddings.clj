@@ -1,5 +1,5 @@
 (ns mcp.embeddings
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.data.json :as json]
@@ -84,7 +84,7 @@
 (defn- endpoint-url
   "`path` under the API `base-url`, with or without a trailing slash."
   [base-url path]
-  (str (s/replace base-url #"/$" "") path))
+  (str (st/replace base-url #"/$" "") path))
 
 (defn- ollama-embed-url
   [cfg]

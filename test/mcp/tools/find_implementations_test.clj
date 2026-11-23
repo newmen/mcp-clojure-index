@@ -1,7 +1,7 @@
 (ns mcp.tools.find-implementations-test
   "`find_implementations` on a fixture project covering every form of
    Implementation."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.test-project :as project]
@@ -36,17 +36,17 @@
                   "src/impl/shapes.clj:26  Long  perimeter"
                   "src/impl/shapes.clj:31  reify in impl.shapes/make-shape  area"]]
     (testing "simple name"
-      (is (= expected (s/split-lines (answer {:name "Shape"})))))
+      (is (= expected (st/split-lines (answer {:name "Shape"})))))
     (testing "fully qualified name"
-      (is (= expected (s/split-lines (answer {:name "impl.shapes/Shape"})))))
+      (is (= expected (st/split-lines (answer {:name "impl.shapes/Shape"})))))
     (testing "alias-qualified name, as written in impl.other"
-      (is (= expected (s/split-lines (answer {:name "sh/Shape"})))))))
+      (is (= expected (st/split-lines (answer {:name "sh/Shape"})))))))
 
 (deftest lists-multimethod-implementations-with-dispatch-value
   (is (= ["src/impl/other.clj:10  :triangle  render"
           "src/impl/shapes.clj:35  :circle  render"
           "src/impl/shapes.clj:37  [:sq :rect]  render"]
-         (s/split-lines (answer {:name "render"})))))
+         (st/split-lines (answer {:name "render"})))))
 
 (deftest name-that-is-neither-protocol-nor-multimethod-says-so
   (is (= "not a protocol or multimethod: make-shape (impl.shapes/make-shape defn)"
@@ -63,10 +63,10 @@
 (deftest answer-respects-output-budget
   (let [cfg (assoc fixture-config :output/limit 2)
         text (answer cfg {:name "Shape"})]
-    (is (= 3 (count (s/split-lines text))))
-    (is (s/ends-with? text "truncated: shown 2 of 9, pass offset=2 or narrow the query"))
-    (is (s/starts-with? (answer cfg {:name "Shape" :offset 2})
-                        "src/impl/shapes.clj:11  impl.shapes/Circle  perimeter"))
+    (is (= 3 (count (st/split-lines text))))
+    (is (st/ends-with? text "truncated: shown 2 of 9, pass offset=2 or narrow the query"))
+    (is (st/starts-with? (answer cfg {:name "Shape" :offset 2})
+                         "src/impl/shapes.clj:11  impl.shapes/Circle  perimeter"))
     (is (<= (count text) (:output/max-chars cfg)))))
 
 (deftest replaces-old-protocol-record-and-macro-tools

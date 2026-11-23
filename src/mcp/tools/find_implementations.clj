@@ -7,7 +7,7 @@
    type, so the type is derived: from the enclosing `defrecord`/`deftype`
    Definition, from the source of the enclosing `extend-*` form, or, for
    `reify`, from the enclosing Definition."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]
@@ -69,7 +69,7 @@
   [index impl]
   (some->> (code-index/entries index :var-definitions)
            (filter (comp #{(:defined-by impl)} :defined-by))
-           (remove (comp #(s/includes? % "->") str :name))
+           (remove (comp #(st/includes? % "->") str :name))
            (#(innermost % impl))
            code-index/qualified-name))
 
@@ -169,7 +169,7 @@
 (defn- not-implementable
   [name-str definitions]
   (str "not a protocol or multimethod: " name-str " ("
-       (s/join ", " (map #(str (code-index/qualified-name %) " " (:kind %)) definitions))
+       (st/join ", " (map #(str (code-index/qualified-name %) " " (:kind %)) definitions))
        ")"))
 
 (defn- no-implementations

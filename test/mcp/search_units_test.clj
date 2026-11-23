@@ -1,6 +1,6 @@
 (ns mcp.search-units-test
   "Search units built from the precise index of a fixture project."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
             [mcp.search-units :as sut]
@@ -70,7 +70,7 @@
                {:ns 'big :name 'huge :kind "def" :filename "/f.clj"
                 :row 1 :col 1 :end-row 400 :end-col 23})]
     (testing "the source part is cut, the name stays"
-      (is (s/starts-with? (:text unit) "big/huge\n"))
+      (is (st/starts-with? (:text unit) "big/huge\n"))
       (is (<= 2000 (count (:text unit)) 2100)))))
 
 (deftest search-units-of-the-same-content-have-the-same-id-and-hash

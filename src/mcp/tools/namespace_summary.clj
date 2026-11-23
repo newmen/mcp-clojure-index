@@ -2,7 +2,7 @@
   "`namespace_summary`: what a namespace contains, without reading the file,
    as Compact answer lines (ADR-0006): one line per Definition, then the
    namespaces that require it."
-  (:require [clojure.string :as s]
+  (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]))
@@ -38,7 +38,7 @@
 
 (defn- join-fields
   [fields]
-  (->> fields (remove s/blank?) (s/join "  ")))
+  (->> fields (remove st/blank?) (st/join "  ")))
 
 (defn- header
   [root {:keys [filename doc] ns-name :name}]
@@ -52,13 +52,13 @@
                 (if private "private" "public")
                 kind
                 (code-index/local-name definition)
-                (s/join " " arglists)
+                (st/join " " arglists)
                 (output/first-line doc)]))
 
 (defn- required-by-line
   [index ns-sym]
   (str "required by: "
-       (or (some->> (code-index/requiring-namespaces index ns-sym) (s/join ", "))
+       (or (some->> (code-index/requiring-namespaces index ns-sym) (st/join ", "))
            "none")))
 
 (defn- summary
@@ -96,7 +96,7 @@
    it is not a close candidate."
   [asked-str ns-str]
   (let [distance (edit-distance asked-str ns-str)]
-    (cond (s/includes? ns-str asked-str) 0
+    (cond (st/includes? ns-str asked-str) 0
           (<= distance max-candidate-distance) distance)))
 
 (defn- candidates
@@ -113,7 +113,7 @@
   [index asked-str]
   (let [close (candidates index asked-str)]
     (cond-> (output/not-found index (str "namespace " asked-str))
-      (seq close) (str "; close: " (s/join ", " close)))))
+      (seq close) (str "; close: " (st/join ", " close)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool
@@ -121,7 +121,7 @@
 
 (defmethod tool/call :namespace_summary
   [_tool-key params {:keys [config code-index]}]
-  (let [asked-str (s/trim (str (:ns params)))]
+  (let [asked-str (st/trim (str (:ns params)))]
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
        (summary config params code-index ns-def)

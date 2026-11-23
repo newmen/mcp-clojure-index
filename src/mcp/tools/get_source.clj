@@ -33,19 +33,19 @@
    Output budget; a line that alone exceeds it ends with the source
    Truncation note.
 
-  OutputBudget -> CodeIndex -> Definition -> IO String"
-  [budget index {:keys [filename row end-row] :as definition}]
+  AnswerContext -> Definition -> IO String"
+  [{:keys [budget index]} {:keys [filename row end-row] :as definition}]
   (output/render-framed budget
                         {:header (str (output/relative-path (code-index/root index) filename)
                                       ":" row "-" end-row)}
                         (code-index/form-lines (code-index/file-lines filename) definition)
-                        {:cut #(output/cut-finding "source" identity %2 %1)}))
+                        {:cut (fn [room line] (output/cut-finding {:what :source :text line} room))}))
 
 (defmethod tool/call :get_source
   [_tool-key params {:keys [config code-index]}]
   (let [name-str (str (:name params))
-        budget (output/budget config params)]
+        ctx (output/answer-context config params code-index)]
     (tool/text-result
-     (output/one-definition budget (:doc/signature config) code-index name-str
+     (output/one-definition ctx name-str
                             (code-index/resolve-name code-index name-str)
-                            (partial source-answer budget code-index)))))
+                            (partial source-answer ctx)))))

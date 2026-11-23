@@ -25,7 +25,7 @@
        "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
        "Answers are compact `path:line` lines under a hard size ceiling; page with `offset` when an answer says it is truncated.\n"
        "Use get_source for a definition's body instead of reading the whole file.\n"
-       "The index is re-read from changed files (by mtime) before every answer, so edits are visible immediately; no need to re-check with grep."))
+       tool/freshness-note " No need to re-check with grep."))
 (defonce ^:private server-state-atom (atom nil))
 
 ;; JsonRpcMessage: a parsed request or notification, keyword keys.

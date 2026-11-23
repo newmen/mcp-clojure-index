@@ -81,8 +81,8 @@
 (defn- summary
   "The answer for the namespace `ns-def`: header, Definitions, requirers.
 
-  OutputBudget -> SignatureStrategy -> CodeIndex -> AnalysisEntry -> String"
-  [budget signature-strategy index ns-def]
+  AnswerContext -> AnalysisEntry -> String"
+  [{:keys [budget index signature-strategy]} ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
@@ -153,5 +153,5 @@
   (let [asked-str (st/trim (str (:ns params)))]
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
-       (summary (output/budget config params) (:doc/signature config) code-index ns-def)
+       (summary (output/answer-context config params code-index) ns-def)
        (unknown-namespace-answer code-index asked-str)))))

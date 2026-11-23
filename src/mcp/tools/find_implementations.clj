@@ -233,9 +233,8 @@
      (cond
        (empty? definitions) (output/not-found code-index name-str)
        (empty? implementable) (not-implementable name-str definitions)
-       (next implementable) (output/ambiguous (output/budget config params) (:doc/signature config)
-                                              code-index "protocols or multimethods" name-str
-                                              implementable)
+       (next implementable) (output/ambiguous (output/answer-context config params code-index)
+                                              "protocols or multimethods" name-str implementable)
        :else (let [lines (mapv (partial implementation->line root)
                                (implementations code-index (first implementable)))]
                (if (seq lines)

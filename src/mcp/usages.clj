@@ -291,11 +291,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- plural
-  "`n` followed by `word`, with an `s` unless `n` is 1.
+  "`item-count` followed by `noun`, with an `s` unless `item-count` is 1.
 
   Long -> String -> String"
-  [n word]
-  (str n " " word (when (not= 1 n) "s")))
+  [item-count noun]
+  (str item-count " " noun (when (not= 1 item-count) "s")))
 
 (defn- arity-warning
   "The `wrong arity` Usage warning of a `call` whose argument count matches

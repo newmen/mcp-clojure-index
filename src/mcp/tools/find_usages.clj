@@ -88,13 +88,6 @@
 
 (s/def ::line-reader ifn?)
 
-(defn- collapse-whitespace
-  "`text` with every run of whitespace replaced by one space.
-
-  String -> String"
-  [text]
-  (st/replace text #"\s+" " "))
-
 (defn- usage-context
   "The Usage context of the Usage at 1-based `col` of `line`: the line with
    whitespace runs collapsed, cut to `context-width` characters around the
@@ -103,16 +96,16 @@
   String -> Long -> String"
   [line col]
   (let [column-index (min (count line) (max 0 (dec col)))
-        lead (collapse-whitespace (st/triml (subs line 0 column-index)))
-        text (st/trimr (str lead (collapse-whitespace (subs line column-index))))
+        lead (output/collapse-whitespace (st/triml (subs line 0 column-index)))
+        text (st/trimr (str lead (output/collapse-whitespace (subs line column-index))))
         length (count text)
         start (max 0 (min (- (count lead) context-lead) (- length context-width)))
         end (min length (+ start context-width))
         cut-start? (pos? start)
         cut-end? (< end length)]
-    (str (when cut-start? "\u2026")
+    (str (when cut-start? output/ellipsis)
          (subs text (cond-> start cut-start? inc) (cond-> end cut-end? dec))
-         (when cut-end? "\u2026"))))
+         (when cut-end? output/ellipsis))))
 
 (defn- usage->line
   "The Compact answer line of a Usage: `path:line:col  kind  enclosing`,
@@ -143,14 +136,14 @@
 
   Ambiguous candidates show no Type signature.
 
-  SignatureStrategy -> CodeIndex -> Maybe LineReader -> UsageFilter -> String -> IO TargetAnswer"
-  [signature-strategy index read-lines opts target-str]
+  AnswerContext -> Maybe LineReader -> UsageFilter -> String -> IO TargetAnswer"
+  [{:keys [index] :as ctx} read-lines opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
-                  :lines (mapv #(output/definition->line signature-strategy index % {:signature? false})
+                  :lines (mapv #(output/definition->line ctx % {:signature? false})
                                candidates)}
       (nil? target) {:header (str "not found: " target-str " " (output/checked index (:include-tests? opts)))}
       (= :defmethod (:target/type target))
@@ -203,9 +196,9 @@
               :context? (not (false? (:context params)))
               :warnings-only? (true? (:warnings_only params))}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
-        groups (map (partial target-group (:doc/signature config) code-index read-lines opts)
-                    (distinct (as-strings (:targets params))))
-        budget (output/budget config params)]
+        {:keys [budget] :as ctx} (output/answer-context config params code-index)
+        groups (map (partial target-group ctx read-lines opts)
+                    (distinct (as-strings (:targets params))))]
     (tool/text-result
      (if (empty? groups)
        "no targets given"

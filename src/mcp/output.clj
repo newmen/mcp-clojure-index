@@ -75,6 +75,22 @@
 ;; Text
 ;; ---------------------------------------------------------------------------
 
+(defn collapse-whitespace
+  "`text` with every run of whitespace replaced by one space.
+
+  String -> String"
+  [text]
+  (st/replace text #"\s+" " "))
+
+(defn- collapsed-text
+  "`text` with whitespace collapsed and trimmed; nil when nothing remains.
+
+  Maybe String -> Maybe String"
+  [text]
+  (let [collapsed (-> (or text "") collapse-whitespace st/trim)]
+    (when-not (st/blank? collapsed)
+      collapsed)))
+
 (defn- sentence-end
   "The index just past the first sentence of the whitespace-collapsed
    `text`; nil when the whole text is one sentence.
@@ -106,12 +122,11 @@
 
   Maybe String -> Maybe String"
   [doc]
-  (let [text (-> (or doc "") (st/replace #"\s+" " ") st/trim)]
-    (when-not (st/blank? text)
-      (let [end (or (sentence-end text) (count text))
-            remaining (st/trim (subs text end))]
-        (cond-> (subs text 0 end)
-          (not (st/blank? remaining)) (str " (+" (count remaining) " chars)"))))))
+  (when-let [text (collapsed-text doc)]
+    (let [end (or (sentence-end text) (count text))
+          remaining (st/trim (subs text end))]
+      (cond-> (subs text 0 end)
+        (not (st/blank? remaining)) (str " (+" (count remaining) " chars)")))))
 
 ;; SignatureStrategy: the value of `:doc/signature` in the config, the
 ;; built-in strategy that finds a Definition's Type signature:
@@ -134,15 +149,14 @@
 
 (s/def ::definition-doc (s/keys :req-un [::summary ::signature]))
 
-(defn- collapse-whitespace
-  "`text` with every run of whitespace replaced by one space, trimmed;
-   nil when nothing remains.
+;; SignatureSplit: what `split-signature` returns, the Type signature and
+;; the text the Docstring summary is taken from,
+;; {:text "First sentence. More." :signature "String -> Long"}; :signature
+;; is nil when the docstring has none.
 
-  String -> Maybe String"
-  [text]
-  (let [collapsed (-> text (st/replace #"\s+" " ") st/trim)]
-    (when-not (st/blank? collapsed)
-      collapsed)))
+(s/def ::text string?)
+
+(s/def ::signature-split (s/keys :req-un [::text ::signature]))
 
 (defmulti split-signature
   "Splits the docstring `doc` into its Type signature and the text the
@@ -150,7 +164,7 @@
 
   A new strategy is a `defmethod` of this multimethod.
 
-  SignatureStrategy -> String -> {:text String :signature Maybe String}"
+  SignatureStrategy -> String -> SignatureSplit"
   (fn [signature-strategy _doc] (:strategy signature-strategy)))
 
 (defmethod split-signature :default
@@ -162,7 +176,7 @@
   (let [paragraphs (remove st/blank? (st/split doc #"\n\s*\n"))]
     (if (next paragraphs)
       {:text (st/join "\n\n" (butlast paragraphs))
-       :signature (collapse-whitespace (last paragraphs))}
+       :signature (collapsed-text (last paragraphs))}
       {:text doc :signature nil})))
 
 (defmethod split-signature :pattern
@@ -170,7 +184,7 @@
   (let [^java.util.regex.Matcher matcher (re-matcher (re-pattern regex) doc)]
     (if (.find matcher)
       {:text (str (subs doc 0 (.start matcher)) " " (subs doc (.end matcher)))
-       :signature (some-> (.group matcher 1) collapse-whitespace)}
+       :signature (collapsed-text (.group matcher 1))}
       {:text doc :signature nil})))
 
 (defn definition-doc
@@ -201,18 +215,24 @@
       (< shown-until total) (conj (truncation-note shown-until total))
       true (->> (st/join "\n")))))
 
-(defn- ellipsis-cut
-  "The first `room` characters of `finding`, its last one replaced by `…`.
+(def ellipsis
+  "The mark of a cut end of a text.
+
+  String"
+  "…")
+
+(defn ellipsis-cut
+  "The first `room` characters of `text`, its last one replaced by `…`.
 
   Long -> String -> String"
-  [room finding]
-  (str (subs finding 0 (min (max 0 (dec room)) (count finding))) "…"))
+  [room text]
+  (str (subs text 0 (min (max 0 (dec room)) (count text))) ellipsis))
 
 (defn- oversized-first-finding
   "Cuts the first finding of a page that alone exceeds `max-chars` with
    `cut`, so that paging still advances by one.
 
-  (Long -> String -> String) -> Long -> [String] -> Long -> Long -> String"
+  (Long -> a -> String) -> Long -> [a] -> Long -> Long -> String"
   [cut max-chars page offset total]
   (if-let [finding (first page)]
     (let [note-chars (count (answer-text [] (inc offset) total))
@@ -220,28 +240,33 @@
       (answer-text [(cut room finding)] offset total))
     ""))
 
-;; RenderOptions: how `render` cuts a single finding that alone exceeds the
-;; Output budget, {:cut (fn [room finding] ...)}: the finding cut to at most
-;; `room` characters. Without `:cut` the finding ends with `…`.
+;; RenderOptions: how `render` shows the findings,
+;; {:text-of (fn [finding] ...) :cut (fn [room finding] ...)}. `:text-of`
+;; is the text of a finding (default: the finding is a string); `:cut` is
+;; a finding that alone exceeds the Output budget, cut to at most `room`
+;; characters (default: its text ends with `…`).
+
+(s/def ::text-of fn?)
 
 (s/def ::cut fn?)
 
-(s/def ::render-options (s/keys :opt-un [::cut]))
+(s/def ::render-options (s/keys :opt-un [::text-of ::cut]))
 
 (defn render
-  "Renders `findings` (one string per finding) as an answer within the
-   Output budget.
+  "Renders `findings` as an answer within the Output budget.
 
   OutputBudget -> [String] -> String
-  OutputBudget -> [String] -> RenderOptions -> String"
+  OutputBudget -> [a] -> RenderOptions -> String"
   ([budget findings] (render budget findings {}))
-  ([{:keys [limit max-chars offset]} findings {:keys [cut]}]
+  ([{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]
    (let [total (count findings)
          page (->> findings (drop offset) (take limit))
+         texts (map text-of page)
          answers (->> (range (count page) 0 -1)
-                      (map #(answer-text (take % page) offset total)))]
+                      (map #(answer-text (take % texts) offset total)))]
      (or (first (filter #(<= (count %) max-chars) answers))
-         (oversized-first-finding (or cut ellipsis-cut) max-chars page offset total)))))
+         (oversized-first-finding (or cut #(ellipsis-cut %1 (text-of %2)))
+                                  max-chars page offset total)))))
 
 (defn render-framed
   "Renders `findings` inside an AnswerFrame.
@@ -250,7 +275,7 @@
   whole answer still within the Output budget.
 
   OutputBudget -> AnswerFrame -> [String] -> String
-  OutputBudget -> AnswerFrame -> [String] -> RenderOptions -> String"
+  OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String"
   ([budget frame findings] (render-framed budget frame findings {}))
   ([budget {:keys [header footer]} findings options]
    (let [frame-chars (+ (if header (inc (count header)) 0)
@@ -260,21 +285,32 @@
           (remove st/blank?)
           (st/join "\n")))))
 
+;; FindingCut: what `cut-finding` cuts,
+;; {:what :docstring :text "..." :finding-of (fn [shown-text] ...)}: the
+;; finding `finding-of` (default `identity`) makes of a prefix of `text`,
+;; `:what` (`:docstring` or `:source`) naming the text in the Truncation note.
+
+(s/def ::what #{:docstring :source})
+
+(s/def ::finding-of fn?)
+
+(s/def ::finding-cut (s/keys :req-un [::what ::text] :opt-un [::finding-of]))
+
 (defn- single-finding-note
   "The Truncation note of a single finding cut to `shown` of its `total`
-   characters of `what` (\"docstring\", \"source\"); it has no paging hint.
+   characters of `what`; it has no paging hint.
 
-  String -> Long -> Long -> String"
+  Keyword -> Long -> Long -> String"
   [what shown total]
-  (str "truncated: " what " shown " shown " of " total " chars"))
+  (str "truncated: " (name what) " shown " shown " of " total " chars"))
 
 (defn cut-finding
-  "The finding `finding-of` makes of the longest prefix of `text` that fits
-   `room` characters together with the Truncation note of `what` on the
-   next line.
+  "The finding made of the longest prefix of the FindingCut's text that
+   fits `room` characters together with its Truncation note on the next
+   line.
 
-  String -> (String -> String) -> String -> Long -> String"
-  [what finding-of text room]
+  FindingCut -> Long -> String"
+  [{:keys [what text finding-of] :or {finding-of identity}} room]
   (let [total (count text)
         cut (fn [shown]
               (str (finding-of (subs text 0 shown)) "\n"
@@ -294,6 +330,25 @@
 ;; ---------------------------------------------------------------------------
 ;; Shared answers
 ;; ---------------------------------------------------------------------------
+
+;; AnswerContext: what an answer about Definitions is rendered with, built
+;; once per call: {:budget OutputBudget :index CodeIndex
+;; :signature-strategy SignatureStrategy}.
+
+(s/def ::budget ::output-budget)
+
+(s/def ::index :mcp.code-index/code-index)
+
+(s/def ::answer-context (s/keys :req-un [::budget ::index ::signature-strategy]))
+
+(defrecord AnswerContext [budget index signature-strategy])
+
+(defn answer-context
+  "The AnswerContext of a call with the tool's `args` on `index`.
+
+  Config -> ToolArgs -> CodeIndex -> AnswerContext"
+  [cfg args index]
+  (->AnswerContext (budget cfg args) index (:doc/signature cfg)))
 
 (defn checked
   "What an answer searched: `(checked N files, including tests)`, or
@@ -339,11 +394,11 @@
   `{:signature? false}` leaves the signature out of the line (it stays out
   of the summary).
 
-  SignatureStrategy -> CodeIndex -> Definition -> String
-  SignatureStrategy -> CodeIndex -> Definition -> {:signature? Boolean} -> String"
-  ([signature-strategy index definition]
-   (definition->line signature-strategy index definition {:signature? true}))
-  ([signature-strategy index definition {:keys [signature?]}]
+  AnswerContext -> Definition -> String
+  AnswerContext -> Definition -> {:signature? Boolean} -> String"
+  ([ctx definition]
+   (definition->line ctx definition {:signature? true}))
+  ([{:keys [index signature-strategy]} definition {:keys [signature?]}]
    (let [{:keys [summary signature]} (definition-doc signature-strategy definition)]
      (->> [(definition-head index definition)
            (when signature? signature)
@@ -364,20 +419,24 @@
    `ambiguous-header`, then one line per candidate, with its Type
    signature, within the Output budget.
 
-  OutputBudget -> SignatureStrategy -> CodeIndex -> String -> String -> [Definition] -> String"
-  [budget signature-strategy index what name-str definitions]
+  AnswerContext -> String -> String -> [Definition] -> String"
+  [{:keys [budget] :as ctx} what name-str definitions]
   (render-framed budget
                  {:header (ambiguous-header what name-str (count definitions))}
-                 (mapv (partial definition->line signature-strategy index) definitions)))
+                 (mapv (partial definition->line ctx) definitions)))
 
 (defn one-definition
   "The answer for `name-str` that resolved to `definitions`: `not-found`
-   for none, `(answer-fn definition)` for exactly one, the `ambiguous`
-   candidates otherwise.
+   for none, `(answer-fn definition)` for exactly one, and for several
+   `(ambiguous-fn definitions)`, by default the `ambiguous` candidates.
 
-  OutputBudget -> SignatureStrategy -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
-  [budget signature-strategy index name-str definitions answer-fn]
-  (case (count definitions)
-    0 (not-found index name-str)
-    1 (answer-fn (first definitions))
-    (ambiguous budget signature-strategy index "definitions" name-str definitions)))
+  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String
+  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String"
+  ([ctx name-str definitions answer-fn]
+   (one-definition ctx name-str definitions answer-fn
+                   (partial ambiguous ctx "definitions" name-str)))
+  ([{:keys [index]} name-str definitions answer-fn ambiguous-fn]
+   (case (count definitions)
+     0 (not-found index name-str)
+     1 (answer-fn (first definitions))
+     (ambiguous-fn definitions))))

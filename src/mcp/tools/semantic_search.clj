@@ -53,10 +53,10 @@
   reranker there is none, never a raw vector score. The line shows no
   Type signature, but `signature-strategy` keeps it out of the summary.
 
-  SignatureStrategy -> String -> Hit -> String"
-  [signature-strategy root {:keys [unit re-rank]}]
+  AnswerContext -> Hit -> String"
+  [{:keys [index signature-strategy]} {:keys [unit re-rank]}]
   (->> [(some->> re-rank double (format "%.2f"))
-        (str (output/relative-path root (:filename unit)) ":" (:row unit))
+        (str (output/relative-path (code-index/root index) (:filename unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
         (:summary (output/definition-doc signature-strategy unit))]
@@ -114,13 +114,14 @@
                                    (search-units/search-units code-index)
                                    (if include-tests? #{} (test-files code-index))
                                    (hit-count config params))
+               ctx (output/answer-context config params code-index)
                note (some-> semantic-index (stale-note code-index))
-               lines (mapv (partial hit->line (:doc/signature config) (code-index/root code-index)) hits)]
+               lines (mapv (partial hit->line ctx) hits)]
            (if (empty? lines)
              (->> [(str "no results for: " query " " (output/checked code-index include-tests?)) note]
                   (remove nil?)
                   (st/join "\n"))
-             (output/render-framed (output/budget config params)
+             (output/render-framed (:budget ctx)
                                    {:header (confidence-note config hits) :footer note}
                                    lines)))
          (catch Exception e

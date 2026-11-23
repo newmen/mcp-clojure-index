@@ -1,7 +1,8 @@
 (ns mcp.tools.find-definition
   "`find_definition`: where a name is defined, resolved like the compiler
    resolves it (ADR-0002), as Compact answer lines (ADR-0006)."
-  (:require [clojure.string :as st]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]))
@@ -64,16 +65,48 @@
            (st/join "\n")
            st/trimr))))
 
-(defn- full-doc-finding
-  "A Definition's `head` line, then the docstring `text` indented by two
-   spaces with its line breaks, or `(no docstring)` when `text` is nil.
+;; FullDocFinding: one finding of a `doc: "full"` answer, a Definition's
+;; `head` line and its docstring `text` (nil when there is none),
+;; {:head "src/app/core.clj:3  defn  app.core/f  [x]" :text "Docstring."}.
 
-  String -> Maybe String -> String"
-  [head text]
+(s/def ::head string?)
+
+(s/def ::text (s/nilable string?))
+
+(s/def ::full-doc-finding (s/keys :req-un [::head ::text]))
+
+(defn- full-doc-finding
+  "The FullDocFinding of `definition`.
+
+  CodeIndex -> Definition -> FullDocFinding"
+  [index definition]
+  {:head (output/definition-head index definition)
+   :text (docstring-text (:doc definition))})
+
+(defn- full-doc-text
+  "The text of a FullDocFinding: its head line, then its docstring
+   indented by two spaces with its line breaks, or `(no docstring)`.
+
+  FullDocFinding -> String"
+  [{:keys [head text]}]
   (->> (if text (st/split text #"\n" -1) ["(no docstring)"])
        (map #(if (st/blank? %) "" (str "  " %)))
        (cons head)
        (st/join "\n")))
+
+(defn- cut-full-doc
+  "A FullDocFinding that alone exceeds the Output budget, cut to `room`
+   characters: its docstring cut, ending with the docstring Truncation
+   note.
+
+  Long -> FullDocFinding -> String"
+  [room {:keys [text] :as finding}]
+  (if text
+    (output/cut-finding {:what :docstring
+                         :text text
+                         :finding-of #(full-doc-text (assoc finding :text %))}
+                        room)
+    (output/ellipsis-cut room (full-doc-text finding))))
 
 (defn- full-doc-answer
   "The `doc: \"full\"` answer for `name-str` that resolved to
@@ -82,37 +115,35 @@
   A finding that alone exceeds the Output budget has its docstring cut and
   ends with the docstring Truncation note.
 
-  OutputBudget -> CodeIndex -> String -> [Definition] -> String"
-  [budget index name-str definitions]
-  (let [heads (map (partial output/definition-head index) definitions)
-        texts (map (comp docstring-text :doc) definitions)
-        findings (mapv full-doc-finding heads texts)
-        parts-of (zipmap findings (map vector heads texts))
-        options {:cut (fn [room finding]
-                        (let [[head text] (parts-of finding)]
-                          (if text
-                            (output/cut-finding "docstring" (partial full-doc-finding head) text room)
-                            (subs finding 0 (min room (count finding))))))}]
-    (case (count definitions)
-      0 (output/not-found index name-str)
-      1 (output/render budget findings options)
-      (output/render-framed budget
-                            {:header (output/ambiguous-header "definitions" name-str (count definitions))}
-                            findings
-                            options))))
+  AnswerContext -> String -> [Definition] -> String"
+  [{:keys [budget index] :as ctx} name-str definitions]
+  (let [findings (mapv (partial full-doc-finding index) definitions)
+        answer (fn [header]
+                 (output/render-framed budget {:header header} findings
+                                       {:text-of full-doc-text :cut cut-full-doc}))]
+    (output/one-definition ctx name-str definitions
+                           (fn [_definition] (answer nil))
+                           (fn [candidates]
+                             (answer (output/ambiguous-header "definitions" name-str (count candidates)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool
 ;; ---------------------------------------------------------------------------
 
+(def ^:private doc-modes
+  "The `doc` argument values and the answers they select.
+
+  {String Keyword}"
+  {"summary" :summary
+   "full" :full})
+
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
   (let [name-str (str (:name params))
-        budget (output/budget config params)
+        ctx (output/answer-context config params code-index)
         definitions (code-index/resolve-name code-index name-str)]
     (tool/text-result
-     (if (= "full" (:doc params))
-       (full-doc-answer budget code-index name-str definitions)
-       (output/one-definition budget (:doc/signature config) code-index name-str definitions
-                              #(output/render budget [(output/definition->line (:doc/signature config)
-                                                        code-index %)]))))))
+     (case (get doc-modes (:doc params) :summary)
+       :full (full-doc-answer ctx name-str definitions)
+       :summary (output/one-definition ctx name-str definitions
+                                       #(output/render (:budget ctx) [(output/definition->line ctx %)]))))))

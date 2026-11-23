@@ -43,6 +43,21 @@ Relevance of the expected hits with the chosen pair (for `:search/min-relevance`
 
 The default was later raised to `0.3` (spec `agent-feedback-round-3`): a query whose best hit scores 0.15 is a weak answer, and an agent warned of it rephrases instead of opening random hits. The weakest case 12 queries (best 0.12 and 0.19) now get the line too, still followed by their hits; acceptance case 13 checks case 12 against the `0.05` measured here, which still separates it from the unrelated queries.
 
+## Cross-language queries on a real project
+
+On 2026-11-23 an agent reported that English queries miss Russian docstrings and asked for multilingual models or query translation. Measured with the chosen pair on that project: a large project, 3114 Search units, Russian docstrings, `:search/top-k` 100. Two questions, each asked several ways:
+
+| Query | Result |
+|---|---|
+| 1, the agent's Russian query, in the docstrings' words | expected Definition 1st, 0.98 |
+| 1, an English translation of it | 1st, 0.83 |
+| 1, the agent's English query, naming the cache's key by an identifier the code does not use for it | not among the 100 vector candidates, 0.01 |
+| 1, the same with the identifier the docstring uses | 2nd, 0.56 |
+| 2, an English translation naming the steps the docstrings name | all three expected Definitions in the top 3, 0.96–0.99 |
+| 2, the agent's English query, asking for a purpose no docstring mentions | the expected namespace 1st at 0.17, the others missed |
+
+The agent's English queries were not translations: one named a different identifier, the other a purpose the code never states. With this pair the language of a query costs about 0.15 of relevance; its wording decides whether the hit is found at all. So the models stay, and queries are not translated. Instead `semantic_search` tells the agent to word queries in the docstrings' words and, when they are mostly in a non-Latin script, names that script (spec `agent-feedback-round-4`).
+
 ## Consequences
 
 - Switching models re-embeds the whole project once (the collection is rebuilt and the cache directory of the new model starts empty).

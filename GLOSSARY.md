@@ -58,12 +58,16 @@ _Avoid_: limit (when meaning the ceiling), page size
 An answer that contains one line per finding with only what the agent needs for its next step, and nothing else.
 _Avoid_: summary, brief output
 
+**Description**:
+What the code says a Definition is for: its docstring, or, when it has none, the block of `;;` comment lines directly above its form with no blank line between. A spec, which cannot have a docstring, is described this way.
+_Avoid_: comment, doc (when meaning either source)
+
 **Docstring summary**:
-The first sentence of a Definition's docstring, as one line even when the source wraps it; it stands for the docstring in every list answer (in `namespace_summary` only with `detail: true`; Type signatures it shows without asking).
+The first sentence of a Definition's Description, as one line even when the source wraps it; it stands for the Description in every list answer (in `namespace_summary` only with `detail: true`; Type signatures it shows without asking).
 _Avoid_: first line, short doc
 
 **Type signature**:
-The part of a Definition's docstring that states its types (e.g. `String -> IO ()`), found by the signature strategy the project configures; namespaces have none.
+The part of a Definition's Description that states its types (e.g. `String -> IO ()`), found by the signature strategy the project configures; namespaces have none.
 _Avoid_: type, contract, spec (a spec is a Definition)
 
 **Truncation note**:

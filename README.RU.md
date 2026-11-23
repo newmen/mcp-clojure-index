@@ -289,6 +289,8 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 
 Все ответы соблюдают ограничения Output budget. Docstring summary в строках ответа — первое предложение docstring, за которым следует `(+N chars)`, если текст продолжается. Перед каждым ответом индекс перечитывается из изменённых файлов (по mtime), поэтому правки видны сразу.
 
+`find_definition`, `find_usages`, `get_source` и `find_implementations` принимают `ns` (string): имена разрешаются так, как они записаны в этом namespace. `::k` становится `:<ns>/k`; `::alias/k` и `alias/name` разрешаются через его `:require`-алиасы; простое имя — в его собственное определение (Definition), затем в его `:refer`; квалифицированные имена и keywords не меняются. В пакете `ns` действует на каждое имя. Имя, которое там не разрешается, получает заголовок `not resolvable in <ns>, all candidates:`, за которым следует ответ без `ns`; неизвестный namespace даёт только `unknown namespace: <ns>`.
+
 ### find_definition
 
 ```text
@@ -299,6 +301,7 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
                                (например, `area :circle`);
                                keyword для spec.
   doc ("summary" | "full", по умолчанию "summary")
+  ns (string) — разрешать имена так, как они записаны в этом namespace
   limit, offset — считают определения (Definition) по всем именам вместе
 
 Ответ:
@@ -339,6 +342,7 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
   context (boolean, по умолчанию true) — добавлять к строке контекст (Usage context)
   warnings_only (boolean, по умолчанию false) — только использования с предупреждением
                                                 (Usage warning)
+  ns (string) — разрешать цели так, как они записаны в этом namespace
   limit, offset
 
 Ответ:
@@ -387,6 +391,7 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
 Входные параметры:
   name (string, обязательный) — простое, квалифицированное через alias
                                 или полностью квалифицированное имя.
+  ns (string) — разрешать имя так, как оно записано в этом namespace
   limit, offset — применяются к строкам тела определения
                   (или к списку кандидатов, если имя неоднозначно).
 
@@ -406,6 +411,7 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
 ```text
 Входные параметры:
   name (string, обязательный) — протокол или мультиметод
+  ns (string) — разрешать имя так, как оно записано в этом namespace
   limit, offset
 
 Ответ:

@@ -41,6 +41,7 @@
    :inputSchema {:type "object"
                  :properties (merge {:name {:type "string"
                                             :description "Protocol or multimethod name: simple, alias-qualified or fully qualified"}}
+                                    tool/namespace-properties
                                     tool/paging-properties)
                  :required ["name"]}})
 
@@ -223,20 +224,31 @@
   (str "no implementations of " (code-index/qualified-name definition) " "
        (output/checked index)))
 
+(defn- answer
+  "The answer of `find_implementations` for `name-str`, which resolved to
+   `definitions`.
+
+  AnswerContext -> String -> [Definition] -> IO String"
+  [{:keys [budget index] :as ctx} name-str definitions]
+  (let [implementable (filterv (comp implementable-kinds :kind) definitions)]
+    (cond
+      (empty? definitions) (output/not-found index name-str)
+      (empty? implementable) (not-implementable name-str definitions)
+      (next implementable) (output/ambiguous ctx "protocols or multimethods" name-str implementable)
+      :else (let [lines (mapv (partial implementation->line (code-index/root index))
+                              (implementations index (first implementable)))]
+              (if (seq lines)
+                (output/render budget lines)
+                (no-implementations index (first implementable)))))))
+
 (defmethod tool/call :find_implementations
   [_tool-key params {:keys [config code-index]}]
   (let [name-str (str (:name params))
-        definitions (code-index/resolve-name code-index name-str)
-        implementable (filterv (comp implementable-kinds :kind) definitions)
-        root (code-index/root code-index)]
+        ns-str (tool/namespace-arg params)
+        {definitions :result :keys [unresolvable]}
+        (tool/lookup-in-namespace code-index ns-str (partial code-index/resolve-name code-index) seq name-str)]
     (tool/text-result
-     (cond
-       (empty? definitions) (output/not-found code-index name-str)
-       (empty? implementable) (not-implementable name-str definitions)
-       (next implementable) (output/ambiguous (output/answer-context config params code-index)
-                                              "protocols or multimethods" name-str implementable)
-       :else (let [lines (mapv (partial implementation->line root)
-                               (implementations code-index (first implementable)))]
-               (if (seq lines)
-                 (output/render (output/budget config params) lines)
-                 (no-implementations code-index (first implementable))))))))
+     (or (tool/unknown-namespace code-index ns-str)
+         (tool/under-line unresolvable
+                            (output/answer-context config params code-index)
+                            #(answer % name-str definitions))))))

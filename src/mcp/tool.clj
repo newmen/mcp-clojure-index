@@ -11,7 +11,8 @@
     :code-index the precise index (see mcp.code-index), current at call time
     :semantic-index the SemanticIndex of semantic_search (see mcp.semantic-index)}"
   (:require [clojure.spec.alpha :as s]
-            [clojure.string :as st]))
+            [clojure.string :as st]
+            [mcp.code-index :as code-index]))
 
 (set! *warn-on-reflection* true)
 
@@ -48,6 +49,71 @@
   {Keyword {:type String :description String}}"
   {:limit {:type "integer" :description "Maximum number of findings (can only lower the server's Output budget)"}
    :offset {:type "integer" :description "Number of findings to skip, for paging"}})
+
+(def namespace-properties
+  "The inputSchema property `ns` shared by every tool that resolves names
+   as written in a namespace.
+
+  {Keyword {:type String :description String}}"
+  {:ns {:type "string" :description "Resolve names as written in this namespace (`::k`, aliases, :refer)"}})
+
+(defn namespace-arg
+  "The `ns` tool argument of `args`, trimmed; nil when it is absent or
+   blank.
+
+  ToolArgs -> Maybe String"
+  [args]
+  (some-> (:ns args) str st/trim not-empty))
+
+;; ---------------------------------------------------------------------------
+;; Names as written in a namespace
+;; ---------------------------------------------------------------------------
+
+;; NameLookup: what a tool's lookup of a name gave when the agent named
+;; the namespace it is written in, {:result a :unresolvable "..."}.
+;; `:unresolvable` (the line `not resolvable in <ns>, all candidates:`) is
+;; there only when the name does not resolve in that namespace; `:result`
+;; is then the lookup of the name as it is, without the namespace.
+
+(s/def ::result any?)
+
+(s/def ::unresolvable string?)
+
+(s/def ::name-lookup (s/keys :req-un [::result] :opt-un [::unresolvable]))
+
+(defn unknown-namespace
+  "The answer for an `ns-str` that names no namespace of the project, or
+   nil when it is absent or names one.
+
+  CodeIndex -> Maybe String -> Maybe String"
+  [index ns-str]
+  (when (and ns-str (not (code-index/namespace-name? index ns-str)))
+    (str "unknown namespace: " ns-str)))
+
+(defn lookup-in-namespace
+  "Looks `name-str` up with `lookup` as written in the namespace `ns-str`
+   (as it is when `ns-str` is nil). A name that does not resolve there, or
+   whose lookup there is not `found?`, is looked up as it is and marked
+   unresolvable.
+
+  CodeIndex -> Maybe String -> (String -> a) -> (a -> Boolean) -> String -> NameLookup"
+  [index ns-str lookup found? name-str]
+  (let [in-namespace (some->> (when ns-str (code-index/qualify-in-namespace index ns-str name-str))
+                              lookup)]
+    (cond (nil? ns-str) {:result (lookup name-str)}
+          (and (some? in-namespace) (found? in-namespace)) {:result in-namespace}
+          :else {:result (lookup name-str)
+                 :unresolvable (str "not resolvable in " ns-str ", all candidates:")})))
+
+(defn under-line
+  "The answer `answer-of` gives for `ctx`, under the line `line` when there
+   is one, its budget lowered to leave room for that line.
+
+  Maybe String -> AnswerContext -> (AnswerContext -> IO String) -> IO String"
+  [line ctx answer-of]
+  (if line
+    (str line "\n" (answer-of (update-in ctx [:budget :max-chars] - (inc (count line)))))
+    (answer-of ctx)))
 
 (def freshness-note
   "The sentence of every precise tool's description that states the

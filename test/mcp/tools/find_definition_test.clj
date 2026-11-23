@@ -117,7 +117,9 @@
     (is (re-find #"area :circle" (:description spec)))
     (is (re-find #"::uuid" (:description spec)))
     (is (re-find #"doc: \"full\"" (:description spec)))
-    (is (= #{:names :doc :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= #{:names :doc :ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= "Resolve names as written in this namespace (`::k`, aliases, :refer)"
+           (get-in spec [:inputSchema :properties :ns :description])))
     (is (= ["summary" "full"] (get-in spec [:inputSchema :properties :doc :enum])))))
 
 (deftest old-lookup-tools-are-gone
@@ -341,3 +343,78 @@
     (testing "only missing names"
       (is (= (str (not-found-header "no-such-definition") "\n\n" (not-found-header "nope"))
              (fixture-answer {:names ["no-such-definition" "nope"]}))))))
+
+;; ---------------------------------------------------------------------------
+;; Names as written in a namespace
+;; ---------------------------------------------------------------------------
+
+(defn- ns-answer
+  "The answer text of `find_definition` on the namespaces fixture.
+
+  ToolArgs -> IO String"
+  [args]
+  (project/answer-text project/config
+                       (tool/call :find_definition args
+                                  {:config project/config :code-index (project/namespaces-index)})))
+
+(def ^:private alpha-id-line "src/ns_app/alpha.clj:5  s/def  :ns-app.alpha/id")
+
+(def ^:private beta-id-line "src/ns_app/beta.clj:5  s/def  :ns-app.beta/id")
+
+(deftest auto-resolved-keyword-resolves-in-the-given-namespace
+  (is (= (group "::id" alpha-id-line) (ns-answer {:names ["::id"] :ns "ns-app.alpha"})))
+  (is (= (group "::id" beta-id-line) (ns-answer {:names ["::id"] :ns "ns-app.beta"}))))
+
+(def ^:private alpha-fetch-line
+  "src/ns_app/alpha.clj:7  defn  ns-app.alpha/fetch  [id]  Fetches from alpha.")
+
+(def ^:private beta-fetch-line
+  "src/ns_app/beta.clj:7  defn  ns-app.beta/fetch  [id]  Fetches from beta.")
+
+(deftest one-alias-for-different-targets-resolves-per-namespace
+  (testing "::alias/k"
+    (is (= (group "::store/id" alpha-id-line) (ns-answer {:names ["::store/id"] :ns "ns-app.one"})))
+    (is (= (group "::store/id" beta-id-line) (ns-answer {:names ["::store/id"] :ns "ns-app.two"}))))
+  (testing "alias/name"
+    (is (= (group "store/fetch" alpha-fetch-line) (ns-answer {:names ["store/fetch"] :ns "ns-app.one"})))
+    (is (= (group "store/fetch" beta-fetch-line) (ns-answer {:names ["store/fetch"] :ns "ns-app.two"})))))
+
+(deftest bare-name-resolves-to-the-namespace-definition-then-its-refers
+  (testing "its own Definition"
+    (is (= (group "run" "src/ns_app/two.clj:4  defn  ns-app.two/run  []  Runs on beta.")
+           (ns-answer {:names ["run"] :ns "ns-app.two"}))))
+  (testing "a referred name"
+    (is (= (group "fetch" alpha-fetch-line) (ns-answer {:names ["fetch"] :ns "ns-app.one"})))
+    (is (= (group "fetch" beta-fetch-line) (ns-answer {:names ["fetch"] :ns "ns-app.two"})))))
+
+(deftest qualified-names-and-keywords-are-unaffected-by-the-namespace
+  (is (= (group "ns-app.beta/fetch" beta-fetch-line)
+         (ns-answer {:names ["ns-app.beta/fetch"] :ns "ns-app.one"})))
+  (is (= (group ":ns-app.beta/id" beta-id-line)
+         (ns-answer {:names [":ns-app.beta/id"] :ns "ns-app.one"})))
+  (is (= (group "ns-app.beta" "src/ns_app/beta.clj:1  ns  ns-app.beta  Beta store.")
+         (ns-answer {:names ["ns-app.beta"] :ns "ns-app.one"}))))
+
+(deftest name-not-resolvable-in-the-namespace-lists-all-candidates
+  (testing "a name the namespace neither defines nor refers"
+    (is (= (str "not resolvable in ns-app.alpha, all candidates:\n"
+                "ambiguous: 2 definitions named run, pass a qualified name\n"
+                "src/ns_app/one.clj:4  defn  ns-app.one/run  []  Runs on alpha.\n"
+                "src/ns_app/two.clj:4  defn  ns-app.two/run  []  Runs on beta.")
+           (ns-answer {:names ["run"] :ns "ns-app.alpha"}))))
+  (testing "an alias the namespace does not have"
+    (is (= (str "not resolvable in ns-app.alpha, all candidates:\n"
+                "ambiguous: 2 definitions named store/fetch, pass a qualified name\n"
+                alpha-fetch-line "\n"
+                beta-fetch-line)
+           (ns-answer {:names ["store/fetch"] :ns "ns-app.alpha"})))))
+
+(deftest unknown-namespace-answers-only-that
+  (is (= "unknown namespace: ns-app.nope" (ns-answer {:names ["fetch" "::id"] :ns "ns-app.nope"}))))
+
+(deftest namespace-applies-to-every-name-of-a-batch
+  (is (= (str (group "::store/id" alpha-id-line) "\n\n"
+              "not resolvable in ns-app.one, all candidates:\n"
+              "missing: not found (checked 4 files, including tests)\n\n"
+              (group "fetch" alpha-fetch-line))
+         (ns-answer {:names ["::store/id" "missing" "fetch"] :ns "ns-app.one"}))))

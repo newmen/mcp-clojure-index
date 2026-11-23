@@ -228,12 +228,15 @@ After configuration, restart Kilo Code. The MCP server `clojure-code-index` will
 
 These are exactly the tools returned by `tools/list`. Names can be simple (`relative-path`), alias-qualified as written in some namespace (`output/relative-path`) or fully qualified (`mcp.output/relative-path`); an ambiguous name returns the candidates. Every tool except `get_source` accepts `limit` (can only lower `:output/limit`) and `offset` (findings to skip, for paging). Every answer obeys the Output budget. The Docstring summary in answer lines is the first sentence of the docstring, followed by `(+N chars)` when more text remains. The index is re-read from changed files (by mtime) before every answer, so edits are visible immediately.
 
+`find_definition`, `find_usages`, `get_source` and `find_implementations` accept `ns` (string): resolve names as written in that namespace. `::k` becomes `:<ns>/k`; `::alias/k` and `alias/name` go through its `:require` aliases; a bare name resolves to its own Definition, then its `:refer`s; qualified names and keywords are unaffected. In a batch `ns` applies to every name. A name that does not resolve there is headed by `not resolvable in <ns>, all candidates:`, followed by the answer without `ns`; an unknown namespace answers `unknown namespace: <ns>` alone.
+
 ### find_definition
 
 ```
 Input:  names (array of strings, required) — each simple, alias-qualified or fully qualified;
         `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
         doc ("summary" | "full", default "summary")
+        ns (string) — resolve names as written in this namespace
         limit, offset — in Definitions, counted across all names
 Answer: one group per distinct name, like `rg --heading`, a blank line between groups:
         the name as asked, then one line per Definition
@@ -265,6 +268,7 @@ Input:  targets (array of strings, required) — names and/or keywords (`:k`, `:
         include_tests (boolean, default true)
         context (boolean, default true) — end each line with its Usage context
         warnings_only (boolean, default false) — only Usages that carry a Usage warning
+        ns (string) — resolve targets as written in this namespace
         limit, offset
 Answer: per target a header `target: N usages`, then one line per Usage,
         a blank line between targets
@@ -296,6 +300,7 @@ Answer: header   ns name  path  Docstring summary
 
 ```
 Input:  name (string, required) — simple, alias-qualified or fully qualified
+        ns (string) — resolve the name as written in this namespace
         limit, offset — in lines of the body (or in candidates of an ambiguous name)
 Answer: a `path:start-end` header line, then the source of exactly one Definition;
         a body over the Output budget ends with a truncation note, pass offset for the rest;
@@ -306,6 +311,7 @@ Answer: a `path:start-end` header line, then the source of exactly one Definitio
 
 ```
 Input:  name (string, required) — protocol or multimethod
+        ns (string) — resolve the name as written in this namespace
         limit, offset
 Answer: one line per Implementation (defrecord, deftype, extend-type, extend-protocol, reify, defmethod)
         path:line  ns/type-or-dispatch-value  method

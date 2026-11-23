@@ -162,8 +162,8 @@
     (is (= ["mcp.output/definition->line: 4 usages"
             "src/mcp/output.clj:L:C  call  mcp.output/definition->line"
             "src/mcp/output.clj:L:C  value  mcp.output/ambiguous"
-            "src/mcp/tools/find_definition.clj:L:C  value  mcp.tool/call :find_definition"
-            "src/mcp/tools/find_usages.clj:L:C  call  mcp.tools.find-usages/target-group"
+            "src/mcp/tools/find_definition.clj:L:C  value  mcp.tools.find-definition/answer"
+            "src/mcp/tools/find_usages.clj:L:C  call  mcp.tools.find-usages/target-answer"
             ""
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
@@ -328,8 +328,54 @@
     (is (re-find #"wrong arity" (:description spec)))
     (is (re-find #"warnings_only" (:description spec)))
     (is (re-find #"`unused` is a hint" (:description spec)))
-    (is (= #{:targets :kinds :include_tests :context :warnings_only :limit :offset}
+    (is (= #{:targets :kinds :include_tests :context :warnings_only :ns :limit :offset}
            (set (keys (get-in spec [:inputSchema :properties])))))))
+
+;; ---------------------------------------------------------------------------
+;; Targets as written in a namespace
+;; ---------------------------------------------------------------------------
+
+(defn- ns-answer
+  "The answer text of `find_usages` on the namespaces fixture, without
+   Usage context.
+
+  ToolArgs -> IO String"
+  [args]
+  (answer (project/namespaces-index) args))
+
+(def ^:private beta-fetch-usages
+  (str "ns-app.beta/fetch: 2 usages\n"
+       "src/ns_app/two.clj:2:44  require  ns-app.two\n"
+       "src/ns_app/two.clj:7:5  call  ns-app.two/run"))
+
+(def ^:private alpha-id-usages
+  ":ns-app.alpha/id: 1 usage\nsrc/ns_app/one.clj:7:11  keyword  ns-app.one/run")
+
+(deftest target-resolves-as-written-in-the-given-namespace
+  (testing "alias/name"
+    (is (= beta-fetch-usages (ns-answer {:targets ["store/fetch"] :ns "ns-app.two"}))))
+  (testing "a referred bare name"
+    (is (= beta-fetch-usages (ns-answer {:targets ["fetch"] :ns "ns-app.two"}))))
+  (testing "::alias/k and ::k"
+    (is (= alpha-id-usages (ns-answer {:targets ["::store/id"] :ns "ns-app.one"})))
+    (is (= alpha-id-usages (ns-answer {:targets ["::id"] :ns "ns-app.alpha"}))))
+  (testing "::k of a keyword without a spec"
+    (is (= "no usages of :ns-app.one/none (checked 4 files, including tests)"
+           (ns-answer {:targets ["::none"] :ns "ns-app.one"})))))
+
+(deftest namespace-applies-to-every-target-with-mixed-outcomes
+  (is (= (str beta-fetch-usages "\n\n"
+              "not resolvable in ns-app.two, all candidates:\n"
+              "ambiguous: 2 definitions named handle, pass a qualified name\n"
+              "src/ns_app/alpha.clj:15  defmulti  ns-app.alpha/handle\n"
+              "src/ns_app/beta.clj:15  defmulti  ns-app.beta/handle\n"
+              "\n"
+              "not resolvable in ns-app.two, all candidates:\n"
+              "not found: missing (checked 4 files, including tests)")
+         (ns-answer {:targets ["store/fetch" "handle" "missing"] :ns "ns-app.two"}))))
+
+(deftest unknown-namespace-answers-only-that
+  (is (= "unknown namespace: ns-app.nope" (ns-answer {:targets ["fetch"] :ns "ns-app.nope"}))))
 
 (deftest old-caller-tools-are-gone
   (let [names (set (map :name (tools/tool-definitions)))]

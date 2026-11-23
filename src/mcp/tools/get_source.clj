@@ -25,6 +25,7 @@
    :inputSchema {:type "object"
                  :properties (merge {:name {:type "string"
                                             :description "Name: simple, alias-qualified or fully qualified"}}
+                                    tool/namespace-properties
                                     tool/paging-properties)
                  :required ["name"]}})
 
@@ -44,8 +45,11 @@
 (defmethod tool/call :get_source
   [_tool-key params {:keys [config code-index]}]
   (let [name-str (str (:name params))
-        ctx (output/answer-context config params code-index)]
+        ns-str (tool/namespace-arg params)
+        {definitions :result :keys [unresolvable]}
+        (tool/lookup-in-namespace code-index ns-str (partial code-index/resolve-name code-index) seq name-str)]
     (tool/text-result
-     (output/one-definition ctx name-str
-                            (code-index/resolve-name code-index name-str)
-                            (partial source-answer ctx)))))
+     (or (tool/unknown-namespace code-index ns-str)
+         (tool/under-line unresolvable
+                            (output/answer-context config params code-index)
+                            #(output/one-definition % name-str definitions (partial source-answer %)))))))

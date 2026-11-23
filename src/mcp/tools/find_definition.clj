@@ -42,6 +42,7 @@
                                      :doc {:type "string"
                                            :enum ["summary" "full"]
                                            :description "\"summary\" (default): the Docstring summary on the Definition line; \"full\": the whole docstring under it"}}
+                                    tool/namespace-properties
                                     tool/paging-properties)
                  :required ["names"]}})
 
@@ -119,31 +120,45 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- name-group
-  "The AnswerGroup of `name-str` as the agent wrote it: headed by the
-   name, its Definitions as findings; a name that is not found or is
-   ambiguous says so in the header.
+  "The AnswerGroup of `name-str` as the agent wrote it, in the namespace
+   `ns-str` when one is given: headed by the name, its Definitions as
+   findings; a name that is not found or is ambiguous says so in the
+   header, one that does not resolve in `ns-str` heads it with the
+   `not resolvable` line.
 
-  CodeIndex -> String -> AnswerGroup"
-  [index name-str]
-  (let [definitions (code-index/resolve-name index name-str)]
-    (case (count definitions)
-      0 {:header (str name-str ": not found " (output/checked index))}
-      1 {:header name-str :findings definitions}
-      {:header (output/ambiguous-header "definitions" name-str (count definitions))
-       :findings definitions})))
+  CodeIndex -> Maybe String -> String -> AnswerGroup"
+  [index ns-str name-str]
+  (let [{definitions :result :keys [unresolvable]}
+        (tool/lookup-in-namespace index ns-str (partial code-index/resolve-name index) seq name-str)
+        group (case (count definitions)
+                0 {:header (str name-str ": not found " (output/checked index))}
+                1 {:header name-str :findings definitions}
+                {:header (output/ambiguous-header "definitions" name-str (count definitions))
+                 :findings definitions})]
+    (cond-> group
+      unresolvable (update :header (partial str unresolvable "\n")))))
+
+(defn- answer
+  "The answer of `find_definition` for the AnswerGroups `groups`.
+
+  AnswerContext -> ToolArgs -> [AnswerGroup] -> String"
+  [{:keys [budget index] :as ctx} params groups]
+  (cond
+    (empty? groups) "no names given"
+    (= "full" (:doc params))
+    (output/render-grouped budget
+                           (map #(update % :findings (partial map (partial full-doc-finding index)))
+                                groups)
+                           {:text-of full-doc-text
+                            :cut cut-full-doc})
+    :else (output/render-grouped budget groups
+                                 {:text-of (partial output/definition->line ctx)})))
 
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [{:keys [budget] :as ctx} (output/answer-context config params code-index)
-        groups (map (partial name-group code-index) (tool/distinct-strings (:names params)))]
+  (let [ns-str (tool/namespace-arg params)]
     (tool/text-result
-     (cond
-       (empty? groups) "no names given"
-       (= "full" (:doc params))
-       (output/render-grouped budget
-                              (map #(update % :findings (partial map (partial full-doc-finding code-index)))
-                                   groups)
-                              {:text-of full-doc-text
-                               :cut cut-full-doc})
-       :else (output/render-grouped budget groups
-                                    {:text-of (partial output/definition->line ctx)})))))
+     (or (tool/unknown-namespace code-index ns-str)
+         (answer (output/answer-context config params code-index)
+                 params
+                 (map (partial name-group code-index ns-str) (tool/distinct-strings (:names params))))))))

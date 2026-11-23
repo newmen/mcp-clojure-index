@@ -331,6 +331,8 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
 Входные параметры:
   query (string, обязательный) — описание того, что делает код,
                                  на естественном языке.
+  include_tests (boolean, по умолчанию false) — искать также
+                                 определения в Test paths.
   limit, offset
 
 Поиск:

@@ -227,6 +227,7 @@ Answer: one line per Implementation (defrecord, deftype, extend-type, extend-pro
 
 ```
 Input:  query (string, required) — what the code does, in natural language
+        include_tests (boolean, default false) — also search Definitions in Test paths
         limit, offset
 Search: query embedding → Qdrant top :search/top-k ─┐
         words of names and docstrings (BM25) ───────┴→ reciprocal rank fusion → reranker → top :search/re-rank-top

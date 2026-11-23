@@ -21,6 +21,7 @@
        "Answer: one line per hit (relevance score  path:line  kind  ns/name  Docstring summary), "
        "no source bodies, at most :output/limit lines and :output/max-chars characters; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
+       "Definitions in Test paths are left out unless `include_tests` is true. "
        "Use find_definition for known names and get_source for bodies."))
 
 (defmethod tool/spec :semantic_search
@@ -29,7 +30,9 @@
    :description description
    :inputSchema {:type "object"
                  :properties (merge {:query {:type "string"
-                                             :description "What the code does, in natural language"}}
+                                             :description "What the code does, in natural language"}
+                                     :include_tests {:type "boolean"
+                                                     :description "Also search Definitions in Test paths (default false)"}}
                                     tool/paging-properties)
                  :required ["query"]}})
 
@@ -81,18 +84,22 @@
 
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
-  (let [query (st/trim (str (:query params)))]
+  (let [query (st/trim (str (:query params)))
+        include-tests? (true? (:include_tests params))]
     (tool/text-result
      (if (st/blank? query)
        "query is empty"
        (try
          (let [hits (search/search config query
                                    (search-units/search-units code-index)
+                                   (fn [unit]
+                                     (or include-tests?
+                                         (not (code-index/test-file? code-index (:filename unit)))))
                                    (hit-count config params))
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line (code-index/root code-index)) hits)]
            (if (empty? lines)
-             (->> [(str "no results for: " query " " (output/checked code-index)) note]
+             (->> [(str "no results for: " query " " (output/checked code-index include-tests?)) note]
                   (remove nil?)
                   (st/join "\n"))
              (output/render-framed (output/budget config params) {:footer note} lines)))

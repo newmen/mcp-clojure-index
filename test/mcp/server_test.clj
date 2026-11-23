@@ -59,11 +59,11 @@
 
 (deftest handle-method-tools-call-find-definition-without-qdrant
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
-             :params {:name "find_definition" :arguments {:name "mcp.output/relative-path"}}}
+             :params {:name "find_definition" :arguments {:names ["mcp.output/relative-path"]}}}
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."}]
+             :text "mcp.output/relative-path\nsrc/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -91,8 +91,8 @@
   (let [state {:config services-down-config
                :code-index-ref (atom (project/code-index))
                :semantic-index (semantic-index/create services-down-config)}]
-    (is (= relative-path-definition
-           (tool-call state "find_definition" {:name "mcp.output/relative-path"})))
+    (is (= (str "mcp.output/relative-path\n" relative-path-definition)
+           (tool-call state "find_definition" {:names ["mcp.output/relative-path"]})))
     (is (= (str "semantic search unavailable (Qdrant or Ollama not reachable); "
                 "the precise tools (find_definition, get_source, ...) still work")
            (tool-call state "semantic_search" {:query "first line of a docstring"})))))
@@ -105,7 +105,7 @@
                :semantic-index semantic-index}]
     (with-redefs [semantic-index/sync-async! (fn [synced-index index]
                                                (reset! synced [synced-index index]))]
-      (tool-call state "find_definition" {:name "mcp.output/relative-path"}))
+      (tool-call state "find_definition" {:names ["mcp.output/relative-path"]}))
     (is (= [semantic-index @(:code-index-ref state)] @synced))))
 
 (defn- find-definition-call
@@ -113,7 +113,7 @@
 
   ToolState -> String -> IO String"
   [state name-str]
-  (tool-call state "find_definition" {:name name-str}))
+  (tool-call state "find_definition" {:names [name-str]}))
 
 (deftest tools-call-answer-reflects-an-edit-made-just-before-it
   (let [root (.getCanonicalPath (.toFile (Files/createTempDirectory "server-test" (make-array FileAttribute 0))))
@@ -122,11 +122,11 @@
         _ (io/make-parents file)
         _ (spit file "(ns app.core)\n(defn alpha [x] x)\n")
         state {:config cfg :code-index-ref (atom (code-index/build cfg))}]
-    (is (= "src/app/core.clj:2  defn  app.core/alpha  [x]" (find-definition-call state "alpha")))
+    (is (= "alpha\nsrc/app/core.clj:2  defn  app.core/alpha  [x]" (find-definition-call state "alpha")))
     (spit file "(ns app.core)\n\n(defn beta [y] y)\n")
     (.setLastModified file (+ 2000 (System/currentTimeMillis)))
-    (is (= "src/app/core.clj:3  defn  app.core/beta  [y]" (find-definition-call state "beta")))
-    (is (= "not found: alpha (checked 1 files, including tests)"
+    (is (= "beta\nsrc/app/core.clj:3  defn  app.core/beta  [y]" (find-definition-call state "beta")))
+    (is (= "alpha: not found (checked 1 files, including tests)"
            (find-definition-call state "alpha")))))
 
 (deftest handle-method-initialize
@@ -265,7 +265,7 @@
 
 (deftest process-message-tools-call
   (let [state {:config project/config :code-index-ref (atom (project/code-index))}
-        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find_definition\",\"arguments\":{\"name\":\"test\"}}}"
+        line "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find_definition\",\"arguments\":{\"names\":[\"test\"]}}}"
         [response _new-state] (#'sut/process-message line state)]
     (is (some? response))
     (is (= 1 (:id response)))

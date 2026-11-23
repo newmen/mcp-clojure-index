@@ -269,7 +269,7 @@
         found (hits output)]
     {:scenario :find-definition
      :question def-name
-     :mcp (pages-length :find_definition {:name def-name} state)
+     :mcp (pages-length :find_definition {:names [def-name]} state)
      :careful (+ (count output) (reads-length root found (fn [[_path row]] [row (+ row head-window -1)])))
      :typical (+ (count output) (reads-length root found nil))}))
 

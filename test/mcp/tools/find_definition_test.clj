@@ -27,38 +27,53 @@
        "Returns `file-path` relative to the project root `root-path`; paths outside the root "
        "are returned unchanged."))
 
+(defn- group
+  "The answer group of `name-str` with its `lines`.
+
+  String -> & String -> String"
+  [name-str & lines]
+  (st/join "\n" (cons name-str lines)))
+
 (deftest finds-definition-by-simple-alias-qualified-and-fully-qualified-name
   (testing "simple"
-    (is (= relative-path-line (answer {:name "relative-path"}))))
+    (is (= (group "relative-path" relative-path-line) (answer {:names ["relative-path"]}))))
   (testing "alias-qualified, as written in mcp.tools"
-    (is (= relative-path-line (answer {:name "output/relative-path"}))))
+    (is (= (group "output/relative-path" relative-path-line)
+           (answer {:names ["output/relative-path"]}))))
   (testing "fully qualified"
-    (is (= relative-path-line (answer {:name "mcp.output/relative-path"})))))
+    (is (= (group "mcp.output/relative-path" relative-path-line)
+           (answer {:names ["mcp.output/relative-path"]})))))
 
 (deftest finds-namespace-definition
-  (is (= "src/mcp/output.clj:1  ns  mcp.output  Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
-         (answer {:name "mcp.output"}))))
+  (is (= (group "mcp.output"
+                "src/mcp/output.clj:1  ns  mcp.output  Output budget (ADR-0004) and Compact answer helpers (ADR-0006).")
+         (answer {:names ["mcp.output"]}))))
 
 (deftest ambiguous-simple-name-returns-candidates
-  (let [[header & candidates] (st/split-lines (answer {:name "test-config"}))]
+  (let [[header & candidates] (st/split-lines (answer {:names ["test-config"]}))]
     (is (= "ambiguous: 3 definitions named test-config, pass a qualified name" header))
     (is (= [["test/mcp/qdrant_test.clj" "mcp.qdrant-test/test-config"]
             ["test/mcp/search_test.clj" "mcp.search-test/test-config"]
             ["test/mcp/tools_test.clj" "mcp.tools-test/test-config"]]
            (map #(rest (re-matches #"(\S+):\d+  def  (\S+)" %)) candidates)))))
 
+(defn- checked-files
+  "What a `find_definition` miss on this project's code base says was searched.
+
+  () -> IO String"
+  []
+  (str "(checked " (count (code-index/files (project/code-index))) " files, including tests)"))
+
 (deftest miss-reports-what-was-searched
-  (is (= (str "not found: no-such-definition (checked "
-              (count (code-index/files (project/code-index)))
-              " files, including tests)")
-         (answer {:name "no-such-definition"}))))
+  (is (= (str "no-such-definition: not found " (checked-files))
+         (answer {:names ["no-such-definition"]}))))
 
 (deftest answer-respects-output-budget
   (let [cfg (assoc project/config :output/limit 2)
-        text (answer cfg {:name "test-config"})]
+        text (answer cfg {:names ["test-config"]})]
     (is (= 4 (count (st/split-lines text))))
     (is (st/ends-with? text "truncated: shown 2 of 3, pass offset=2 or narrow the query"))
-    (is (st/includes? (answer cfg {:name "test-config" :offset 2}) "mcp.tools-test/test-config"))
+    (is (st/includes? (answer cfg {:names ["test-config"] :offset 2}) "mcp.tools-test/test-config"))
     (is (<= (count text) (:output/max-chars cfg)))))
 
 (def ^:private definitions-fixture
@@ -79,20 +94,20 @@
 
 (deftest finds-tests-methods-specs-and-project-macro-definitions
   (testing "deftest"
-    (is (= "test/app/core_test.clj:5  deftest  app.core-test/helper-test  []"
-           (fixture-answer {:name "helper-test"}))))
+    (is (= (group "helper-test" "test/app/core_test.clj:5  deftest  app.core-test/helper-test  []")
+           (fixture-answer {:names ["helper-test"]}))))
   (testing "defmethod with its dispatch value"
-    (is (= "src/app/core.clj:15  defmethod  app.core/area :circle"
-           (fixture-answer {:name "area :circle"}))))
+    (is (= (group "area :circle" "src/app/core.clj:15  defmethod  app.core/area :circle")
+           (fixture-answer {:names ["area :circle"]}))))
   (testing "s/def by keyword"
-    (is (= "src/app/core.clj:23  s/def  :app.core/uuid"
-           (fixture-answer {:name ":app.core/uuid"}))))
+    (is (= (group ":app.core/uuid" "src/app/core.clj:23  s/def  :app.core/uuid")
+           (fixture-answer {:names [":app.core/uuid"]}))))
   (testing "s/def of another namespace's keyword"
-    (is (= "src/app/core.clj:35  s/def  :app.contract.Order/amount"
-           (fixture-answer {:name ":app.contract.Order/amount"}))))
+    (is (= (group ":app.contract.Order/amount" "src/app/core.clj:35  s/def  :app.contract.Order/amount")
+           (fixture-answer {:names [":app.contract.Order/amount"]}))))
   (testing "form of a project macro declared via lint-as"
-    (is (= "src/app/core.clj:26  defhandler  app.core/handle-uuid  [req]  Handles a uuid."
-           (fixture-answer {:name "handle-uuid"})))))
+    (is (= (group "handle-uuid" "src/app/core.clj:26  defhandler  app.core/handle-uuid  [req]  Handles a uuid.")
+           (fixture-answer {:names ["handle-uuid"]})))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "find_definition" (:name %)) %)
@@ -102,7 +117,7 @@
     (is (re-find #"area :circle" (:description spec)))
     (is (re-find #"::uuid" (:description spec)))
     (is (re-find #"doc: \"full\"" (:description spec)))
-    (is (= #{:name :doc :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= #{:names :doc :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["summary" "full"] (get-in spec [:inputSchema :properties :doc :enum])))))
 
 (deftest old-lookup-tools-are-gone
@@ -130,55 +145,59 @@
 
 (deftest definition-line-shows-the-docstring-summary
   (testing "a Russian docstring wrapped over several lines gives its whole first sentence"
-    (is (= (summary-answers "app.summaries/relative-path")
-           (fixture-answer {:name "app.summaries/relative-path"}))))
+    (is (= (group "app.summaries/relative-path" (summary-answers "app.summaries/relative-path"))
+           (fixture-answer {:names ["app.summaries/relative-path"]}))))
   (testing "a full stop right before the closing quote ends the summary, nothing remains"
-    (is (= (summary-answers "app.summaries/limit")
-           (fixture-answer {:name "app.summaries/limit"}))))
+    (is (= (group "app.summaries/limit" (summary-answers "app.summaries/limit"))
+           (fixture-answer {:names ["app.summaries/limit"]}))))
   (testing "`e.g.` cuts the sentence; a backticked `foo!` does not"
-    (is (= (summary-answers "app.summaries/cache!")
-           (fixture-answer {:name "app.summaries/cache!"})))
-    (is (= (summary-answers "app.summaries/clear!")
-           (fixture-answer {:name "app.summaries/clear!"}))))
+    (is (= (group "app.summaries/cache!" (summary-answers "app.summaries/cache!"))
+           (fixture-answer {:names ["app.summaries/cache!"]})))
+    (is (= (group "app.summaries/clear!" (summary-answers "app.summaries/clear!"))
+           (fixture-answer {:names ["app.summaries/clear!"]}))))
   (testing "every answer stays within the Output budget"
-    (is (every? #(<= (count (fixture-answer {:name %})) (:output/max-chars project/config))
+    (is (every? #(<= (count (fixture-answer {:names [%]})) (:output/max-chars project/config))
                 (keys summary-answers)))))
 
 (deftest definition-line-shows-the-type-signature-after-the-arglists
   (testing "a `def` whose signature is a bare type"
-    (is (= "src/app/signatures.clj:6  def  app.signatures/page-size  Long  Rows per page."
-           (fixture-answer {:name "app.signatures/page-size"}))))
+    (is (= (group "app.signatures/page-size" "src/app/signatures.clj:6  def  app.signatures/page-size  Long  Rows per page.")
+           (fixture-answer {:names ["app.signatures/page-size"]}))))
   (testing "a namespace has no signature, its second paragraph stays in the summary"
-    (is (= (str "src/app/signatures.clj:1  ns  app.signatures  Type signature fixtures. "
-                "(+64 chars)")
-           (fixture-answer {:name "app.signatures"}))))
+    (is (= (group "app.signatures"
+                (str "src/app/signatures.clj:1  ns  app.signatures  Type signature fixtures. "
+                     "(+64 chars)"))
+           (fixture-answer {:names ["app.signatures"]}))))
   (testing "ambiguous candidates show their signatures"
     (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
                 "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]  "
                 "String -> String  Путь к файлу относительно корня.\n"
                 (summary-answers "app.summaries/relative-path"))
-           (fixture-answer {:name "relative-path"}))))
+           (fixture-answer {:names ["relative-path"]}))))
   (testing "this code base's own docstrings"
-    (is (= relative-path-line (answer {:name "mcp.output/relative-path"})))))
+    (is (= (group "mcp.output/relative-path" relative-path-line)
+           (answer {:names ["mcp.output/relative-path"]})))))
 
 (deftest signature-strategy-comes-from-the-config
   (testing "`:pattern` takes the first group of the regex"
-    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+    (is (= (str "app.summaries/relative-path\n"
+                "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
                 "Maybe String -> String  "
                 "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
                 "(+38 chars)")
            (fixture-answer (assoc project/config :doc/signature
                                   {:strategy :pattern :regex "(Maybe String -> String) -> String"})
-                           {:name "app.summaries/relative-path"}))))
+                           {:names ["app.summaries/relative-path"]}))))
   (testing "a config without `:doc/signature` shows no signatures"
-    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+    (is (= (str "app.summaries/relative-path\n"
+                "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
                 "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
                 "(+71 chars)")
            (fixture-answer (dissoc project/config :doc/signature)
-                           {:name "app.summaries/relative-path"})))
-    (is (= "src/app/signatures.clj:6  def  app.signatures/page-size  Rows per page. (+4 chars)"
+                           {:names ["app.summaries/relative-path"]})))
+    (is (= (group "app.signatures/page-size" "src/app/signatures.clj:6  def  app.signatures/page-size  Rows per page. (+4 chars)")
            (fixture-answer (assoc project/config :doc/signature nil)
-                           {:name "app.signatures/page-size"})))))
+                           {:names ["app.signatures/page-size"]})))))
 
 (def ^:private full-doc-answers
   "The `find_definition doc: \"full\"` answers on the definitions fixture,
@@ -204,32 +223,93 @@
 
 (deftest full-doc-shows-the-whole-docstring-of-each-definition
   (testing "one Definition: its line without signature and summary, then the docstring"
-    (is (= (full-doc-answers "app.summaries/relative-path")
-           (fixture-answer {:name "app.summaries/relative-path" :doc "full"}))))
+    (is (= (group "app.summaries/relative-path" (full-doc-answers "app.summaries/relative-path"))
+           (fixture-answer {:names ["app.summaries/relative-path"] :doc "full"}))))
   (testing "a Definition without a docstring"
-    (is (= (full-doc-answers "helper-test")
-           (fixture-answer {:name "helper-test" :doc "full"}))))
+    (is (= (group "helper-test" (full-doc-answers "helper-test"))
+           (fixture-answer {:names ["helper-test"] :doc "full"}))))
   (testing "ambiguous: the header, then each candidate with its docstring"
     (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
                 (full-doc-answers "app.signatures/relative-path") "\n"
                 (full-doc-answers "app.summaries/relative-path"))
-           (fixture-answer {:name "relative-path" :doc "full"}))))
+           (fixture-answer {:names ["relative-path"] :doc "full"}))))
   (testing "\"summary\" is the default"
-    (is (= (fixture-answer {:name "app.summaries/relative-path"})
-           (fixture-answer {:name "app.summaries/relative-path" :doc "summary"})))))
+    (is (= (fixture-answer {:names ["app.summaries/relative-path"]})
+           (fixture-answer {:names ["app.summaries/relative-path"] :doc "summary"})))))
 
 (deftest full-doc-pages-by-definition
   (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
               (full-doc-answers "app.signatures/relative-path") "\n"
               "truncated: shown 1 of 2, pass offset=1 or narrow the query")
-         (fixture-answer {:name "relative-path" :doc "full" :limit 1})))
+         (fixture-answer {:names ["relative-path"] :doc "full" :limit 1})))
   (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
               (full-doc-answers "app.summaries/relative-path"))
-         (fixture-answer {:name "relative-path" :doc "full" :offset 1}))))
+         (fixture-answer {:names ["relative-path"] :doc "full" :offset 1}))))
 
 (deftest full-doc-longer-than-the-budget-ends-with-the-docstring-truncation-note
-  (let [cfg (assoc project/config :output/max-chars 150)]
-    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]\n"
+  (let [cfg (assoc project/config :output/max-chars 178)]
+    (is (= (str "app.summaries/relative-path\n"
+                "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]\n"
                 "  Возвращает путь к файлу отно\n"
                 "truncated: docstring shown 28 of 155 chars")
-           (fixture-answer cfg {:name "app.summaries/relative-path" :doc "full"})))))
+           (fixture-answer cfg {:names ["app.summaries/relative-path"] :doc "full"})))))
+
+;; ---------------------------------------------------------------------------
+;; Several names
+;; ---------------------------------------------------------------------------
+
+(def ^:private page-size-line
+  "src/app/signatures.clj:6  def  app.signatures/page-size  Long  Rows per page.")
+
+(def ^:private limit-line
+  "src/app/summaries.clj:13  def  app.summaries/limit  Lines per page.")
+
+(def ^:private signatures-relative-path-line
+  (str "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]  "
+       "String -> String  Путь к файлу относительно корня."))
+
+(deftest several-names-answer-in-groups-separated-by-a-blank-line
+  (is (= (str (group "app.signatures/page-size" page-size-line) "\n\n"
+              (group "app.summaries/limit" limit-line))
+         (fixture-answer {:names ["app.signatures/page-size" "app.summaries/limit"]}))))
+
+(deftest repeated-names-answer-once
+  (is (= (str (group "app.summaries/limit" limit-line) "\n\n"
+              (group "limit" limit-line))
+         (fixture-answer {:names ["app.summaries/limit" "app.summaries/limit" "limit"]}))))
+
+(deftest a-missing-or-ambiguous-name-does-not-hide-the-others
+  (is (= (str "no-such-definition: not found (checked "
+              (count (code-index/files @definitions-fixture)) " files, including tests)\n"
+              "\n"
+              "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+              signatures-relative-path-line "\n"
+              (summary-answers "app.summaries/relative-path") "\n"
+              "\n"
+              (group "app.summaries/limit" limit-line))
+         (fixture-answer {:names ["no-such-definition" "relative-path" "app.summaries/limit"]}))))
+
+(deftest full-doc-applies-to-every-name
+  (is (= (str (group "helper-test" (full-doc-answers "helper-test")) "\n\n"
+              (group "app.signatures/relative-path" (full-doc-answers "app.signatures/relative-path")))
+         (fixture-answer {:names ["helper-test" "app.signatures/relative-path"] :doc "full"}))))
+
+(deftest paging-counts-definitions-across-groups-and-repeats-the-header
+  (let [names ["app.summaries/limit" "relative-path" "app.signatures/page-size"]
+        ambiguous-header "ambiguous: 2 definitions named relative-path, pass a qualified name"]
+    (testing "a page ends inside a group"
+      (is (= (str (group "app.summaries/limit" limit-line) "\n\n"
+                  ambiguous-header "\n"
+                  signatures-relative-path-line "\n"
+                  "truncated: shown 2 of 4, pass offset=2 or narrow the query")
+             (fixture-answer {:names names :limit 2}))))
+    (testing "the next page starts inside that group and repeats its header"
+      (is (= (str ambiguous-header "\n"
+                  (summary-answers "app.summaries/relative-path") "\n"
+                  "\n"
+                  (group "app.signatures/page-size" page-size-line))
+             (fixture-answer {:names names :offset 2}))))))
+
+(deftest empty-list-of-names-says-so
+  (is (= "no names given" (fixture-answer {:names []})))
+  (is (= "no names given" (fixture-answer {:names ["  "]}))))

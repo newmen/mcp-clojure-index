@@ -140,6 +140,61 @@
           (remove st/blank?)
           (st/join "\n")))))
 
+;; AnswerGroup: the answer for one name or target of a batch call,
+;; {:header "app.core/get-uuid: 11 usages" :findings [...]}; the header
+;; line heads the group's findings. A group without findings is its
+;; header alone, a finding of its own.
+
+(s/def ::findings sequential?)
+
+(s/def ::answer-group (s/keys :req-un [::header] :opt-un [::findings]))
+
+(defn- grouped-findings
+  "The findings of `groups` as one sequence, each a map
+   {:prefix String :finding a}, `:finding` absent for a group's header
+   alone.
+
+  The prefix of a group's first finding is its header line, after a blank
+  line unless the finding opens the page at `offset`; the finding that
+  opens the page repeats its group's header.
+
+  [AnswerGroup] -> Long -> [{:prefix String :finding a}]"
+  [groups offset]
+  (->> groups
+       (mapcat (fn [{:keys [header findings]}]
+                 (if (seq findings)
+                   (map-indexed (fn [i finding] {:header header :first? (zero? i) :finding finding})
+                                findings)
+                   [{:header header :first? true}])))
+       (map-indexed (fn [i {:keys [header first? finding]}]
+                      (cond-> {:prefix (str (when (and first? (> i offset)) "\n")
+                                            (when (or first? (= i offset))
+                                              (str header (when finding "\n"))))}
+                        finding (assoc :finding finding))))
+       vec))
+
+(defn render-grouped
+  "Renders the findings of `groups` as one answer within the Output
+   budget, laid out like `rg --heading`: each group's header line, then
+   its findings, a blank line between groups.
+
+  The budget counts findings across groups; a page that starts inside a
+  group repeats its header. `options` render one finding, as in `render`.
+
+  OutputBudget -> [AnswerGroup] -> String
+  OutputBudget -> [AnswerGroup] -> RenderOptions -> String"
+  ([budget groups] (render-grouped budget groups {}))
+  ([budget groups {:keys [text-of cut] :or {text-of identity}}]
+   (let [cut (or cut #(text/ellipsis-cut %1 (text-of %2)))
+         text (fn [{:keys [prefix] :as entry}]
+                (str prefix (when (contains? entry :finding) (text-of (:finding entry)))))]
+     (render budget (grouped-findings groups (:offset budget))
+             {:text-of text
+              :cut (fn [room {:keys [prefix] :as entry}]
+                     (if (contains? entry :finding)
+                       (str prefix (cut (max 0 (- room (count prefix))) (:finding entry)))
+                       (text/ellipsis-cut room prefix)))}))))
+
 ;; FindingCut: what `cut-finding` cuts,
 ;; {:what :docstring :text "..." :finding-of (fn [shown-text] ...)}: the
 ;; finding `finding-of` (default `identity`) makes of a prefix of `text`,

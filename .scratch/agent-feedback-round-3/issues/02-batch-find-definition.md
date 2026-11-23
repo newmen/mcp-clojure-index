@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `names: [string]` replaces `name`; the schema and description say so.
-- [ ] Each distinct name answers in its own group headed by the name as written; repeated names answer once.
-- [ ] A name that is not found says so in its header line with what was searched; an ambiguous name lists its candidates in its group; other names still answer.
-- [ ] `doc: "full"` applies to every name; the single-finding docstring Truncation note still works.
-- [ ] `limit` and `offset` count Definitions across groups; a page starting inside a group repeats its header; the Truncation note works as today.
-- [ ] An empty list answers `no names given`.
-- [ ] `find_usages` groups are separated by one blank line; headers and Usage lines are otherwise unchanged.
-- [ ] Existing `find_definition` and `find_usages` tests are updated; new tool-seam tests cover one name, several, repeats, not found, ambiguous, `doc: "full"`, paging across groups and the empty list.
+- [x] `names: [string]` replaces `name`; the schema and description say so.
+- [x] Each distinct name answers in its own group headed by the name as written; repeated names answer once.
+- [x] A name that is not found says so in its header line with what was searched; an ambiguous name lists its candidates in its group; other names still answer.
+- [x] `doc: "full"` applies to every name; the single-finding docstring Truncation note still works.
+- [x] `limit` and `offset` count Definitions across groups; a page starting inside a group repeats its header; the Truncation note works as today.
+- [x] An empty list answers `no names given`.
+- [x] `find_usages` groups are separated by one blank line; headers and Usage lines are otherwise unchanged.
+- [x] Existing `find_definition` and `find_usages` tests are updated; new tool-seam tests cover one name, several, repeats, not found, ambiguous, `doc: "full"`, paging across groups and the empty list.

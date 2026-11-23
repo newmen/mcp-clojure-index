@@ -87,7 +87,8 @@
         [uuid-group uses-value-group] (split-with (complement #{"app.core/uses-value: 1 usage"})
                                                   lines)]
     (is (= "app.core/get-uuid: 13 usages" (first uuid-group)))
-    (is (= 14 (count uuid-group)))
+    (is (= 15 (count uuid-group)))
+    (is (= "" (last uuid-group)) "a blank line separates the groups")
     (is (= ["app.core/uses-value: 1 usage"
             "src/app/other.clj:11:5  call  app.other/caller"]
            uses-value-group))))
@@ -161,8 +162,9 @@
     (is (= ["mcp.output/definition->line: 4 usages"
             "src/mcp/output.clj:L:C  call  mcp.output/definition->line"
             "src/mcp/output.clj:L:C  value  mcp.output/ambiguous"
-            "src/mcp/tools/find_definition.clj:L:C  call  mcp.tool/call :find_definition"
+            "src/mcp/tools/find_definition.clj:L:C  value  mcp.tool/call :find_definition"
             "src/mcp/tools/find_usages.clj:L:C  call  mcp.tools.find-usages/target-group"
+            ""
             "mcp.output/oversized-first-finding: 1 usage"
             "src/mcp/output.clj:L:C  call  mcp.output/render"]
            (map #(st/replace % #":\d+:\d+  " ":L:C  ")
@@ -203,7 +205,8 @@
   (let [lines (answer-lines @keyword-project {:targets [":timeout" "kw.core/read-opts"]})]
     (is (= ":timeout: 5 usages" (first lines)))
     (is (= "no usages of kw.core/read-opts (checked 3 files, including tests)" (last lines)))
-    (is (= 7 (count lines)))))
+    (is (= 8 (count lines)))
+    (is (= "" (last (butlast lines))) "a blank line separates the groups")))
 
 (deftest kinds-separate-code-keywords-from-edn
   (is (= [":timeout: 2 usages"
@@ -253,9 +256,11 @@
             "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
             "src/ar/core.clj:23:8  value  ar.core/callers"
             "src/ar/core.clj:24:5  var-ref  ar.core/callers"
+            ""
             "ar.core/many: 2 usages"
             "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"
             "src/ar/core.clj:20:4  call  ar.core/callers"
+            ""
             "ar.core/mixed: 2 usages"
             "src/ar/core.clj:21:4  call  ar.core/callers"
             "src/ar/core.clj:22:4  call  ar.core/callers  wrong arity: 2 args, takes 1|3+"]
@@ -267,12 +272,22 @@
 (deftest warnings-only-keeps-the-usages-with-a-usage-warning
   (is (= ["ar.core/two: 1 usage"
           "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
+          ""
           "ar.core/many: 1 usage"
           "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"]
          (answer-lines @arity-project {:targets ["two" "many"] :warnings_only true})))
   (testing "the empty answer says that only Usages with a Usage warning were asked for"
     (is (= "no usages of ar.core/one with a Usage warning (checked 1 files, including tests)"
            (answer @arity-project {:targets ["one"] :warnings_only true})))))
+
+(deftest a-page-starting-inside-a-group-repeats-its-header-without-a-blank-line
+  (is (= ["ar.core/two: 4 usages"
+          "src/ar/core.clj:24:5  var-ref  ar.core/callers"
+          ""
+          "ar.core/many: 2 usages"
+          "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"
+          "truncated: shown 5 of 6, pass offset=5 or narrow the query"]
+         (answer-lines @arity-project {:targets ["two" "many"] :offset 3 :limit 2}))))
 
 (deftest unused-requires-carry-a-usage-warning
   (testing "an unused alias is unused, unused referred names are listed; bare requires, :refer :all and uses through ::alias/kw, #' or a qualified name are not marked; a qualified name does not use a referred name"

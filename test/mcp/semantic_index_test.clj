@@ -165,6 +165,30 @@
       (f))
     @created))
 
+(deftest sync-follows-the-file-set-without-recreating-the-collection
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        excluding (update (services-config) :index/exclude conj #"src/shop/inventory")
+        without-inventory (code-index/refresh excluding @fixture-index)
+        with-inventory (code-index/refresh (services-config) without-inventory)
+        inventory-points #(set (keep (comp #{inventory} :filename) (vals @points)))]
+    (with-services points
+      (sut/sync! semantic-index @fixture-index)
+      (is (= #{inventory} (inventory-points)))
+      (testing "the points of a file that left the file set are forgotten"
+        (is (= [inventory] (sut/stale-files semantic-index without-inventory)))
+        (is (= 0 (created-during #(sut/sync! semantic-index without-inventory))))
+        (is (= #{} (inventory-points)))
+        (is (= [] (sut/stale-files semantic-index without-inventory))))
+      (testing "a file that joined the file set is stale and embedded"
+        (is (= [inventory] (sut/stale-files semantic-index with-inventory)))
+        (is (= 0 (created-during #(sut/sync! semantic-index with-inventory))))
+        (is (= #{inventory} (inventory-points)))
+        (is (= [] (sut/stale-files semantic-index with-inventory)))))
+    (is (= (set (map :id (search-units/search-units @fixture-index)))
+           (set (keys @points))))))
+
 (deftest sync-after-the-collection-was-deleted-recreates-it-and-re-embeds-every-file
   (let [points (fake-qdrant)
         semantic-index (sut/create (services-config))

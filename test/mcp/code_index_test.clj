@@ -273,6 +273,23 @@
              (str root "/src/app/gone.clj")}
            (set (sut/stale-files cfg idx))))))
 
+(deftest refresh-with-another-file-set-drops-newly-excluded-files-and-analyses-newly-included-ones
+  (let [root (temp-project {"src/app/core.clj" core-v1
+                            "gen/app/proto.clj" "(ns app.proto)\n(def omega 1)\n"
+                            "scripts/build.bb" "(ns build)\n(def release 1)\n"})
+        cfg (temp-config root)
+        idx (sut/build cfg)
+        other-cfg (assoc cfg
+                         :index/exclude (conj (:index/exclude cfg) #"gen")
+                         :index/include-extensions [".clj" ".bb"])
+        names (fn [index] (set (map sut/qualified-name (sut/definitions index))))
+        fresh (sut/refresh other-cfg idx)]
+    (is (contains? (names idx) "app.proto/omega"))
+    (is (not (contains? (names fresh) "app.proto/omega")))
+    (is (contains? (names fresh) "build/release"))
+    (testing "the original file set brings them back"
+      (is (= (names idx) (names (sut/refresh cfg fresh)))))))
+
 (deftest refresh-of-an-unchanged-project-returns-the-same-index
   (let [idx (project/code-index)]
     (is (identical? idx (sut/refresh project/config idx)))))

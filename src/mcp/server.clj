@@ -122,7 +122,11 @@
   "Brings the parts of `state` built from the settings in line with
    `new-config`, the settings that replaced `old-config`. Answers read
    their hot keys from `:config` at call time, so for them taking the new
-   Config is all there is to do.
+   Config is all there is to do. A changed file set (`:index/exclude`,
+   `:index/include-extensions`) is reconciled by the freshness check that
+   follows: the code index drops the files that left it and analyses the
+   ones that joined, and the semantic index, handed the result, forgets
+   and embeds the same files.
 
   ServerState -> Config -> Config -> ServerState"
   [state _old-config new-config]

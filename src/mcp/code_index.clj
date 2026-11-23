@@ -388,33 +388,49 @@
 ;; Freshness (ADR-0005)
 ;; ---------------------------------------------------------------------------
 
+(defn- file-set-changes
+  "How the files of `index` differ from the project's files on disk under
+   `cfg`: `:changed` are the files to analyse (modified since they were
+   indexed, added to the project, or newly included by `cfg`), `:left`
+   the indexed files that are no longer project files (deleted, or newly
+   excluded by `cfg`).
+
+  Config -> CodeIndex -> IO {:changed [String] :left [String]}"
+  [cfg index]
+  (let [indexed (:files index)
+        current (source-files cfg (:root index))]
+    {:changed (remove #(= (get-in indexed [% :mtime])
+                          (.lastModified (io/file ^String %)))
+                      current)
+     :left (remove (set current) (keys indexed))}))
+
 (defn stale-files
   "Lists the absolute paths of the files whose index entries are out of
    date.
 
   These are files whose modification time differs from the indexed one,
-  files added to the project and indexed files that no longer exist.
+  files added to the project and indexed files that are no longer project
+  files (deleted or excluded).
 
   Config -> CodeIndex -> IO [String]"
   [cfg index]
-  (let [indexed (:files index)
-        current (source-files cfg (:root index))
-        changed-or-added (remove #(= (get-in indexed [% :mtime])
-                                     (.lastModified (io/file ^String %)))
-                                 current)
-        deleted (remove (set current) (keys indexed))]
-    (vec (concat changed-or-added deleted))))
+  (let [{:keys [changed left]} (file-set-changes cfg index)]
+    (vec (concat changed left))))
 
 (defn refresh
-  "Brings `index` up to date with the files on disk, re-analysing only the
-   stale files (see `stale-files`). Returns `index` itself when nothing
-   changed. Precise tools call this before every answer.
+  "Brings `index` up to date with the files on disk and the file set of
+   `cfg` (`:index/exclude`, `:index/include-extensions`), re-analysing only
+   the changed files and dropping the ones that are no longer project
+   files (see `stale-files`). Returns `index` itself when nothing changed.
+   Precise tools call this before every answer.
 
   Config -> CodeIndex -> IO CodeIndex"
   [cfg index]
-  (let [stale (stale-files cfg index)]
-    (if (seq stale)
-      (update-files index stale)
+  (let [{:keys [changed left]} (file-set-changes cfg index)]
+    (if (or (seq changed) (seq left))
+      (-> index
+          (update :files #(apply dissoc % left))
+          (update-files changed))
       index)))
 
 ;; ---------------------------------------------------------------------------

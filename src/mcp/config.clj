@@ -313,7 +313,8 @@
    other key is read at server start only.
 
   #{Keyword}"
-  #{:search/min-relevance :output/limit :output/max-chars :doc/signature})
+  #{:index/exclude :index/include-extensions
+    :search/min-relevance :output/limit :output/max-chars :doc/signature})
 
 (defn- project-config-path
   "The Project config file of the project `settings` index.

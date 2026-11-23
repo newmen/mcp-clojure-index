@@ -414,3 +414,77 @@
     (is (= (str "project config error in .clojure-index.edn: unknown key :output/limt; "
                 "using previous settings\n" full-summary)
            answer))))
+
+;; ---------------------------------------------------------------------------
+;; Project config: the file set of the index
+;; ---------------------------------------------------------------------------
+
+(defn- definition-call
+  "The answer text of `find_definition` for `name-str`, and the server
+   state after it.
+
+  ServerState -> String -> IO [String ServerState]"
+  [state name-str]
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
+             :params {:name "find_definition" :arguments {:names [name-str]}}}
+        [response new-state] (#'sut/handle-method msg state)]
+    [(-> response :result :content first :text) new-state]))
+
+(defn- add-project-file!
+  "Writes `text` to the file `relative-path` of the project at `root`.
+
+  String -> String -> String -> IO ()"
+  [root relative-path text]
+  (let [file (io/file root relative-path)]
+    (io/make-parents file)
+    (spit file text)))
+
+(deftest a-changed-index-exclude-drops-and-restores-the-files-it-covers
+  (let [root (temp-project "{:index/exclude [\"gen\"]}")
+        _ (add-project-file! root "gen/app/proto.clj" "(ns app.proto)\n(defn delta [x] x)\n")
+        [excluded-answer state] (definition-call (project-state root) "delta")
+        _ (edit-project-config! root "{:index/exclude []}")
+        [included-answer state] (definition-call state "delta")
+        _ (edit-project-config! root "{:index/exclude [\"gen\"]}")
+        [excluded-again-answer state] (definition-call state "delta")
+        [summary-answer _state] (summary-call state)]
+    (is (= "delta: not found (checked 2 files, including tests)" excluded-answer))
+    (is (= "delta\ngen/app/proto.clj:2  defn  app.proto/delta  [x]" included-answer))
+    (is (= "delta: not found (checked 2 files, including tests)" excluded-again-answer))
+    (testing "the files left in the index still answer"
+      (is (= full-summary summary-answer)))))
+
+(deftest a-changed-index-include-extensions-adds-and-drops-files-with-them
+  (let [root (temp-project nil)
+        _ (add-project-file! root "scripts/build.bb" "(ns build)\n(defn release [x] x)\n")
+        [default-answer state] (definition-call (project-state root) "release")
+        _ (edit-project-config! root "{:index/include-extensions [\".clj\" \".bb\"]}")
+        [included-answer state] (definition-call state "release")
+        _ (edit-project-config! root "{:index/include-extensions [\".clj\"]}")
+        [dropped-answer _state] (definition-call state "release")]
+    (is (= "release: not found (checked 1 files, including tests)" default-answer))
+    (is (= "release\nscripts/build.bb:2  defn  build/release  [x]" included-answer))
+    (is (= "release: not found (checked 1 files, including tests)" dropped-answer))))
+
+(deftest always-excluded-directories-stay-excluded-whatever-the-project-config-says
+  (let [root (temp-project "{:index/exclude [\"gen\"]}")
+        _ (add-project-file! root "target/app/built.clj" "(ns app.built)\n(defn epsilon [x] x)\n")
+        [_answer state] (definition-call (project-state root) "epsilon")
+        _ (edit-project-config! root "{:index/exclude []}")
+        [answer _state] (definition-call state "epsilon")]
+    (is (= "epsilon: not found (checked 2 files, including tests)" answer))))
+
+(deftest a-changed-index-exclude-hands-the-new-file-set-to-the-embeddings-sync
+  (let [root (temp-project "{:index/exclude [\"gen\"]}")
+        _ (add-project-file! root "gen/app/proto.clj" "(ns app.proto)\n(defn delta [x] x)\n")
+        synced-files (atom [])
+        relative-paths (fn [index]
+                         (sort (map #(subs % (inc (count root))) (code-index/files index))))
+        state (assoc (project-state root) :semantic-index (semantic-index/create config/defaults))]
+    (with-redefs [semantic-index/sync-async! (fn [_semantic-index index]
+                                               (swap! synced-files conj (relative-paths index)))]
+      (let [[_answer state] (definition-call state "delta")]
+        (edit-project-config! root "{:index/exclude []}")
+        (definition-call state "delta")))
+    (is (= [[".clojure-index.edn" "src/app/core.clj"]
+            [".clojure-index.edn" "gen/app/proto.clj" "src/app/core.clj"]] @synced-files))))

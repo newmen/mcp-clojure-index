@@ -25,15 +25,28 @@
 (def ^:private deps-project (delay (fixture-index "deps_project")))
 (def ^:private plain-project (delay (fixture-index "plain_project")))
 (def ^:private keyword-project (delay (fixture-index "keyword_project")))
+(def ^:private context-project (delay (fixture-index "context_project")))
+(def ^:private arity-project (delay (fixture-index "arity_project")))
+
+(defn- context-answer
+  "The answer text of `find_usages` on `code-index`, with Usage context
+   unless `args` turn it off.
+
+  CodeIndex -> ToolArgs -> IO String
+  Config -> CodeIndex -> ToolArgs -> IO String"
+  ([code-index args] (context-answer project/config code-index args))
+  ([cfg code-index args]
+   (project/answer-text cfg (tool/call :find_usages args {:config cfg :code-index code-index}))))
 
 (defn- answer
-  "The answer text of `find_usages` on `code-index`.
+  "The answer text of `find_usages` on `code-index` without Usage context:
+   the tests of which Usages are found compare bare Usage lines.
 
   CodeIndex -> ToolArgs -> IO String
   Config -> CodeIndex -> ToolArgs -> IO String"
   ([code-index args] (answer project/config code-index args))
   ([cfg code-index args]
-   (project/answer-text cfg (tool/call :find_usages args {:config cfg :code-index code-index}))))
+   (context-answer cfg code-index (merge {:context false} args))))
 
 (defn- answer-lines
   "The lines of the answer of `find_usages` on `code-index`.
@@ -211,12 +224,73 @@
     (is (st/ends-with? text "truncated: shown 4 of 13, pass offset=4 or narrow the query"))
     (is (st/starts-with? next-page "app.core/get-uuid: 13 usages\n"))))
 
+(deftest usages-carry-their-context
+  (testing "call, keyword and edn Usages end with their source line, whitespace collapsed"
+    (is (= ["ctx.core/target: 2 usages"
+            "src/ctx/core.clj:9:4  call  ctx.core/caller  (target x"
+            (str "src/ctx/core.clj:14:88  call  ctx.core/long-caller  "
+                 "\u2026adding\" x) result (target first-very-long-binding-name :a-rather-long-keyword-\u2026")]
+           (st/split-lines (context-answer @context-project {:targets ["target"]}))))
+    (is (= [":mode: 2 usages"
+            "resources/config.edn:1:2  edn  {:mode :fast}"
+            "src/ctx/core.clj:10:15  keyword  ctx.core/caller  (:mode x)))"]
+           (st/split-lines (context-answer @context-project {:targets [":mode"]})))))
+  (testing "a long line is cut around the Usage column to at most 80 characters"
+    (let [line (last (st/split-lines (context-answer @context-project {:targets ["target"]})))
+          context (subs line (+ (st/index-of line "long-caller") (count "long-caller  ")))]
+      (is (= 80 (count context)))))
+  (testing "context: false gives bare Usage lines"
+    (is (= ["ctx.core/target: 2 usages"
+            "src/ctx/core.clj:9:4  call  ctx.core/caller"
+            "src/ctx/core.clj:14:88  call  ctx.core/long-caller"]
+           (st/split-lines (context-answer @context-project {:targets ["target"] :context false}))))))
+
+(deftest calls-with-wrong-arity-carry-a-usage-warning
+  (testing "a call matching no fixed arity, or below the varargs arity, ends with the warning"
+    (is (= ["ar.core/two: 4 usages"
+            "src/ar/core.clj:17:4  call  ar.core/callers"
+            "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
+            "src/ar/core.clj:23:8  value  ar.core/callers"
+            "src/ar/core.clj:24:5  var-ref  ar.core/callers"
+            "ar.core/many: 2 usages"
+            "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"
+            "src/ar/core.clj:20:4  call  ar.core/callers"
+            "ar.core/mixed: 2 usages"
+            "src/ar/core.clj:21:4  call  ar.core/callers"
+            "src/ar/core.clj:22:4  call  ar.core/callers  wrong arity: 2 args, takes 1|3+"]
+           (answer-lines @arity-project {:targets ["two" "many" "mixed"]}))))
+  (testing "the warning follows the Usage context"
+    (is (st/includes? (context-answer @arity-project {:targets ["two"]})
+                      "src/ar/core.clj:18:4  call  ar.core/callers  (two 1 2 3)  wrong arity: 3 args, takes 1|2"))))
+
+(deftest warnings-only-keeps-the-usages-with-a-usage-warning
+  (is (= ["ar.core/two: 1 usage"
+          "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
+          "ar.core/many: 1 usage"
+          "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"]
+         (answer-lines @arity-project {:targets ["two" "many"] :warnings_only true})))
+  (is (= "no usages of ar.core/one (checked 1 files, including tests)"
+         (answer @arity-project {:targets ["one"] :warnings_only true}))))
+
+(deftest answer-with-context-respects-output-budget
+  (let [cfg (assoc project/config :output/limit 4 :output/max-chars 300)
+        text (context-answer cfg @lein-project {:targets ["get-uuid"]})
+        next-page (context-answer cfg @lein-project {:targets ["get-uuid"] :offset 4})]
+    (is (<= (count text) (:output/max-chars cfg)))
+    (is (re-find #"truncated: shown \d+ of 13, pass offset=\d+" text))
+    (is (st/includes? (context-answer @lein-project {:targets ["get-uuid"]})
+                      "src/app/other.clj:6:5  call  app.other/caller  [(c/get-uuid x)"))
+    (is (st/starts-with? next-page "app.core/get-uuid: 13 usages\n"))))
+
 (deftest description-says-why-it-beats-grep
   (let [spec (some #(when (= "find_usages" (:name %)) %)
                    (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"max-chars" (:description spec)))
-    (is (= #{:targets :kinds :include_tests :limit :offset}
+    (is (re-find #"context" (:description spec)))
+    (is (re-find #"wrong arity" (:description spec)))
+    (is (re-find #"warnings_only" (:description spec)))
+    (is (= #{:targets :kinds :include_tests :context :warnings_only :limit :offset}
            (set (keys (get-in spec [:inputSchema :properties])))))))
 
 (deftest old-caller-tools-are-gone

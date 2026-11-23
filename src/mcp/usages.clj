@@ -30,7 +30,8 @@
 ;; {:filename  "/abs/src/app/other.clj"
 ;;  :row 6 :col 5                    ; start of the referring symbol
 ;;  :kind      "call"                ; Usage kind, see GLOSSARY.md
-;;  :enclosing "app.other/caller"}   ; Enclosing definition, or the namespace
+;;  :enclosing "app.other/caller"    ; Enclosing definition, or the namespace
+;;  :warning   "wrong arity: 3 args, takes 1|2"}  ; Usage warning, only when one holds
 
 (s/def ::target
   (s/keys :req [:target/type :target/name]
@@ -39,7 +40,7 @@
 (s/def ::usage-kind
   #{"require" "in-comment" "redef" "var-ref" "call" "value" "keyword" "edn"})
 
-(s/def ::usage (s/keys :req-un [::filename ::row ::col ::kind ::enclosing]))
+(s/def ::usage (s/keys :req-un [::filename ::row ::col ::kind ::enclosing] :opt-un [::warning]))
 
 ;; What `resolve-target` returns: {:target Target} for one Target,
 ;; {:candidates [Definition]} for an ambiguous name, {} for no match.
@@ -256,26 +257,60 @@
       {:candidates definitions})))
 
 (defn- usage
-  "The Usage of the clj-kondo `entry`, of Usage kind `kind`.
+  "The Usage of the clj-kondo `entry`, of Usage kind `kind`, with the Usage
+   warning that `warning-fn` gives, if any.
 
-  FileContext -> UsageKind -> AnalysisEntry -> Usage"
-  [ctx kind entry]
-  {:filename (:filename entry)
-   :row (first (position entry))
-   :col (second (position entry))
-   :kind kind
-   :enclosing (enclosing-definition ctx entry)})
+  FileContext -> (UsageKind -> AnalysisEntry -> Maybe String) -> UsageKind -> AnalysisEntry -> Usage"
+  [ctx warning-fn kind entry]
+  (let [warning (warning-fn kind entry)]
+    (cond-> {:filename (:filename entry)
+             :row (first (position entry))
+             :col (second (position entry))
+             :kind kind
+             :enclosing (enclosing-definition ctx entry)}
+      warning (assoc :warning warning))))
 
 (defn- file-usages
   "Builds the Usages of `entries` (all of one target), file by file, with
-   the Usage kind that `kind-fn` gives.
+   the Usage kind that `kind-fn` gives and the Usage warning that
+   `warning-fn` gives.
 
-  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> [AnalysisEntry] -> IO [Usage]"
-  [index kind-fn entries]
-  (->> (group-by :filename entries)
-       (mapcat (fn [[filename file-entries]]
-                 (let [ctx (file-context index filename)]
-                   (map #(usage ctx (kind-fn ctx %) %) file-entries))))))
+  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> [AnalysisEntry] -> IO [Usage]
+  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> (UsageKind -> AnalysisEntry -> Maybe String) -> [AnalysisEntry] -> IO [Usage]"
+  ([index kind-fn entries]
+   (file-usages index kind-fn (constantly nil) entries))
+  ([index kind-fn warning-fn entries]
+   (->> (group-by :filename entries)
+        (mapcat (fn [[filename file-entries]]
+                  (let [ctx (file-context index filename)]
+                    (map #(usage ctx warning-fn (kind-fn ctx %) %) file-entries)))))))
+
+;; ---------------------------------------------------------------------------
+;; Usage warnings
+;; ---------------------------------------------------------------------------
+
+(defn- plural
+  "`n` followed by `word`, with an `s` unless `n` is 1.
+
+  Long -> String -> String"
+  [n word]
+  (str n " " word (when (not= 1 n) "s")))
+
+(defn- arity-warning
+  "The `wrong arity` Usage warning of a `call` whose argument count matches
+   no arity of `definition`; nil for a matching call, another Usage kind or
+   a Definition without known arities.
+
+  Definition -> UsageKind -> AnalysisEntry -> Maybe String"
+  [{:keys [fixed-arities varargs-min-arity]} kind {:keys [arity]}]
+  (when (and (= "call" kind)
+             arity
+             (or (seq fixed-arities) varargs-min-arity)
+             (not (contains? (set fixed-arities) arity))
+             (not (and varargs-min-arity (<= varargs-min-arity arity))))
+    (str "wrong arity: " (plural arity "arg") ", takes "
+         (st/join "|" (cond-> (mapv str (sort fixed-arities))
+                        varargs-min-arity (conj (str varargs-min-arity "+")))))))
 
 (defmulti usages
   "All Usages of a Target, sorted by file and position, without duplicates
@@ -345,12 +380,12 @@
   (keyword-usages index (some-> (namespace spec-key) symbol) (name spec-key)))
 
 (defmethod usages :var
-  [index {{def-ns :ns def-name :name} :definition}]
+  [index {{def-ns :ns def-name :name :as definition} :definition}]
   (->> (code-index/entries index :var-usages)
        (filter #(and (= def-ns (:to %)) (= def-name (:name %))))
        (filter :name-row)               ; synthetic arity-check duplicates have none
        (remove :defmethod)              ; a defmethod head is an Implementation
-       (file-usages index var-usage-kind)
+       (file-usages index var-usage-kind (partial arity-warning definition))
        sorted-distinct))
 
 (defmethod usages :namespace

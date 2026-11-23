@@ -189,10 +189,16 @@ Input:  targets (array of strings, required) — names and/or keywords (`:k`, `:
         kinds (array of strings) — only these Usage kinds:
           call, value, var-ref, redef, in-comment, require, keyword, edn (default: all)
         include_tests (boolean, default true)
+        context (boolean, default true) — end each line with its Usage context
+        warnings_only (boolean, default false) — only Usages that carry a Usage warning
         limit, offset
 Answer: per target a header `target: N usages`, then one line per Usage
-        path:line:col  usage-kind  ns/enclosing-definition
+        path:line:col  usage-kind  ns/enclosing-definition  context  warning
 ```
+
+The Usage context is up to 80 characters of the source line around the Usage, with whitespace runs collapsed; `…` marks a cut end.
+
+A Usage warning ends the line when one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call whose argument count matches no arity of its target.
 
 An empty result states what was searched, e.g. `no usages of x (checked 214 files, including tests)`.
 
@@ -228,6 +234,7 @@ Answer: one line per Implementation (defrecord, deftype, extend-type, extend-pro
 
 ```
 Input:  query (string, required) — what the code does, in natural language
+        include_tests (boolean, default false) — also search Definitions in Test paths
         limit, offset
 Search: query embedding → Qdrant top :search/top-k ─┐
         words of names and docstrings (BM25) ───────┴→ reciprocal rank fusion → reranker → top :search/re-rank-top

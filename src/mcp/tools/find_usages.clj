@@ -10,6 +10,18 @@
 
 (set! *warn-on-reflection* true)
 
+(def ^:private context-width
+  "The most characters of Usage context shown on a Usage line.
+
+  Long"
+  80)
+
+(def ^:private context-lead
+  "How many characters of a cut Usage context come before the Usage column.
+
+  Long"
+  20)
+
 (def ^:private description
   (str "Find every Usage of one or more Clojure vars, macros, namespaces or keywords "
        "(`:k`, `:ns/k`, `::k`, `::alias/k`) in one call. "
@@ -20,8 +32,12 @@
        "Marks test doubles bound in `with-redefs` (kind redef) and REPL scratch code inside "
        "`comment` (kind in-comment). "
        "Answer: grouped by target, one line per Usage (path:line:col  usage-kind  "
-       "ns/enclosing-definition), at most :output/limit lines and :output/max-chars characters; "
-       "`kinds` and `include_tests` narrow it. "
+       "ns/enclosing-definition  context), where context is up to 80 characters of the source "
+       "line around the Usage, whitespace collapsed (`context: false` leaves it out), then a Usage "
+       "warning if one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call "
+       "whose argument count matches no arity of the target; at most :output/limit lines and "
+       ":output/max-chars characters; `kinds`, `include_tests` and `warnings_only` (only Usages "
+       "with a Usage warning) narrow it. "
        tool/freshness-note))
 
 (defmethod tool/spec :find_usages
@@ -36,7 +52,11 @@
                                              :items {:type "string" :enum (usages/kind-names)}
                                              :description "Only Usages of these kinds (default: all)"}
                                      :include_tests {:type "boolean"
-                                                     :description "Include Usages in test files (default true)"}}
+                                                     :description "Include Usages in test files (default true)"}
+                                     :context {:type "boolean"
+                                               :description "End each Usage line with its Usage context (default true)"}
+                                     :warnings_only {:type "boolean"
+                                                     :description "Only Usages that carry a Usage warning (default false)"}}
                                     tool/paging-properties)
                  :required ["targets"]}})
 
@@ -54,34 +74,74 @@
 ;; A UsageFilter is what the call asks for:
 ;;
 ;; {:kinds          #{"call" ...}   ; only these Usage kinds; empty for all
-;;  :include-tests? true}           ; false drops Usages under Test paths
+;;  :include-tests? true            ; false drops Usages under Test paths
+;;  :context?       true            ; false leaves Usage context out
+;;  :warnings-only? false}          ; true keeps only Usages with a Usage warning
 
-(s/def ::usage-filter (s/keys :req-un [::kinds ::include-tests?]))
+(s/def ::usage-filter (s/keys :req-un [::kinds ::include-tests? ::context? ::warnings-only?]))
+
+;; A LineReader gives the source lines of a file by its absolute path,
+;; reading each file at most once per call.
+
+(s/def ::line-reader ifn?)
+
+(defn- collapse-whitespace
+  "`text` with every run of whitespace replaced by one space.
+
+  String -> String"
+  [text]
+  (st/replace text #"\s+" " "))
+
+(defn- usage-context
+  "The Usage context of the Usage at 1-based `col` of `line`: the line with
+   whitespace runs collapsed, cut to `context-width` characters around the
+   column, an ellipsis marking each cut end.
+
+  String -> Long -> String"
+  [line col]
+  (let [column-index (min (count line) (max 0 (dec col)))
+        lead (collapse-whitespace (st/triml (subs line 0 column-index)))
+        text (st/trimr (str lead (collapse-whitespace (subs line column-index))))
+        length (count text)
+        start (max 0 (min (- (count lead) context-lead) (- length context-width)))
+        end (min length (+ start context-width))
+        cut-start? (pos? start)
+        cut-end? (< end length)]
+    (str (when cut-start? "\u2026")
+         (subs text (cond-> start cut-start? inc) (cond-> end cut-end? dec))
+         (when cut-end? "\u2026"))))
 
 (defn- usage->line
-  "The Compact answer line of a Usage: `path:line:col  kind  enclosing`.
+  "The Compact answer line of a Usage: `path:line:col  kind  enclosing`,
+   followed by its Usage context when `read-lines` is given and by its
+   Usage warning, if any.
 
-  String -> Usage -> String"
-  [root {:keys [filename row col kind enclosing]}]
-  (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
-    (not (st/blank? enclosing)) (str "  " enclosing)))
+  String -> Maybe LineReader -> Usage -> IO String"
+  [root read-lines {:keys [filename row col kind enclosing warning]}]
+  (let [line (when read-lines (get (read-lines filename) (dec row)))]
+    (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
+      (not (st/blank? enclosing)) (str "  " enclosing)
+      (not (st/blank? line)) (str "  " (usage-context line col))
+      warning (str "  " warning))))
 
 (defn- wanted?
-  "True when `usage` is of one of the asked `kinds` (all when empty) and,
-   unless tests are included, outside the Test paths.
+  "True when `usage` is of one of the asked `kinds` (all when empty),
+   outside the Test paths unless tests are included, and, when only
+   warnings are asked for, carries a Usage warning.
 
   CodeIndex -> UsageFilter -> Usage -> Boolean"
-  [index {:keys [kinds include-tests?]} {:keys [filename kind]}]
+  [index {:keys [kinds include-tests? warnings-only?]} {:keys [filename kind warning]}]
   (and (or (empty? kinds) (contains? kinds kind))
-       (or include-tests? (not (code-index/test-file? index filename)))))
+       (or include-tests? (not (code-index/test-file? index filename)))
+       (or (not warnings-only?) (some? warning))))
 
 (defn- target-group
   "The TargetAnswer for one target as written by the agent.
 
   Ambiguous candidates show no Type signature.
 
-  SignatureStrategy -> CodeIndex -> UsageFilter -> String -> IO TargetAnswer"
-  [signature-strategy index opts target-str]
+  SignatureStrategy -> CodeIndex -> Maybe LineReader -> UsageFilter -> String -> IO TargetAnswer"
+  [signature-strategy index read-lines opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
@@ -97,7 +157,7 @@
                                    (output/checked index (:include-tests? opts)))}
       :else {:header (str (:target/name target) ": " (count found)
                           (if (= 1 (count found)) " usage" " usages"))
-             :lines (mapv (partial usage->line (code-index/root index)) found)})))
+             :lines (mapv (partial usage->line (code-index/root index) read-lines) found)})))
 
 (defn- findings
   "One finding per Usage line of the TargetAnswers.
@@ -136,8 +196,12 @@
 (defmethod tool/call :find_usages
   [_tool-key params {:keys [config code-index]}]
   (let [opts {:kinds (set (as-strings (:kinds params)))
-              :include-tests? (not (false? (:include_tests params)))}
-        groups (map (partial target-group (:doc/signature config) code-index opts) (distinct (as-strings (:targets params))))
+              :include-tests? (not (false? (:include_tests params)))
+              :context? (not (false? (:context params)))
+              :warnings-only? (true? (:warnings_only params))}
+        read-lines (when (:context? opts) (memoize code-index/file-lines))
+        groups (map (partial target-group (:doc/signature config) code-index read-lines opts)
+                    (distinct (as-strings (:targets params))))
         budget (output/budget config params)]
     (tool/text-result
      (if (empty? groups)

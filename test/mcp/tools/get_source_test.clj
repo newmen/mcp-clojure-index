@@ -2,9 +2,11 @@
   "`get_source` on this project's own code base."
   (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
+            [mcp.code-index :as code-index]
             [mcp.test-project :as project]
             [mcp.tool :as tool]
-            [mcp.tools :as tools]))
+            [mcp.tools :as tools])
+  (:import (java.io File)))
 
 (set! *warn-on-reflection* true)
 
@@ -48,6 +50,20 @@
             ["test/mcp/search_test.clj" "mcp.search-test/test-config"]
             ["test/mcp/tools_test.clj" "mcp.tools-test/test-config"]]
            (map #(rest (re-matches #"(\S+):\d+  def  (\S+)" %)) candidates)))))
+
+(deftest ambiguous-candidates-show-their-type-signatures
+  (let [cfg (assoc project/config :index/root-path
+                   (.getCanonicalPath (File. "test-resources/fixtures/definitions_project")))]
+    (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+                "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]  "
+                "String -> String  Путь к файлу относительно корня.\n"
+                "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]  "
+                "Maybe String -> String -> String  "
+                "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. "
+                "(+38 chars)")
+           (project/answer-text cfg
+                                (tool/call :get_source {:name "relative-path"}
+                                           {:config cfg :code-index (code-index/build cfg)}))))))
 
 (deftest miss-reports-what-was-searched
   (is (re-matches #"not found: no-such-definition \(checked \d+ files, including tests\)"

@@ -79,6 +79,13 @@
               "0.50  resources/config.edn:1  edn  :db/connection-pool")
          (answer {:query "qwerty"}))))
 
+(deftest hit-lines-carry-no-type-signature
+  (is (= (str "0.91  src/shop/orders.clj:5  defn  shop.orders/order-total  "
+              "Sum of price times quantity. (+15 chars)")
+         (answer {:query "qwerty"} (fresh-semantic-index)
+                 [(hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total"
+                       "Sum of price times quantity.\n  Over all items.\n\n  Order -> Double" 0.91234)]))))
+
 (deftest without-reranker-no-raw-vector-score-is-shown
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
                 qdrant/search (fn [_cfg _vector _top-k] hits)

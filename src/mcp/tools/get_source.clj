@@ -42,6 +42,6 @@
   (let [name-str (str (:name params))
         budget (output/budget config params)]
     (tool/text-result
-     (output/one-definition budget code-index name-str
+     (output/one-definition budget (:doc/signature config) code-index name-str
                             (code-index/resolve-name code-index name-str)
                             (partial source-answer budget code-index)))))

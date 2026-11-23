@@ -78,14 +78,17 @@
 (defn- target-group
   "The TargetAnswer for one target as written by the agent.
 
-  CodeIndex -> UsageFilter -> String -> IO TargetAnswer"
-  [index opts target-str]
+  Ambiguous candidates show no Type signature.
+
+  SignatureStrategy -> CodeIndex -> UsageFilter -> String -> IO TargetAnswer"
+  [signature-strategy index opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
-                  :lines (mapv (partial output/definition->line index) candidates)}
+                  :lines (mapv #(output/definition->line signature-strategy index % {:signature? false})
+                               candidates)}
       (nil? target) {:header (str "not found: " target-str " " (output/checked index (:include-tests? opts)))}
       (= :defmethod (:target/type target))
       {:header (str (:target/name target) " is a defmethod: it is called through its multimethod, "
@@ -134,7 +137,7 @@
   [_tool-key params {:keys [config code-index]}]
   (let [opts {:kinds (set (as-strings (:kinds params)))
               :include-tests? (not (false? (:include_tests params)))}
-        groups (map (partial target-group code-index opts) (distinct (as-strings (:targets params))))
+        groups (map (partial target-group (:doc/signature config) code-index opts) (distinct (as-strings (:targets params))))
         budget (output/budget config params)]
     (tool/text-result
      (if (empty? groups)

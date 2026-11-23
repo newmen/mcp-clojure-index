@@ -84,3 +84,53 @@
   (testing "a mark not followed by whitespace does not cut"
     (is (= "Uses mcp.output/budget.edn for the rules"
            (sut/docstring-summary "Uses mcp.output/budget.edn for the rules")))))
+
+(def ^:private last-paragraph
+  "The default signature strategy.
+
+  SignatureStrategy"
+  {:strategy :last-paragraph})
+
+(deftest last-paragraph-strategy-takes-the-signature-out-of-the-summary
+  (testing "a Russian docstring wrapped over several lines, signature as its last paragraph"
+    (is (= {:summary "Возвращает путь к файлу относительно корня проекта, если файл лежит внутри него. (+38 chars)"
+            :signature "Maybe String -> String -> String"}
+           (sut/definition-doc last-paragraph
+             {:kind "defn"
+              :doc "Возвращает путь к файлу относительно корня
+   проекта, если файл лежит внутри него. Иначе путь
+   возвращается без изменений.
+
+  Maybe String -> String -> String"}))))
+  (testing "a signature over several lines is joined with single spaces"
+    (is (= {:summary "Checks a value."
+            :signature "Config -> IO String Config -> Long -> IO String"}
+           (sut/definition-doc last-paragraph
+             {:kind "defn"
+              :doc "Checks a value.\n\n  Config -> IO String\n  Config -> Long -> IO String"}))))
+  (testing "a `def` whose signature is a bare type"
+    (is (= {:summary "Rows per page." :signature "Long"}
+           (sut/definition-doc last-paragraph {:kind "def" :doc "Rows per page.\n\n  Long"}))))
+  (testing "a one-paragraph docstring has no signature, its paragraph is the summary"
+    (is (= {:summary "Lines per page. (+4 chars)" :signature nil}
+           (sut/definition-doc last-paragraph {:kind "def" :doc "Lines per page.\n  Ten."}))))
+  (testing "namespaces have no signature"
+    (is (= {:summary "Output budget. (+12 chars)" :signature nil}
+           (sut/definition-doc last-paragraph {:kind "ns" :doc "Output budget.\n\n  Second part."}))))
+  (testing "no docstring"
+    (is (= {:summary nil :signature nil}
+           (sut/definition-doc last-paragraph {:kind "defn" :doc nil})))))
+
+(deftest pattern-strategy-takes-the-first-group-of-the-regex
+  (let [strategy {:strategy :pattern :regex "Type:\\s+(.+?)\\s*$"}]
+    (testing "the matched text is not part of the summary"
+      (is (= {:summary "Signs a request. (+13 chars)" :signature "String -> IO String"}
+             (sut/definition-doc strategy {:kind "defn"
+                                           :doc "Signs a request. With the key.\n  Type: String -> IO String"}))))
+    (testing "no match, no signature"
+      (is (= {:summary "Signs a request." :signature nil}
+             (sut/definition-doc strategy {:kind "defn" :doc "Signs a request."}))))))
+
+(deftest without-a-strategy-there-are-no-signatures
+  (is (= {:summary "Rows per page. (+4 chars)" :signature nil}
+         (sut/definition-doc nil {:kind "def" :doc "Rows per page.\n\n  Long"}))))

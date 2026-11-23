@@ -63,7 +63,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged. (+32 chars)"}]
+             :text "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -83,8 +83,9 @@
 
 (def ^:private relative-path-definition
   (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+       "Maybe String -> String -> String  "
        "Returns `file-path` relative to the project root `root-path`; paths outside the root "
-       "are returned unchanged. (+32 chars)"))
+       "are returned unchanged."))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
   (let [state {:config services-down-config

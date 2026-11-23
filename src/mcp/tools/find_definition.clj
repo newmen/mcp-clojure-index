@@ -15,7 +15,8 @@
        "a defmethod as name plus dispatch value (`area :circle`); a spec by keyword "
        "(`:app.core/uuid`, `::uuid`, `::c/uuid`); "
        "an ambiguous name returns the candidates. "
-       "Answer: one line per Definition (path:line  kind  ns/name  [arglists]  Docstring summary), "
+       "Answer: one line per Definition (path:line  kind  ns/name  [arglists]  Type signature  "
+       "Docstring summary), "
        "at most :output/limit lines and :output/max-chars characters. Use get_source for the body. "
        tool/freshness-note))
 
@@ -34,6 +35,7 @@
   (let [name-str (str (:name params))
         budget (output/budget config params)]
     (tool/text-result
-     (output/one-definition budget code-index name-str
+     (output/one-definition budget (:doc/signature config) code-index name-str
                             (code-index/resolve-name code-index name-str)
-                            #(output/render budget [(output/definition->line code-index %)])))))
+                            #(output/render budget [(output/definition->line (:doc/signature config)
+                                                                             code-index %)])))))

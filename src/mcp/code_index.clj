@@ -396,6 +396,15 @@
 ;; Freshness (ADR-0005)
 ;; ---------------------------------------------------------------------------
 
+;; FileSetChanges: how the indexed files differ from the project's files on
+;; disk, {:changed [String] :left [String]} of absolute paths.
+
+(s/def ::changed (s/coll-of string?))
+
+(s/def ::left (s/coll-of string?))
+
+(s/def ::file-set-changes (s/keys :req-un [::changed ::left]))
+
 (defn- file-set-changes
   "How the files of `index` differ from the project's files on disk under
    `cfg`: `:changed` are the files to analyse (modified since they were
@@ -403,7 +412,7 @@
    the indexed files that are no longer project files (deleted, or newly
    excluded by `cfg`).
 
-  Config -> CodeIndex -> IO {:changed [String] :left [String]}"
+  Config -> CodeIndex -> IO FileSetChanges"
   [cfg index]
   (let [indexed (:files index)
         current (source-files cfg (:root index))]

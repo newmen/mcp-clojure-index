@@ -74,3 +74,11 @@ The closing line of an answer that hit the Output budget, saying how many findin
 **Project config**:
 The settings a project keeps in its own repository, over the server's defaults; the agent may edit them, and they apply from the next answer.
 _Avoid_: local config, overrides
+
+**Hot key**:
+A setting of the Project config that applies from the next answer: the file set, the Search exclusions, the relevance floor, the Output budget and the signature strategy.
+_Avoid_: live setting, reloadable key
+
+**Cold key**:
+A setting that is read at server start only, such as the connections, the collection or the project root; a changed one is not applied, and answers say it needs a restart.
+_Avoid_: static setting, restart key

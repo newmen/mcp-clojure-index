@@ -143,56 +143,96 @@
 ;; AnswerGroup: the answer for one name or target of a batch call,
 ;; {:header "app.core/get-uuid: 11 usages" :findings [...]}; the header
 ;; line heads the group's findings. A group without findings is its
-;; header alone, a finding of its own.
+;; header alone; it takes no place in the page and shows with the finding
+;; after it (or, at the end, the one before it).
 
 (s/def ::findings sequential?)
 
 (s/def ::answer-group (s/keys :req-un [::header] :opt-un [::findings]))
 
+;; GroupedFinding: one finding of `render-grouped`, with the header lines
+;; shown around it, {:prefix String :finding a :suffix String};
+;; `:finding` is absent when no group has findings and the entry is the
+;; headers alone.
+
+(s/def ::prefix string?)
+
+(s/def ::suffix string?)
+
+(s/def ::grouped-finding (s/keys :req-un [::prefix] :opt-un [::finding ::suffix]))
+
+(defn- header-lines
+  "The `headers` as the lines before a finding, each ending with a line
+   break and after a blank line, except the first one when it opens the
+   page.
+
+  [String] -> Boolean -> String"
+  [headers opens-page?]
+  (->> headers
+       (map-indexed (fn [header-index header]
+                      (str (when-not (and opens-page? (zero? header-index)) "\n")
+                           header "\n")))
+       (apply str)))
+
 (defn- grouped-findings
-  "The findings of `groups` as one sequence, each a map
-   {:prefix String :finding a}, `:finding` absent for a group's header
-   alone.
+  "The findings of `groups` as one sequence of GroupedFindings.
 
   The prefix of a group's first finding is its header line, after a blank
   line unless the finding opens the page at `offset`; the finding that
-  opens the page repeats its group's header.
+  opens the page repeats its group's header. The headers of groups
+  without findings go before the next finding, those at the end after
+  the last one.
 
-  [AnswerGroup] -> Long -> [{:prefix String :finding a}]"
+  [AnswerGroup] -> Long -> [GroupedFinding]"
   [groups offset]
-  (->> groups
-       (mapcat (fn [{:keys [header findings]}]
-                 (if (seq findings)
-                   (map-indexed (fn [i finding] {:header header :first? (zero? i) :finding finding})
-                                findings)
-                   [{:header header :first? true}])))
-       (map-indexed (fn [i {:keys [header first? finding]}]
-                      (cond-> {:prefix (str (when (and first? (> i offset)) "\n")
-                                            (when (or first? (= i offset))
-                                              (str header (when finding "\n"))))}
-                        finding (assoc :finding finding))))
-       vec))
+  (let [entries (->> groups
+                     (mapcat (fn [{:keys [header findings]}]
+                               (if (seq findings)
+                                 (map-indexed (fn [finding-index finding]
+                                                {:header header :first? (zero? finding-index) :finding finding})
+                                              findings)
+                                 [{:empty-header header}]))))
+        {:keys [found pending]}
+        (reduce (fn [{:keys [found pending]} {:keys [empty-header header first? finding]}]
+                  (if empty-header
+                    {:found found :pending (conj pending empty-header)}
+                    (let [position (count found)
+                          headers (cond-> pending
+                                    (or first? (= position offset)) (conj header))]
+                      {:found (conj found {:prefix (header-lines headers (= position offset))
+                                           :finding finding})
+                       :pending []})))
+                {:found [] :pending []}
+                entries)]
+    (cond
+      (empty? found) [{:prefix (st/join "\n\n" pending)}]
+      (empty? pending) found
+      :else (update found (dec (count found))
+                    assoc :suffix (apply str (map (partial str "\n\n") pending))))))
 
 (defn render-grouped
   "Renders the findings of `groups` as one answer within the Output
    budget, laid out like `rg --heading`: each group's header line, then
    its findings, a blank line between groups.
 
-  The budget counts findings across groups; a page that starts inside a
-  group repeats its header. `options` render one finding, as in `render`.
+  The budget counts findings across groups, not the groups without
+  findings; a page that starts inside a group repeats its header.
+  `options` render one finding, as in `render`.
 
   OutputBudget -> [AnswerGroup] -> String
   OutputBudget -> [AnswerGroup] -> RenderOptions -> String"
   ([budget groups] (render-grouped budget groups {}))
   ([budget groups {:keys [text-of cut] :or {text-of identity}}]
    (let [cut (or cut #(text/ellipsis-cut %1 (text-of %2)))
-         text (fn [{:keys [prefix] :as entry}]
-                (str prefix (when (contains? entry :finding) (text-of (:finding entry)))))]
+         text (fn [{:keys [prefix suffix] :as entry}]
+                (str prefix (when (contains? entry :finding) (text-of (:finding entry))) suffix))]
      (render budget (grouped-findings groups (:offset budget))
              {:text-of text
-              :cut (fn [room {:keys [prefix] :as entry}]
+              :cut (fn [room {:keys [prefix suffix] :as entry}]
                      (if (contains? entry :finding)
-                       (str prefix (cut (max 0 (- room (count prefix))) (:finding entry)))
+                       (str prefix
+                            (cut (max 0 (- room (count prefix) (count suffix))) (:finding entry))
+                            suffix)
                        (text/ellipsis-cut room prefix)))}))))
 
 ;; FindingCut: what `cut-finding` cuts,

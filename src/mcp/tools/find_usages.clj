@@ -146,14 +146,14 @@
 
 (defmethod tool/call :find_usages
   [_tool-key params {:keys [config code-index]}]
-  (let [opts {:kinds (set (tool/strings (:kinds params)))
+  (let [opts {:kinds (set (tool/distinct-strings (:kinds params)))
               :include-tests? (tool/flag params :include_tests true)
               :context? (tool/flag params :context true)
               :warnings-only? (tool/flag params :warnings_only false)}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
         {:keys [budget] :as ctx} (output/answer-context config params code-index)
         groups (map (partial target-group ctx read-lines opts)
-                    (tool/strings (:targets params)))]
+                    (tool/distinct-strings (:targets params)))]
     (tool/text-result
      (if (empty? groups)
        "no targets given"

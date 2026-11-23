@@ -128,7 +128,7 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:reranker/model` | `"qllama/bge-reranker-v2-m3"` | Model name sent to the reranker (semantic search only) |
 | `:search/top-k` | `100` | Candidates taken from vector search and from word matching each, and fused candidates passed to the reranker (semantic search only) |
 | `:search/re-rank-top` | `10` | Hits kept after reranking (semantic search only) |
-| `:search/min-relevance` | `0.3` | When the best relevance is below it, `semantic_search` puts `no confident matches (best 0.15), try rephrasing` before the hits; set for `qllama/bge-reranker-v2-m3` (ADR-0008), raise it for a reranker whose scores of unrelated text are higher (semantic search only, needs the reranker) |
+| `:search/min-relevance` | `0.3` | When the best relevance is below it, `semantic_search` puts `no confident matches (best 0.15), try rephrasing in the docstrings' words` before the hits (plus ` (they are mostly in Cyrillic)` when most Descriptions are in one non-Latin script); set for `qllama/bge-reranker-v2-m3` (ADR-0008), raise it for a reranker whose scores of unrelated text are higher (semantic search only, needs the reranker) |
 | `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
 
 An answer that hits the Output budget ends with a Truncation note, e.g. `truncated: shown 50 of 120, pass offset=50 or narrow the query`.
@@ -328,8 +328,9 @@ Search: query embedding → Qdrant top :search/top-k ─┐
 Answer: one line per hit, no source bodies
         score  path:line  kind  ns/name  Docstring summary
         (score: the reranker's relevance, 0..1; left out when the reranker is unavailable)
-        starts with `no confident matches (best 0.03), try rephrasing` when the best
-        relevance is below :search/min-relevance (never without the reranker)
+        starts with `no confident matches (best 0.03), try rephrasing in the docstrings' words`
+        when the best relevance is below :search/min-relevance (never without the reranker),
+        plus ` (they are mostly in <Script>)` when most Descriptions are in one non-Latin script
         ends with `embeddings stale for N files` while recent edits are being embedded
 ```
 

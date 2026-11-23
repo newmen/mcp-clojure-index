@@ -156,7 +156,7 @@ curl http://localhost:8012/health
 | `:reranker/model`              | `"qllama/bge-reranker-v2-m3"`                                          | Имя модели, передаваемое reranker (только для семантического поиска)                                                                                                                     |
 | `:search/top-k`                | `100`                                                                  | Количество кандидатов, получаемых отдельно из векторного поиска и поиска по словам, а также количество объединённых кандидатов, передаваемых reranker (только для семантического поиска) |
 | `:search/re-rank-top`          | `10`                                                                   | Количество результатов, оставляемых после reranking (только для семантического поиска)                                                                                                   |
-| `:search/min-relevance`        | `0.3`                                                                  | Если лучшая релевантность ниже этого порога, `semantic_search` ставит перед результатами строку `no confident matches (best 0.15), try rephrasing`; подобран для `qllama/bge-reranker-v2-m3` (ADR-0008), для reranker, который даёт посторонним текстам более высокие оценки, порог нужно поднять (только для семантического поиска, нужен reranker) |
+| `:search/min-relevance`        | `0.3`                                                                  | Если лучшая релевантность ниже этого порога, `semantic_search` ставит перед результатами строку `no confident matches (best 0.15), try rephrasing in the docstrings' words` (и ` (they are mostly in Cyrillic)`, если большинство описаний написано одной нелатинской письменностью); подобран для `qllama/bge-reranker-v2-m3` (ADR-0008), для reranker, который даёт посторонним текстам более высокие оценки, порог нужно поднять (только для семантического поиска, нужен reranker) |
 | `:embedding/cache-dir`         | `<root>/.mcp/embedding-cache`                                          | Директория кэша embeddings (только для семантического поиска)                                                                                                                            |
 
 Если ответ достигает установленного Output budget, в его конце добавляется уведомление об усечении. Например:
@@ -448,7 +448,9 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
 
   Если лучшая релевантность ниже :search/min-relevance,
   первой строкой идёт
-  `no confident matches (best 0.03), try rephrasing`.
+  `no confident matches (best 0.03), try rephrasing in the docstrings' words`,
+  а если большинство описаний написано одной нелатинской
+  письменностью, к ней добавляется ` (they are mostly in <Script>)`.
   Без reranker такой строки не бывает.
 
   Пока выполняется индексация последних изменений,

@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The `semantic_search` description carries the wording sentence. The server's `initialize` instructions are unchanged.
-- [ ] The confidence line reads `no confident matches (best X), try rephrasing in the docstrings' words`.
-- [ ] On a project whose Descriptions are mostly Cyrillic the line ends with ` (they are mostly in Cyrillic)`. On a Latin-script project it does not.
-- [ ] Script detection runs only when the line is printed.
-- [ ] Tool-seam tests: both fixtures (`multilingual_project` and an English one), best hit below and above the threshold.
+- [x] The `semantic_search` description carries the wording sentence. The server's `initialize` instructions are unchanged.
+- [x] The confidence line reads `no confident matches (best X), try rephrasing in the docstrings' words`.
+- [x] On a project whose Descriptions are mostly Cyrillic the line ends with ` (they are mostly in Cyrillic)`. On a Latin-script project it does not.
+- [x] Script detection runs only when the line is printed.
+- [x] Tool-seam tests: both fixtures (`multilingual_project` and an English one), best hit below and above the threshold.

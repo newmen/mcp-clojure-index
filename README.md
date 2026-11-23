@@ -18,7 +18,7 @@ Characters an agent receives per question with the server, compared with `rg` pl
 | where is the code that does Y (`semantic_search`) | 87–98% | 97–99% |
 | what is in a namespace (`namespace_summary`) | −2…+36% (median −8…+10%) | 86–90% |
 
-`namespace_summary` can be bigger than grepping the `(def` lines because it also gives arglists, specs, protocol methods and who requires the namespace, which that grep misses; against reading the file, which is what answers the question, it saves 86–90%. The Definitions' Type signatures and Docstring summaries come only with `detail: true`. Besides size, grep brought 3–7 lines per `find_usages` question that are not usages, which the agent still has to read.
+`namespace_summary` can be bigger than grepping the `(def` lines because it also gives arglists, specs, protocol methods and who requires the namespace, which that grep misses; against reading the file, which is what answers the question, it saves 86–90%. Each Definition line carries its Type signature; Docstring summaries come only with `detail: true`. Besides size, grep brought 3–7 lines per `find_usages` question that are not usages, which the agent still has to read.
 
 **These numbers vary from project to project**: they grow with file size and with how often names repeat, and they are for single questions — a session saves less, because the system prompt, reasoning, edits and test runs cost the same with or without the server. The method, the per-project numbers and the command to measure your own project are in [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
 
@@ -244,13 +244,14 @@ An empty result states what was searched, e.g. `no usages of x (checked 214 file
 
 ```
 Input:  ns (string, required) — fully qualified namespace name
-        detail (boolean, default false) — add Type signatures and Docstring summaries
+        detail (boolean, default false) — add Docstring summaries
         limit, offset
 Answer: header   ns name  path  Docstring summary
-        per Definition   line  kind  name  [arglists]
+        per Definition   line  kind  name  [arglists]  Type signature
+                         (no Type signature when the Definition or the project has none)
                          (private as the source shows it: `defn-  name`, `def  ^:private name`;
                           the namespace's own specs as `::name`)
-                         (with detail: ... [arglists]  Type signature  Docstring summary)
+                         (with detail: ... Type signature  Docstring summary)
         last line        required by: ns1, ns2, ... (or `none`)
 ```
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] One shared `ns` schema field on the four tools: "Resolve names as written in this namespace (`::k`, aliases, :refer)".
 - [x] `::k`, `::alias/k`, `alias/name` and bare names resolve in `ns`. Qualified names and keywords are unchanged.

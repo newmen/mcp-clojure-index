@@ -4,8 +4,12 @@
 
 **Blocked by:** None for the ADR section; 01, 02, 03 for the acceptance run
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [x] ADR-0008 has the section (written during grilling).
 - [ ] Jar rebuilt and the agent's session on the user's project restarted.
 - [ ] Acceptance checklist items 1–5 of the spec pass.
+
+## Comments
+
+- 2026-11-23: 01–03 are merged into `agent-feedback-round-4` with review fixes (unit suite 321 tests green; integration suite green after 02). What remains is the owner's part: rebuild the jar, restart the agent's session on the user's project, run acceptance items 1–5.

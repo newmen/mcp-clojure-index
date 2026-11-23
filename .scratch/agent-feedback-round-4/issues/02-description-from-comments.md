@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The `;;` block directly above a form becomes the Description of a Definition without a docstring. Leading semicolons and one space are stripped, and an empty `;;` line separates paragraphs.
 - [x] A comment separated from the form by a blank line does not count.

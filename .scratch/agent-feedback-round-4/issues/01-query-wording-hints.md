@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The `semantic_search` description carries the wording sentence. The server's `initialize` instructions are unchanged.
 - [x] The confidence line reads `no confident matches (best X), try rephrasing in the docstrings' words`.

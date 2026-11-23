@@ -35,7 +35,10 @@
        "ns/enclosing-definition  context), where context is up to 80 characters of the source "
        "line around the Usage, whitespace collapsed (`context: false` leaves it out), then a Usage "
        "warning if one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call "
-       "whose argument count matches no arity of the target; at most :output/limit lines and "
+       "whose argument count matches no arity of the target; on a require of a namespace target, "
+       "`unused` when nothing in the file uses the alias or a referred name, `unused refer: b, c` "
+       "when only those referred names are unused (bare requires and `:refer :all` are never "
+       "marked; `unused` is a hint, check macros and `resolve` before removing); at most :output/limit lines and "
        ":output/max-chars characters; `kinds`, `include_tests` and `warnings_only` (only Usages "
        "with a Usage warning) narrow it. "
        tool/freshness-note))

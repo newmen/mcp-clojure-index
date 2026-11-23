@@ -191,10 +191,15 @@ These are exactly the tools returned by `tools/list`. Names can be simple (`rela
 ```
 Input:  name (string, required) — simple, alias-qualified or fully qualified;
         `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
-        limit, offset
+        doc ("summary" | "full", default "summary")
+        limit, offset — in Definitions
 Answer: one line per Definition
-        path:line  kind  ns/name  [arglists]  Docstring summary
+        path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
+        with doc "full": path:line  kind  ns/name  [arglists], then the whole docstring
+        indented by two spaces (`  (no docstring)` when there is none)
 ```
+
+With `doc: "full"`, a single docstring longer than the Output budget is cut and ends with `truncated: docstring shown A of B chars`.
 
 Example: `src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...`
 
@@ -214,7 +219,7 @@ Answer: per target a header `target: N usages`, then one line per Usage
 
 The Usage context is up to 80 characters of the source line around the Usage, with whitespace runs collapsed; `…` marks a cut end.
 
-A Usage warning ends the line when one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call whose argument count matches no arity of its target.
+A Usage warning ends the line when one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call whose argument count matches no arity of its target; on a `require` of a namespace target, `unused` when the file uses neither the alias nor any referred name (a call or value through the alias, a referred name, `#'`, `::alias/kw`, a fully qualified name), and `unused refer: b, c` when only those referred names are unused. Bare requires and `:refer :all` are never marked. `unused` is a hint: a use hidden in a macro or `resolve` is not seen.
 
 An empty result states what was searched, e.g. `no usages of x (checked 214 files, including tests)`.
 
@@ -234,7 +239,8 @@ Answer: header   ns name  path  Docstring summary
 Input:  name (string, required) — simple, alias-qualified or fully qualified
         limit, offset — in lines of the body (or in candidates of an ambiguous name)
 Answer: a `path:start-end` header line, then the source of exactly one Definition;
-        a body over the Output budget ends with a truncation note, pass offset for the rest
+        a body over the Output budget ends with a truncation note, pass offset for the rest;
+        a single line longer than the budget is cut and ends with `truncated: source shown A of B chars`
 ```
 
 ### find_implementations

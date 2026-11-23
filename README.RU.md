@@ -256,11 +256,18 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
                                `multi dispatch-value` для defmethod
                                (например, `area :circle`);
                                keyword для spec.
-  limit, offset
+  doc ("summary" | "full", по умолчанию "summary")
+  limit, offset — считают определения (Definition)
 
 Ответ:
   Одна строка на каждое определение (Definition):
-  path:line  kind  ns/name  [arglists]  Docstring summary
+  path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
+
+  С doc "full": строка path:line  kind  ns/name  [arglists],
+  затем весь docstring с отступом в два пробела
+  (`  (no docstring)`, если его нет).
+  Docstring длиннее Output budget обрезается, в конце —
+  `truncated: docstring shown A of B chars`.
 ```
 
 Пример:
@@ -292,7 +299,7 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
 
 Контекст (Usage context) — до 80 символов строки исходника вокруг использования, серии пробелов схлопнуты; `…` отмечает обрезанный конец.
 
-Предупреждение (Usage warning) завершает строку, если оно есть: `wrong arity: 3 args, takes 1|2` (`takes 2+` для varargs) — у вызова число аргументов не совпадает ни с одной арностью цели.
+Предупреждение (Usage warning) завершает строку, если оно есть: `wrong arity: 3 args, takes 1|2` (`takes 2+` для varargs) — у вызова число аргументов не совпадает ни с одной арностью цели; у `require` целевого namespace — `unused`, если в файле не используется ни алиас, ни одно из имён `:refer` (вызов или значение через алиас, имя из `:refer`, `#'`, `::alias/kw`, полностью квалифицированное имя), и `unused refer: b, c`, если не используются только эти имена из `:refer`. Голый require и `:refer :all` не помечаются. `unused` — подсказка: использование внутри макроса или через `resolve` не видно.
 
 Если ничего не найдено, сервер сообщает, что именно было проверено. Например:
 
@@ -335,6 +342,8 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
   Если тело определения превышает Output budget,
   в конце добавляется уведомление об усечении.
   Чтобы получить оставшуюся часть, передайте offset.
+  Одна строка длиннее Output budget обрезается, в конце —
+  `truncated: source shown A of B chars`.
 ```
 
 ### find_implementations

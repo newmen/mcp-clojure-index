@@ -4,9 +4,9 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] One Definition, ambiguous candidates and a Definition without a docstring give the answers in the spec table.
-- [ ] Paging with `offset` works over full-doc findings.
-- [ ] A docstring longer than the budget ends with the docstring Truncation note; a long `get_source` body ends with the source one.
-- [ ] Acceptance case 7.
+- [x] One Definition, ambiguous candidates and a Definition without a docstring give the answers in the spec table.
+- [x] Paging with `offset` works over full-doc findings.
+- [x] A docstring longer than the budget ends with the docstring Truncation note; a long `get_source` body ends with the source one.
+- [x] Acceptance case 7.

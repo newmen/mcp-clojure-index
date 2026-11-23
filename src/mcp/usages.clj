@@ -31,7 +31,8 @@
 ;;  :row 6 :col 5                    ; start of the referring symbol
 ;;  :kind      "call"                ; Usage kind, see GLOSSARY.md
 ;;  :enclosing "app.other/caller"    ; Enclosing definition, or the namespace
-;;  :warning   "wrong arity: 3 args, takes 1|2"}  ; Usage warning, only when one holds
+;;  :warning   "wrong arity: 3 args, takes 1|2"}  ; Usage warning, only when one holds;
+;;                                   ; on a require: "unused", "unused refer: b, c"
 
 (s/def ::target
   (s/keys :req [:target/type :target/name]
@@ -260,9 +261,9 @@
   "The Usage of the clj-kondo `entry`, of Usage kind `kind`, with the Usage
    warning that `warning-fn` gives, if any.
 
-  FileContext -> (UsageKind -> AnalysisEntry -> Maybe String) -> UsageKind -> AnalysisEntry -> Usage"
+  FileContext -> (FileContext -> UsageKind -> AnalysisEntry -> Maybe String) -> UsageKind -> AnalysisEntry -> Usage"
   [ctx warning-fn kind entry]
-  (let [warning (warning-fn kind entry)]
+  (let [warning (warning-fn ctx kind entry)]
     (cond-> {:filename (:filename entry)
              :row (first (position entry))
              :col (second (position entry))
@@ -276,7 +277,7 @@
    `warning-fn` gives.
 
   CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> [AnalysisEntry] -> IO [Usage]
-  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> (UsageKind -> AnalysisEntry -> Maybe String) -> [AnalysisEntry] -> IO [Usage]"
+  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> (FileContext -> UsageKind -> AnalysisEntry -> Maybe String) -> [AnalysisEntry] -> IO [Usage]"
   ([index kind-fn entries]
    (file-usages index kind-fn (constantly nil) entries))
   ([index kind-fn warning-fn entries]
@@ -301,8 +302,8 @@
    no arity of `definition`; nil for a matching call, another Usage kind or
    a Definition without known arities.
 
-  Definition -> UsageKind -> AnalysisEntry -> Maybe String"
-  [{:keys [fixed-arities varargs-min-arity]} kind {:keys [arity]}]
+  Definition -> FileContext -> UsageKind -> AnalysisEntry -> Maybe String"
+  [{:keys [fixed-arities varargs-min-arity]} _ctx kind {:keys [arity]}]
   (when (and (= "call" kind)
              arity
              (or (seq fixed-arities) varargs-min-arity)
@@ -311,6 +312,26 @@
     (str "wrong arity: " (plural arity "arg") ", takes "
          (st/join "|" (cond-> (mapv str (sort fixed-arities))
                         varargs-min-arity (conj (str varargs-min-arity "+")))))))
+
+(defn- unused-require-warning
+  "The `unused` Usage warning of a require (`namespace-usage`) of `ns-name`
+   that nothing in its file uses, or `unused refer: b, c` when only those
+   referred names are unused; nil otherwise. A use is any var-usage of the
+   namespace outside the `ns` form (through the alias, a referred name,
+   `#'` or a qualified name) or an `::alias/kw` keyword. A bare require and
+   `:refer :all` refer to nothing by name and are never marked.
+
+  Symbol -> FileContext -> UsageKind -> AnalysisEntry -> Maybe String"
+  [ns-name {:keys [index filename file-usages]} _kind namespace-usage]
+  (let [[refers uses] ((juxt filter remove) :refer (filter (comp #{ns-name} :to) file-usages))
+        keyword-uses (filter #(and (= ns-name (:ns %)) (:alias %))
+                             (code-index/file-entries index filename :keywords))
+        used-names (into #{} (comp (remove :alias) (map :name)) uses)
+        unused-refers (remove (comp used-names :name) refers)]
+    (cond
+      (and (nil? (:alias namespace-usage)) (empty? refers)) nil
+      (and (empty? uses) (empty? keyword-uses)) "unused"
+      (seq unused-refers) (str "unused refer: " (st/join ", " (map :name unused-refers))))))
 
 (defmulti usages
   "All Usages of a Target, sorted by file and position, without duplicates
@@ -392,7 +413,7 @@
   [index {{ns-name :name} :definition}]
   (->> (code-index/entries index :namespace-usages)
        (filter (comp #{ns-name} :to))
-       (file-usages index (constantly "require"))
+       (file-usages index (constantly "require") (partial unused-require-warning ns-name))
        sorted-distinct))
 
 (defn kind-names

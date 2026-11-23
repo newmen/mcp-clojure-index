@@ -586,8 +586,9 @@
        first))
 
 (defn- name-ns
-  "The namespace that qualifies a Definition's name: its multimethod's for
-   a defmethod, else its own.
+  "The namespace that qualifies a Definition's symbol name: its
+   multimethod's for a defmethod, else its own. Not that of a spec, whose
+   keyword carries its own namespace.
 
   Definition -> Maybe Symbol"
   [{:keys [ns multimethod-ns]}]
@@ -608,14 +609,20 @@
 (defn local-name
   "Name of a Definition as written in its own namespace: `name`, followed
    by the dispatch value for a defmethod, whose multimethod is qualified
-   when it lives in another namespace.
+   when it lives in another namespace; a spec of the namespace's own
+   keyword as `::name`, of any other keyword in full (`:other.ns/name`,
+   `:name`).
 
   Definition -> String"
   [{:keys [ns dispatch] def-name :name :as definition}]
-  (cond-> (if (= ns (name-ns definition))
-            (str def-name)
-            (str (name-ns definition) "/" def-name))
-    dispatch (str " " dispatch)))
+  (if (keyword? def-name)
+    (if (= (str ns) (namespace def-name))
+      (str "::" (name def-name))
+      (str def-name))
+    (cond-> (if (= ns (name-ns definition))
+              (str def-name)
+              (str (name-ns definition) "/" def-name))
+      dispatch (str " " dispatch))))
 
 ;; ---------------------------------------------------------------------------
 ;; Name resolution

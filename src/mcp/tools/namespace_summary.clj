@@ -70,20 +70,14 @@
   #{"defn-"})
 
 (defn- name-as-written
-  "The name of a Definition of the namespace as its source writes it: a
-   spec of the namespace's own keyword as `::name`, of any other keyword in
-   full (`:other.ns/name`, `:name`), else `code-index/local-name`, preceded
-   by `^:private` when the Definition is private and its kind is not
-   `defn-`, which says so by itself.
+  "The name of a Definition of the namespace as its source writes it:
+   `code-index/local-name`, preceded by `^:private` when the Definition is
+   private and its kind is not `defn-`, which says so by itself.
 
   Definition -> String"
-  [{:keys [kind private ns] def-name :name :as definition}]
-  (if (keyword? def-name)
-    (if (= (str ns) (namespace def-name))
-      (str "::" (name def-name))
-      (str def-name))
-    (cond->> (code-index/local-name definition)
-      (and private (not (self-private-kinds kind))) (str "^:private "))))
+  [{:keys [kind private] :as definition}]
+  (cond->> (code-index/local-name definition)
+    (and private (not (self-private-kinds kind))) (str "^:private ")))
 
 (defn- summary-line
   "The answer line of one Definition of the namespace; with `:detail?`,

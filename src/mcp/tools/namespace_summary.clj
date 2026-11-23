@@ -77,14 +77,14 @@
 (defn- summary
   "The answer for the namespace `ns-def`: header, Definitions, requirers.
 
-  Config -> ToolArgs -> CodeIndex -> AnalysisEntry -> String"
-  [config params index ns-def]
+  OutputBudget -> CodeIndex -> AnalysisEntry -> String"
+  [budget index ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
                    (filter (comp #{ns-sym} :ns))
-                   (sort-by (juxt :filename :row :col))
+                   (sort-by (juxt :filename :row :col (comp str :name)))
                    (mapv summary-line))]
-    (output/render-framed config params
+    (output/render-framed budget
                           {:header (header (code-index/root index) ns-def)}
                           (conj lines (required-by-line index ns-sym)))))
 
@@ -149,5 +149,5 @@
   (let [asked-str (st/trim (str (:ns params)))]
     (tool/text-result
      (if-let [ns-def (code-index/namespace-definition code-index asked-str)]
-       (summary config params code-index ns-def)
+       (summary (output/budget config params) code-index ns-def)
        (unknown-namespace-answer code-index asked-str)))))

@@ -232,10 +232,10 @@
      (cond
        (empty? definitions) (output/not-found code-index name-str)
        (empty? implementable) (not-implementable name-str definitions)
-       (next implementable) (output/ambiguous config params code-index
+       (next implementable) (output/ambiguous (output/budget config params) code-index
                                               "protocols or multimethods" name-str implementable)
        :else (let [lines (mapv (partial implementation->line root)
                                (implementations code-index (first implementable)))]
                (if (seq lines)
-                 (output/render config params lines)
+                 (output/render (output/budget config params) lines)
                  (no-implementations code-index (first implementable))))))))

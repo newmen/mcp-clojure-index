@@ -20,7 +20,7 @@
 
 (deftest resolves-simple-alias-qualified-and-fully-qualified-names
   (let [idx (project/code-index)
-        expected #{["mcp.output/relative-path" 43]}]
+        expected #{["mcp.output/relative-path" 57]}]
     (testing "simple name"
       (is (= expected (located (sut/resolve-name idx "relative-path")))))
     (testing "alias-qualified name, as written in mcp.tools"

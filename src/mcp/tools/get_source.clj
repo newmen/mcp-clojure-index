@@ -29,17 +29,18 @@
   "Header and source lines of `definition`, paged by line within the
    Output budget.
 
-  Config -> ToolArgs -> CodeIndex -> Definition -> IO String"
-  [config params index {:keys [filename row end-row] :as definition}]
-  (output/render-framed config params
+  OutputBudget -> CodeIndex -> Definition -> IO String"
+  [budget index {:keys [filename row end-row] :as definition}]
+  (output/render-framed budget
                         {:header (str (output/relative-path (code-index/root index) filename)
                                       ":" row "-" end-row)}
                         (code-index/form-lines (code-index/file-lines filename) definition)))
 
 (defmethod tool/call :get_source
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))]
+  (let [name-str (str (:name params))
+        budget (output/budget config params)]
     (tool/text-result
-     (output/one-definition config params code-index name-str
+     (output/one-definition budget code-index name-str
                             (code-index/resolve-name code-index name-str)
-                            (partial source-answer config params code-index)))))
+                            (partial source-answer budget code-index)))))

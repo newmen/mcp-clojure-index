@@ -40,15 +40,15 @@
                  :required ["targets"]}})
 
 ;; ---------------------------------------------------------------------------
-;; Groups
+;; Target answers
 ;; ---------------------------------------------------------------------------
 
-;; A group is the answer for one target:
+;; A TargetAnswer is the answer for one target:
 ;;
 ;; {:header "app.core/get-uuid: 11 usages"   ; or a not-found/ambiguous line
 ;;  :lines  ["src/app/other.clj:6:5  call  app.other/caller" ...]}
 
-(s/def ::group (s/keys :req-un [::header] :opt-un [::lines]))
+(s/def ::target-answer (s/keys :req-un [::header] :opt-un [::lines]))
 
 ;; A UsageFilter is what the call asks for:
 ;;
@@ -75,9 +75,9 @@
        (or include-tests? (not (code-index/test-file? index filename)))))
 
 (defn- target-group
-  "The group that answers for one target as written by the agent.
+  "The TargetAnswer for one target as written by the agent.
 
-  CodeIndex -> UsageFilter -> String -> IO Group"
+  CodeIndex -> UsageFilter -> String -> IO TargetAnswer"
   [index opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)
@@ -96,11 +96,13 @@
              :lines (mapv (partial usage->line (code-index/root index)) found)})))
 
 (defn- findings
-  "One finding per Usage line; a group's header is joined to its first line
-   and to the line a page starts at, so every page names its targets. A
-   group without lines is a finding of its own.
+  "One finding per Usage line of the TargetAnswers.
 
-  [Group] -> Long -> [String]"
+  The header of an answer is joined to its first line and to the line a
+  page starts at, so every page names its targets. An answer without lines
+  is a finding of its own.
+
+  [TargetAnswer] -> Long -> [String]"
   [groups offset]
   (->> groups
        (mapcat (fn [{:keys [header lines]}]
@@ -131,8 +133,9 @@
   [_tool-key params {:keys [config code-index]}]
   (let [opts {:kinds (set (as-strings (:kinds params)))
               :include-tests? (not (false? (:include_tests params)))}
-        groups (map (partial target-group code-index opts) (distinct (as-strings (:targets params))))]
+        groups (map (partial target-group code-index opts) (distinct (as-strings (:targets params))))
+        budget (output/budget config params)]
     (tool/text-result
      (if (empty? groups)
        "no targets given"
-       (output/render config params (findings groups (max 0 (or (:offset params) 0))))))))
+       (output/render budget (findings groups (:offset budget)))))))

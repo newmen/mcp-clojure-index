@@ -6,25 +6,39 @@
 
 (set! *warn-on-reflection* true)
 
-;; A Frame is the optional header and footer line around the findings of an
-;; answer: {:header "..." :footer "..."}, either absent or nil.
+;; AnswerFrame: the optional header and footer line around the findings of
+;; an answer, {:header "..." :footer "..."}; either may be absent or nil.
 
-(s/def ::frame (s/keys :opt-un [::header ::footer]))
+(s/def ::header (s/nilable string?))
+
+(s/def ::footer (s/nilable string?))
+
+(s/def ::answer-frame (s/keys :opt-un [::header ::footer]))
+
+;; OutputBudget: the Output budget of one call, {:limit :max-chars :offset}.
+;; A page shows at most :limit findings starting at finding :offset, in at
+;; most :max-chars characters.
+
+(s/def ::output-budget (s/keys :req-un [::limit ::max-chars ::offset]))
+
+(defrecord OutputBudget [limit max-chars offset])
 
 ;; ---------------------------------------------------------------------------
 ;; Budget
 ;; ---------------------------------------------------------------------------
 
-(defn- effective-limit
-  "How many findings a page shows.
+(defn budget
+  "The Output budget of a call with the tool's `args`.
 
-  It is `:limit` of the tool's args, never above `:output/limit` of the
-  config.
+  `:limit` of the args lowers `:output/limit` of the config, never raises
+  it; `:offset` defaults to 0.
 
-  Config -> ToolArgs -> Long"
-  [cfg args]
+  Config -> ToolArgs -> OutputBudget"
+  [cfg {:keys [limit offset]}]
   (let [ceiling (:output/limit cfg)]
-    (min ceiling (or (:limit args) ceiling))))
+    (->OutputBudget (min ceiling (or limit ceiling))
+                    (:output/max-chars cfg)
+                    (max 0 (or offset 0)))))
 
 (defn- truncation-note
   "The Truncation note of a page.
@@ -81,46 +95,42 @@
       true (->> (st/join "\n")))))
 
 (defn- oversized-first-finding
-  "The answer for an oversized first finding.
+  "Cuts the first finding of a page that alone exceeds `max-chars`, so
+   that paging still advances by one.
 
-  The first finding of the page alone exceeds `:output/max-chars`, so it is
-  cut so that paging still advances by one.
-
-  Config -> [String] -> Long -> Long -> String"
-  [cfg page offset total]
+  Long -> [String] -> Long -> Long -> String"
+  [max-chars page offset total]
   (if-let [finding (first page)]
     (let [note-chars (count (answer-text [] (inc offset) total))
-          room (max 0 (- (:output/max-chars cfg) note-chars 2))
+          room (max 0 (- max-chars note-chars 2))
           cut (str (subs finding 0 (min room (count finding))) "…")]
       (answer-text [cut] offset total))
     ""))
 
 (defn render
   "Renders `findings` (one string per finding) as an answer within the
-   Output budget from `cfg`. `args` may carry the tool's `:limit` (lowers
-   the ceiling only) and `:offset`.
+   Output budget.
 
-  Config -> ToolArgs -> [String] -> String"
-  [cfg args findings]
+  OutputBudget -> [String] -> String"
+  [{:keys [limit max-chars offset]} findings]
   (let [total (count findings)
-        offset (max 0 (or (:offset args) 0))
-        page (->> findings (drop offset) (take (effective-limit cfg args)))
+        page (->> findings (drop offset) (take limit))
         answers (->> (range (count page) 0 -1)
                      (map #(answer-text (take % page) offset total)))]
-    (or (first (filter #(<= (count %) (:output/max-chars cfg)) answers))
-        (oversized-first-finding cfg page offset total))))
+    (or (first (filter #(<= (count %) max-chars) answers))
+        (oversized-first-finding max-chars page offset total))))
 
 (defn render-framed
-  "Renders `findings` inside a Frame.
+  "Renders `findings` inside an AnswerFrame.
 
   The optional `header` and `footer` lines go around the findings, the
-  whole answer still within `:output/max-chars`.
+  whole answer still within the Output budget.
 
-  Config -> ToolArgs -> Frame -> [String] -> String"
-  [cfg args {:keys [header footer]} findings]
+  OutputBudget -> AnswerFrame -> [String] -> String"
+  [budget {:keys [header footer]} findings]
   (let [frame-chars (+ (if header (inc (count header)) 0)
                        (if footer (inc (count footer)) 0))
-        body (render (update cfg :output/max-chars - frame-chars) args findings)]
+        body (render (update budget :max-chars - frame-chars) findings)]
     (->> [header body footer]
          (remove st/blank?)
          (st/join "\n"))))
@@ -179,9 +189,9 @@
   "The answer for `name-str` that denotes several `definitions`: an
    `ambiguous-header`, then one line per candidate within the Output budget.
 
-  Config -> ToolArgs -> CodeIndex -> String -> String -> [Definition] -> String"
-  [cfg args index what name-str definitions]
-  (render-framed cfg args
+  OutputBudget -> CodeIndex -> String -> String -> [Definition] -> String"
+  [budget index what name-str definitions]
+  (render-framed budget
                  {:header (ambiguous-header what name-str (count definitions))}
                  (mapv (partial definition->line index) definitions)))
 
@@ -190,9 +200,9 @@
    for none, `(answer-fn definition)` for exactly one, the `ambiguous`
    candidates otherwise.
 
-  Config -> ToolArgs -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
-  [cfg args index name-str definitions answer-fn]
+  OutputBudget -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
+  [budget index name-str definitions answer-fn]
   (case (count definitions)
     0 (not-found index name-str)
     1 (answer-fn (first definitions))
-    (ambiguous cfg args index "definitions" name-str definitions)))
+    (ambiguous budget index "definitions" name-str definitions)))

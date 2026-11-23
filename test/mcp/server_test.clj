@@ -62,7 +62,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:58  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
+             :text "src/mcp/output.clj:72  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -81,13 +81,13 @@
     (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
 
 (def ^:private first-line-definition
-  (str "src/mcp/output.clj:58  defn  mcp.output/first-line  [text]  "
+  (str "src/mcp/output.clj:72  defn  mcp.output/first-line  [text]  "
        "The first non-blank line of `text`, trimmed; nil if none."))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
   (let [state {:config services-down-config
                :code-index-ref (atom (project/code-index))
-               :semantic-index (semantic-index/make-state)}]
+               :semantic-index (semantic-index/create services-down-config)}]
     (is (= first-line-definition
            (tool-call state "find_definition" {:name "mcp.output/first-line"})))
     (is (= (str "semantic search unavailable (Qdrant or Ollama not reachable); "
@@ -96,14 +96,14 @@
 
 (deftest freshness-check-hands-the-refreshed-index-to-the-embeddings-sync
   (let [synced (atom nil)
-        semantic-state (semantic-index/make-state)
+        semantic-index (semantic-index/create services-down-config)
         state {:config services-down-config
                :code-index-ref (atom (project/code-index))
-               :semantic-index semantic-state}]
-    (with-redefs [semantic-index/sync-async! (fn [_cfg sync-state index]
-                                               (reset! synced [sync-state index]))]
+               :semantic-index semantic-index}]
+    (with-redefs [semantic-index/sync-async! (fn [synced-index index]
+                                               (reset! synced [synced-index index]))]
       (tool-call state "find_definition" {:name "mcp.output/first-line"}))
-    (is (= [semantic-state @(:code-index-ref state)] @synced))))
+    (is (= [semantic-index @(:code-index-ref state)] @synced))))
 
 (defn- find-definition-call
   "The answer text of `find_definition` for `name-str`.

@@ -13,8 +13,9 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private protocol-version
-  "First MCP revision whose `initialize` result carries `instructions`
-   is 2025-03-26; this is the latest one the server follows.
+  "The MCP revision the server follows.
+
+  `initialize` results carry `instructions` since revision 2025-03-26.
 
   String"
   "2025-06-18")
@@ -28,8 +29,8 @@
 
 ;; JsonRpcMessage: a parsed request or notification, keyword keys.
 ;; JsonRpcResponse: what is written back for a request.
-;; ServerState: the config, an atom of the code index and the semantic
-;; index state; `live-state` turns it into a ToolState.
+;; ServerState: the config, an atom of the code index and the
+;; SemanticIndex; `live-state` turns it into a ToolState.
 
 (s/def ::json-rpc-message (s/keys :req-un [::method] :opt-un [::jsonrpc ::id ::params]))
 
@@ -37,7 +38,7 @@
 
 (s/def ::server-state
   (s/keys :req-un [:mcp.config/config]
-          :opt-un [::code-index-ref ::semantic-index]))
+          :opt-un [::code-index-ref :mcp.semantic-index/semantic-index]))
 
 (defn- json-rpc-error
   "The JSON-RPC error response to the request `id`.
@@ -108,8 +109,8 @@
   (when-let [code-index-ref (:code-index-ref state)]
     (try
       (let [index (swap! code-index-ref (partial code-index/refresh (:config state)))]
-        (when-let [semantic-state (:semantic-index state)]
-          (semantic-index/sync-async! (:config state) semantic-state index)))
+        (when-let [semantic-index (:semantic-index state)]
+          (semantic-index/sync-async! semantic-index index)))
       (catch Exception e
         (log/error e "Freshness check failed, answering from the last index"))))
   state)
@@ -170,12 +171,12 @@
         _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
         code-index-ref (atom (code-index/build cfg))
         _ (log/info "Code index built:" (count (code-index/files @code-index-ref)) "files")
-        semantic-state (semantic-index/make-state)
+        semantic-index (semantic-index/create cfg)
         server-state (atom {:config cfg
                             :code-index-ref code-index-ref
-                            :semantic-index semantic-state})]
+                            :semantic-index semantic-index})]
     (reset! server-state-atom @server-state)
-    (semantic-index/sync-async! cfg semantic-state @code-index-ref)
+    (semantic-index/sync-async! semantic-index @code-index-ref)
     (log/info "MCP server ready on stdio (embeddings are computed in the background)")
     (try
       (loop [line (.readLine reader)]

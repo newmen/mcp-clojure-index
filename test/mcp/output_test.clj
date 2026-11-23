@@ -20,18 +20,18 @@
               "a.clj:2  defn  a/two\n"
               "a.clj:3  defn  a/three\n"
               "truncated: shown 3 of 5, pass offset=3 or narrow the query")
-         (sut/render budget-cfg {:limit 1000} findings))))
+         (sut/render (sut/budget budget-cfg {:limit 1000}) findings))))
 
 (deftest render-offset-returns-next-page-without-repeating
   (is (= (str "a.clj:3  defn  a/three\n"
               "a.clj:4  defn  a/four\n"
               "truncated: shown 4 of 5, pass offset=4 or narrow the query")
-         (sut/render budget-cfg {:limit 2 :offset 2} findings)))
+         (sut/render (sut/budget budget-cfg {:limit 2 :offset 2}) findings)))
   (is (= "a.clj:5  defn  a/five"
-         (sut/render budget-cfg {:limit 2 :offset 4} findings))))
+         (sut/render (sut/budget budget-cfg {:limit 2 :offset 4}) findings))))
 
 (deftest render-cuts-at-line-boundary-when-max-chars-reached
-  (let [answer (sut/render {:output/limit 50 :output/max-chars 100} {} findings)]
+  (let [answer (sut/render (sut/budget {:output/limit 50 :output/max-chars 100} {}) findings)]
     (is (= (str "a.clj:1  defn  a/one\n"
                 "a.clj:2  defn  a/two\n"
                 "truncated: shown 2 of 5, pass offset=2 or narrow the query")
@@ -40,13 +40,13 @@
 
 (deftest render-cuts-a-single-oversized-finding-to-fit
   (let [huge (apply str (repeat 500 "x"))
-        answer (sut/render {:output/limit 50 :output/max-chars 100} {} [huge "b.clj:1"])]
+        answer (sut/render (sut/budget {:output/limit 50 :output/max-chars 100} {}) [huge "b.clj:1"])]
     (is (<= (count answer) 100))
     (is (st/ends-with? answer "truncated: shown 1 of 2, pass offset=1 or narrow the query"))))
 
 (deftest render-without-truncation-has-no-note
   (is (= "a.clj:1  defn  a/one\na.clj:2  defn  a/two"
-         (sut/render budget-cfg {} (take 2 findings)))))
+         (sut/render (sut/budget budget-cfg {}) (take 2 findings)))))
 
 (deftest relative-path-strips-project-root
   (is (= "src/mcp/tools.clj" (sut/relative-path "/home/p/proj" "/home/p/proj/src/mcp/tools.clj")))

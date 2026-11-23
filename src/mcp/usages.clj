@@ -219,7 +219,7 @@
        (into (sorted-set) (map :ns))))
 
 (defn- resolve-keyword
-  "Resolves a keyword without a spec.
+  "The TargetResolution of a keyword that no spec defines.
 
   `:name` and `:ns/name` always denote a Target; `::name` and
   `::alias/name` denote the namespaces they resolve to in the project.

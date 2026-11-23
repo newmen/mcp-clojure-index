@@ -73,9 +73,9 @@
 (defn- stale-note
   "The footer saying how many files have stale embeddings; nil when none.
 
-  Atom SemanticState -> CodeIndex -> IO (Maybe String)"
-  [semantic-state code-index]
-  (let [stale-count (count (semantic-index/stale-files semantic-state code-index))]
+  SemanticIndex -> CodeIndex -> IO (Maybe String)"
+  [semantic-index code-index]
+  (let [stale-count (count (semantic-index/stale-files semantic-index code-index))]
     (when (pos? stale-count)
       (str "embeddings stale for " stale-count " files"))))
 
@@ -95,7 +95,7 @@
              (->> [(str "no results for: " query " " (output/checked code-index)) note]
                   (remove nil?)
                   (st/join "\n"))
-             (output/render-framed config params {:footer note} lines)))
+             (output/render-framed (output/budget config params) {:footer note} lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))
            unavailable-answer))))))

@@ -21,12 +21,10 @@
 (defonce ^:dynamic *config* nil)
 
 ;; Embedding: the vector Ollama returns for one text.
-;; HttpResponse: a clj-http response whose `:body` is parsed JSON.
+;; JsonResponse: see `mcp.http`.
 ;; Timeouts: clj-http's {:socket-timeout :connection-timeout}, in ms.
 
 (s/def ::embedding (s/coll-of double? :kind vector?))
-
-(s/def ::http-response (s/keys :req-un [::status ::body]))
 
 (s/def ::timeouts (s/keys :req-un [::socket-timeout ::connection-timeout]))
 
@@ -53,7 +51,7 @@
 (defn- get-config
   "The config bound to `*config*`, or the defaults.
 
-  () -> Config"
+  () -> IO Config"
   []
   (or *config* config/defaults))
 
@@ -146,7 +144,7 @@
   "Posts `body-map` as JSON to `url`; `timeouts` are clj-http's
    {:socket-timeout :connection-timeout}. The body comes back parsed.
 
-  String -> Map -> Timeouts -> IO HttpResponse"
+  String -> Map -> Timeouts -> IO JsonResponse"
   [url body-map timeouts]
   (let [response (http/post url (merge {:content-type "application/json"
                                         :body (json/write-str body-map)}
@@ -223,6 +221,24 @@
 ;; as the BCE model is meant to be read.
 ;; ---------------------------------------------------------------------------
 
+;; Candidate shape (what the reranker receives, see `mcp.search`):
+;;
+;; {:unit {:id "..." :filename ... :name ... :text ...} ; Search unit, `:id` as a string
+;;  :text "..."                                     ; the unit's embedding text
+;;  :score 0.87}                                    ; vector similarity, only from Qdrant
+;;
+;; After `rerank` a Candidate also carries its relevance (0..1) as
+;; `:re-rank`.
+;;
+;; RerankRequest: the body posted to the reranker, {:model :query :documents}.
+;; RerankResult: one entry of the reranker's `:results`, {:index :relevance_score}.
+
+(s/def ::candidate (s/keys :req-un [::unit ::text] :opt-un [::score ::re-rank]))
+
+(s/def ::rerank-request (s/keys :req-un [::model ::query ::documents]))
+
+(s/def ::rerank-result (s/keys :req-un [::index ::relevance_score]))
+
 (defn- rerank-url
   "The URL of the reranker's rerank endpoint.
 
@@ -234,7 +250,7 @@
   "The scores of the reranker's `results` by candidate index, or nil
    unless they score each of the `candidate-count` candidates exactly once.
 
-  [{:index Long :relevance_score Double}] -> Long -> Maybe [Double]"
+  [RerankResult] -> Long -> Maybe [Double]"
   [results candidate-count]
   (let [by-index (into {} (map (juxt :index :relevance_score)) results)
         scores (mapv by-index (range candidate-count))]

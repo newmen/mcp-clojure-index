@@ -17,7 +17,7 @@
 
 (set! *warn-on-reflection* true)
 
-;; Index shape:
+;; CodeIndex shape:
 ;;
 ;; {:root       "/abs/project"            ; no trailing slash
 ;;  :test-paths ["/abs/project/test" ...] ; absolute Test path directories
@@ -46,9 +46,10 @@
 
 (s/def ::form-range (s/keys :req-un [::row ::col ::end-row ::end-col]))
 
-;; A rewrite-clj zipper location, as `rewrite-clj.zip` returns it.
+;; TestLayout: where the tests of a project are, as `detect-test-paths`
+;; finds them, {:test-paths [...] :test-names? false}.
 
-(s/def ::zloc some?)
+(s/def ::test-layout (s/keys :req-un [::test-paths ::test-names?]))
 
 (def ^:private analysis-config
   {:output {:canonical-paths true}
@@ -166,7 +167,7 @@
   `deps.edn` aliases whose name contains `test`; the fallback is `test` and
   `*_test` files (`:test-names?`).
 
-  String -> IO {:test-paths [String] :test-names? Boolean}"
+  String -> IO TestLayout"
   [root]
   (if-let [declared (or (try (lein-test-paths (io/file root "project.clj"))
                              (catch Exception _ nil))

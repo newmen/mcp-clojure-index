@@ -71,56 +71,56 @@
   (.getCanonicalPath (io/file fixture-root relative-path)))
 
 (deftest every-file-is-stale-before-the-first-sync
-  (is (= 6 (count (sut/stale-files (sut/make-state) @fixture-index)))))
+  (is (= 6 (count (sut/stale-files (sut/create (services-config)) @fixture-index)))))
 
 (deftest sync-embeds-every-search-unit-and-leaves-nothing-stale
   (let [points (fake-qdrant)
-        state (sut/make-state)]
+        semantic-index (sut/create (services-config))]
     (with-services points
-      (sut/sync! (services-config) state @fixture-index))
+      (sut/sync! semantic-index @fixture-index))
     (is (= (set (map :id (search-units/search-units @fixture-index)))
            (set (keys @points))))
-    (is (= [] (sut/stale-files state @fixture-index)))))
+    (is (= [] (sut/stale-files semantic-index @fixture-index)))))
 
 (deftest sync-after-an-edit-re-embeds-only-the-changed-file
   (let [points (fake-qdrant)
-        state (sut/make-state)
+        semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
         edited (update-in @fixture-index [:files inventory :mtime] inc)
         upserted-files (atom [])]
     (with-services points
-      (sut/sync! (services-config) state @fixture-index)
+      (sut/sync! semantic-index @fixture-index)
       (testing "the edited file is stale until its embeddings are recomputed"
-        (is (= [inventory] (sut/stale-files state edited))))
+        (is (= [inventory] (sut/stale-files semantic-index edited))))
       (with-redefs [qdrant/upsert! (fn [_cfg units _vectors _mtime]
                                      (swap! upserted-files into (map :filename units)))]
-        (sut/sync! (services-config) state edited)))
+        (sut/sync! semantic-index edited)))
     (is (= #{inventory} (set @upserted-files)))
-    (is (= [] (sut/stale-files state edited)))))
+    (is (= [] (sut/stale-files semantic-index edited)))))
 
 (deftest sync-forgets-deleted-files
   (let [points (fake-qdrant)
-        state (sut/make-state)
+        semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
         without-inventory (update @fixture-index :files dissoc inventory)]
     (with-services points
-      (sut/sync! (services-config) state @fixture-index)
-      (is (= [inventory] (sut/stale-files state without-inventory)))
-      (sut/sync! (services-config) state without-inventory))
-    (is (= [] (sut/stale-files state without-inventory)))
+      (sut/sync! semantic-index @fixture-index)
+      (is (= [inventory] (sut/stale-files semantic-index without-inventory)))
+      (sut/sync! semantic-index without-inventory))
+    (is (= [] (sut/stale-files semantic-index without-inventory)))
     (is (not-any? (comp #{inventory} :filename) (vals @points)))))
 
 (deftest sync-with-services-down-keeps-files-stale-and-does-not-throw
   (testing "Qdrant down"
-    (let [state (sut/make-state)]
-      (sut/sync! (services-config) state @fixture-index)
-      (is (= 6 (count (sut/stale-files state @fixture-index))))))
+    (let [semantic-index (sut/create (services-config))]
+      (sut/sync! semantic-index @fixture-index)
+      (is (= 6 (count (sut/stale-files semantic-index @fixture-index))))))
   (testing "Ollama down"
-    (let [state (sut/make-state)]
+    (let [semantic-index (sut/create (services-config))]
       (with-services (fake-qdrant)
         (with-redefs [embeddings/generate (fn [_texts _cfg] (throw (ex-info "Connection refused" {})))]
-          (sut/sync! (services-config) state @fixture-index)))
-      (is (= 6 (count (sut/stale-files state @fixture-index)))))))
+          (sut/sync! semantic-index @fixture-index)))
+      (is (= 6 (count (sut/stale-files semantic-index @fixture-index)))))))
 
 (deftest prepare-recreates-an-old-format-collection
   (let [calls (atom [])]
@@ -128,18 +128,18 @@
                   qdrant/delete-collection! (fn [_cfg] (swap! calls conj :delete))
                   qdrant/create-collection! (fn [_cfg] (swap! calls conj :create))
                   qdrant/embedded-files (fn [_cfg] {})]
-      (sut/prepare! (services-config) (sut/make-state)))
+      (sut/prepare! (sut/create (services-config))))
     (is (= [:delete :create] @calls))))
 
 (deftest prepare-keeps-a-current-collection-and-its-embedded-files
   (let [calls (atom [])
-        state (sut/make-state)
+        semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
         mtime (get-in @fixture-index [:files inventory :mtime])]
     (with-redefs [qdrant/stored-format (fn [_cfg] qdrant/payload-format)
                   qdrant/delete-collection! (fn [_cfg] (swap! calls conj :delete))
                   qdrant/create-collection! (fn [_cfg] (swap! calls conj :create))
                   qdrant/embedded-files (fn [_cfg] {inventory mtime})]
-      (sut/prepare! (services-config) state))
+      (sut/prepare! semantic-index))
     (is (= [:create] @calls))
-    (is (= 5 (count (sut/stale-files state @fixture-index))))))
+    (is (= 5 (count (sut/stale-files semantic-index @fixture-index))))))

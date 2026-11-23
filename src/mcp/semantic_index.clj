@@ -13,7 +13,9 @@
 
 (set! *warn-on-reflection* true)
 
-;; State shape (an atom, see `make-state`):
+;; SemanticIndex: the config and the state atom, see `create`.
+;;
+;; SemanticState shape (the value of the atom):
 ;;
 ;; {:embedded   {"/abs/file.clj" 1700000000000} ; file -> mtime its points were built from
 ;;  :prepared?  true                            ; collection checked and in the current format
@@ -26,20 +28,27 @@
   (s/keys :req-un [::embedded ::prepared? ::worker]
           :opt-un [::failed-at ::latest-index ::queued?]))
 
+(s/def ::state #(instance? clojure.lang.Atom %))
+
+(s/def ::semantic-index (s/keys :req-un [:mcp.config/config ::state]))
+
+(defrecord SemanticIndex [config state])
+
 (def ^:private retry-after-ms
   "A background sync is not retried sooner than this after a failure.
 
   Long"
   30000)
 
-(defn make-state
-  "Creates a fresh semantic index state: nothing is known to be embedded.
+(defn create
+  "Creates a semantic index for `cfg` in which nothing is known to be
+   embedded.
 
-  () -> IO (Atom SemanticState)"
-  []
-  (atom {:embedded {}
-         :prepared? false
-         :worker (agent nil)}))
+  Config -> IO SemanticIndex"
+  [cfg]
+  (->SemanticIndex cfg (atom {:embedded {}
+                              :prepared? false
+                              :worker (agent nil)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Staleness
@@ -50,8 +59,8 @@
    files embedded from another mtime or not at all, and embedded files
    that are no longer indexed.
 
-  Atom SemanticState -> CodeIndex -> IO [String]"
-  [state index]
+  SemanticIndex -> CodeIndex -> IO [String]"
+  [{:keys [state]} index]
   (let [embedded (:embedded @state)
         indexed (code-index/file-mtimes index)]
     (vec (concat (remove #(= (get indexed %) (get embedded %)) (keys indexed))
@@ -66,8 +75,8 @@
    dropping a collection of an older format (or any, with
    `:qdrant/recreate?`), and learns which files it already holds.
 
-  Config -> Atom SemanticState -> IO ()"
-  [cfg state]
+  SemanticIndex -> IO ()"
+  [{cfg :config state :state}]
   (let [found-format (qdrant/stored-format cfg)
         current? (and (= qdrant/payload-format found-format)
                       (not (:qdrant/recreate? cfg)))]
@@ -83,8 +92,8 @@
   "Replaces the points of `file-path` with its Search `units` and their
    `vectors`, and records the mtime they were built from.
 
-  Config -> Atom SemanticState -> CodeIndex -> String -> [SearchUnit] -> [Embedding] -> IO ()"
-  [cfg state index file-path units vectors]
+  SemanticIndex -> CodeIndex -> String -> [SearchUnit] -> [Embedding] -> IO ()"
+  [{cfg :config state :state} index file-path units vectors]
   (qdrant/delete! cfg file-path)
   (if-let [mtime (get (code-index/file-mtimes index) file-path)]
     (do (when (seq units)
@@ -96,18 +105,18 @@
   "Recomputes and stores the embeddings of the stale files of `index`,
    synchronously. Failures are logged and leave the files stale.
 
-  Config -> Atom SemanticState -> CodeIndex -> IO ()"
-  [cfg state index]
+  SemanticIndex -> CodeIndex -> IO ()"
+  [{cfg :config state :state :as semantic-index} index]
   (try
     (when-not (:prepared? @state)
-      (prepare! cfg state))
-    (let [stale (stale-files state index)
+      (prepare! semantic-index))
+    (let [stale (stale-files semantic-index index)
           units (search-units/file-search-units index stale)
           vectors (embeddings/embed-units cfg units)
           by-file (group-by (comp :filename first) (map vector units vectors))]
       (doseq [file-path stale
               :let [pairs (get by-file file-path)]]
-        (store-file! cfg state index file-path (mapv first pairs) (mapv second pairs)))
+        (store-file! semantic-index index file-path (mapv first pairs) (mapv second pairs)))
       (when (seq stale)
         (log/info "Embeddings updated for" (count stale) "files"))
       (swap! state dissoc :failed-at))
@@ -128,14 +137,14 @@
   "Starts `sync!` in the background unless nothing is stale or the last
    attempt failed less than 30 seconds ago. Syncs run one at a time.
 
-  Config -> Atom SemanticState -> CodeIndex -> IO ()"
-  [cfg state index]
+  SemanticIndex -> CodeIndex -> IO ()"
+  [{state :state :as semantic-index} index]
   (swap! state assoc :latest-index index)
-  (when (and (seq (stale-files state index))
+  (when (and (seq (stale-files semantic-index index))
              (retry-due? state)
              (not (:queued? (first (swap-vals! state assoc :queued? true)))))
     (send-off (:worker @state)
               (fn [_previous]
                 (swap! state assoc :queued? false)
-                (sync! cfg state (:latest-index @state))
+                (sync! semantic-index (:latest-index @state))
                 nil))))

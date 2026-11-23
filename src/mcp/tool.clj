@@ -9,7 +9,7 @@
 
    {:config     resolved config (see mcp.config)
     :code-index the precise index (see mcp.code-index), current at call time
-    :semantic-index embeddings state of semantic_search (see mcp.semantic-index)}"
+    :semantic-index the SemanticIndex of semantic_search (see mcp.semantic-index)}"
   (:require [clojure.spec.alpha :as s]))
 
 (set! *warn-on-reflection* true)
@@ -19,7 +19,7 @@
 
 (s/def ::tool-state
   (s/keys :req-un [:mcp.config/config :mcp.code-index/code-index]
-          :opt-un [::semantic-index]))
+          :opt-un [:mcp.semantic-index/semantic-index]))
 
 (s/def ::tool-args (s/keys :opt-un [::limit ::offset]))
 

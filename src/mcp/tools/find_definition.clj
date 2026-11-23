@@ -30,8 +30,9 @@
 
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))]
+  (let [name-str (str (:name params))
+        budget (output/budget config params)]
     (tool/text-result
-     (output/one-definition config params code-index name-str
+     (output/one-definition budget code-index name-str
                             (code-index/resolve-name code-index name-str)
-                            #(output/render config params [(output/definition->line code-index %)])))))
+                            #(output/render budget [(output/definition->line code-index %)])))))

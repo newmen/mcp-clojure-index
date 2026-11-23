@@ -19,14 +19,12 @@
 ;;  "text"   "..."}                   ; the embedding text, also fed to the reranker
 ;;
 ;; A Point is {:id :vector :payload}; points read back have keyword payload
-;; keys and no vector. A QdrantResponse is {:status :body}, the body parsed.
+;; keys and no vector.
 ;; A ScoredUnit is a Search unit found by `search`, {:unit :score}.
 ;; A ScrollPage is one page of points and the offset of the next page,
 ;; {:points :next}; :next is nil on the last page.
 
 (s/def ::point (s/keys :req-un [::id ::payload] :opt-un [::vector]))
-
-(s/def ::qdrant-response (s/keys :req-un [::status ::body]))
 
 (s/def ::scored-unit (s/keys :req-un [::unit ::score]))
 
@@ -62,7 +60,7 @@
 (defn- request
   "Sends an HTTP request to Qdrant, with `body-map` as JSON when given.
 
-  Keyword -> String -> Maybe Map -> IO QdrantResponse"
+  Keyword -> String -> Maybe Map -> IO JsonResponse"
   [method url body-map]
   (let [response (http/request (cond-> {:method method
                                         :url url
@@ -79,7 +77,7 @@
   "Sends a request like `request`, but throws unless Qdrant answers with
    one of `statuses`.
 
-  Keyword -> String -> Maybe Map -> String -> #{Long} -> IO QdrantResponse"
+  Keyword -> String -> Maybe Map -> String -> #{Long} -> IO JsonResponse"
   [method url body-map description statuses]
   (let [{:keys [status] :as response} (request method url body-map)]
     (when-not (contains? statuses status)
@@ -94,14 +92,14 @@
 (defn create-collection!
   "Creates the collection unless it exists.
 
-  Config -> IO QdrantResponse"
+  Config -> IO JsonResponse"
   [cfg]
   (request! :put (collection-url cfg) {:vectors vector-config} "create collection" #{200 409}))
 
 (defn delete-collection!
   "Drops the collection with all its points.
 
-  Config -> IO QdrantResponse"
+  Config -> IO JsonResponse"
   [cfg]
   (request! :delete (collection-url cfg) nil "delete collection" #{200 404}))
 
@@ -193,7 +191,7 @@
 (defn delete!
   "Removes all points of `file-path`.
 
-  Config -> String -> IO QdrantResponse"
+  Config -> String -> IO JsonResponse"
   [cfg file-path]
   (request! :post (str (collection-url cfg) "/points/delete?wait=true")
             {:filter {:must [{:key "filename" :match {:value file-path}}]}}

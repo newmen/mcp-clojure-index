@@ -25,21 +25,27 @@
   "Hand-checked Definitions of `src/mcp/output.clj`.
 
   [String]"
-  ["12  public  s/def  :mcp.output/frame"
-   "18  private  defn-  effective-limit  [cfg args]  How many findings a page shows."
-   "29  private  defn-  truncation-note  [shown-until total]  The Truncation note of a page."
-   "43  public  defn  relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths"
-   "58  public  defn  first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."
-   "72  private  defn-  answer-text  [shown offset total]  Joins the `shown` findings of a page starting at `offset`, adding a"
-   "83  private  defn-  oversized-first-finding  [cfg page offset total]  The answer for an oversized first finding."
-   "98  public  defn  render  [cfg args findings]  Renders `findings` (one string per finding) as an answer within the"
-   "113  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  Renders `findings` inside a Frame."
-   "132  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
-   "146  public  defn  not-found  [index name-str]  The answer for a name that resolves to nothing."
-   "155  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  The Compact answer line of a Definition."
-   "170  public  defn  ambiguous-header  [what name-str candidate-count]  The header line for `name-str` that denotes `candidate-count`"
-   "178  public  defn  ambiguous  [cfg args index what name-str definitions]  The answer for `name-str` that denotes several `definitions`: an"
-   "188  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  The answer for `name-str` that resolved to `definitions`: `not-found`"])
+  ["12  public  s/def  :mcp.output/header"
+   "14  public  s/def  :mcp.output/footer"
+   "16  public  s/def  :mcp.output/answer-frame"
+   "22  public  s/def  :mcp.output/output-budget"
+   "24  public  defrecord  ->OutputBudget  [limit max-chars offset]"
+   "24  public  defrecord  OutputBudget"
+   "24  public  defrecord  map->OutputBudget  [m]"
+   "30  public  defn  budget  [cfg {:keys [limit offset]}]  The Output budget of a call with the tool's `args`."
+   "43  private  defn-  truncation-note  [shown-until total]  The Truncation note of a page."
+   "57  public  defn  relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths"
+   "72  public  defn  first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."
+   "86  private  defn-  answer-text  [shown offset total]  Joins the `shown` findings of a page starting at `offset`, adding a"
+   "97  private  defn-  oversized-first-finding  [max-chars page offset total]  Cuts the first finding of a page that alone exceeds `max-chars`, so"
+   "110  public  defn  render  [{:keys [limit max-chars offset]} findings]  Renders `findings` (one string per finding) as an answer within the"
+   "123  public  defn  render-framed  [budget {:keys [header footer]} findings]  Renders `findings` inside an AnswerFrame."
+   "142  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
+   "156  public  defn  not-found  [index name-str]  The answer for a name that resolves to nothing."
+   "165  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  The Compact answer line of a Definition."
+   "180  public  defn  ambiguous-header  [what name-str candidate-count]  The header line for `name-str` that denotes `candidate-count`"
+   "188  public  defn  ambiguous  [budget index what name-str definitions]  The answer for `name-str` that denotes several `definitions`: an"
+   "198  public  defn  one-definition  [budget index name-str definitions answer-fn]  The answer for `name-str` that resolved to `definitions`: `not-found`"])
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added).
@@ -57,14 +63,21 @@
            (#(st/split % #", "))
            set))
 
+(def ^:private roomy-config
+  "The config of this project with room for every Definition of
+   `src/mcp/output.clj` in one answer.
+
+  Config"
+  (assoc project/config :output/max-chars 10000))
+
 (deftest summarises-every-definition-of-a-namespace
-  (let [[header & lines] (st/split-lines (answer {:ns "mcp.output"}))]
+  (let [[header & lines] (st/split-lines (answer roomy-config {:ns "mcp.output"}))]
     (is (= "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
            header))
     (is (= output-definitions (butlast lines)))))
 
 (deftest lists-namespaces-that-require-it
-  (let [text (answer {:ns "mcp.output"})
+  (let [text (answer roomy-config {:ns "mcp.output"})
         requirers (required-by text)]
     (is (st/starts-with? (last (st/split-lines text)) "required by: "))
     (is (every? requirers output-requirers))

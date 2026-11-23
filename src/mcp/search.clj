@@ -17,17 +17,9 @@
   Long"
   60)
 
-;; Candidate shape (what the reranker receives):
-;;
-;; {:unit {:id "..." :filename ... :name ... :text ...} ; Search unit, `:id` as a string
-;;  :text "..."                                     ; the unit's embedding text
-;;  :score 0.87}                                    ; vector similarity, only from Qdrant
-;;
-;; After `embeddings/rerank` a Candidate also carries its relevance (0..1)
-;; as `:re-rank`. A Hit is what `search` returns: {:unit :re-rank}, without
+;; Candidates are what the reranker receives; their shape is in
+;; `mcp.embeddings`. A Hit is what `search` returns: {:unit :re-rank}, without
 ;; `:re-rank` when the reranker is unavailable.
-
-(s/def ::candidate (s/keys :req-un [::unit ::text] :opt-un [::score ::re-rank]))
 
 (s/def ::hit (s/keys :req-un [::unit] :opt-un [::re-rank]))
 

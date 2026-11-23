@@ -94,7 +94,7 @@
    answers `status` and `response-body`, recording the request bodies in
    `requests`.
 
-  Atom [Map] -> Long -> Map -> (String -> IO a) -> IO a"
+  Atom [RerankRequest] -> Long -> Map -> (String -> IO a) -> IO a"
   [requests status response-body f]
   (let [server (HttpServer/create (InetSocketAddress. "localhost" 0) 0)]
     (.createContext server "/v1/rerank"

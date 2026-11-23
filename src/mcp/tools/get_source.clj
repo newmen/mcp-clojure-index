@@ -13,7 +13,9 @@
        "(simple, alias-qualified such as `c/get-uuid`, or fully qualified); an ambiguous name returns the candidates, not several bodies. "
        "Answer: a `path:start-end` header line, then the source, at most :output/limit lines and "
        ":output/max-chars characters; a longer body ends with a truncation note, "
-       "pass `offset` (in lines of the body) for the rest. "
+       "pass `offset` (in lines of the body) for the rest; "
+       "a single source line longer than :output/max-chars is cut and ends with "
+       "`truncated: source shown A of B chars`. "
        tool/freshness-note))
 
 (defmethod tool/spec :get_source
@@ -28,14 +30,16 @@
 
 (defn- source-answer
   "Header and source lines of `definition`, paged by line within the
-   Output budget.
+   Output budget; a line that alone exceeds it ends with the source
+   Truncation note.
 
   OutputBudget -> CodeIndex -> Definition -> IO String"
   [budget index {:keys [filename row end-row] :as definition}]
   (output/render-framed budget
                         {:header (str (output/relative-path (code-index/root index) filename)
                                       ":" row "-" end-row)}
-                        (code-index/form-lines (code-index/file-lines filename) definition)))
+                        (code-index/form-lines (code-index/file-lines filename) definition)
+                        {:cut #(output/cut-finding "source" identity %2 %1)}))
 
 (defmethod tool/call :get_source
   [_tool-key params {:keys [config code-index]}]

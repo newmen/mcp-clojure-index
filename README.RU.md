@@ -238,11 +238,18 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
                                `multi dispatch-value` для defmethod
                                (например, `area :circle`);
                                keyword для spec.
-  limit, offset
+  doc ("summary" | "full", по умолчанию "summary")
+  limit, offset — считают определения (Definition)
 
 Ответ:
   Одна строка на каждое определение (Definition):
-  path:line  kind  ns/name  [arglists]  Docstring summary
+  path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
+
+  С doc "full": строка path:line  kind  ns/name  [arglists],
+  затем весь docstring с отступом в два пробела
+  (`  (no docstring)`, если его нет).
+  Docstring длиннее Output budget обрезается, в конце —
+  `truncated: docstring shown A of B chars`.
 ```
 
 Пример:
@@ -317,6 +324,8 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
   Если тело определения превышает Output budget,
   в конце добавляется уведомление об усечении.
   Чтобы получить оставшуюся часть, передайте offset.
+  Одна строка длиннее Output budget обрезается, в конце —
+  `truncated: source shown A of B chars`.
 ```
 
 ### find_implementations

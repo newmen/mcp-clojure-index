@@ -201,31 +201,47 @@
       (< shown-until total) (conj (truncation-note shown-until total))
       true (->> (st/join "\n")))))
 
-(defn- oversized-first-finding
-  "Cuts the first finding of a page that alone exceeds `max-chars`, so
-   that paging still advances by one.
+(defn- ellipsis-cut
+  "The first `room` characters of `finding`, its last one replaced by `…`.
 
-  Long -> [String] -> Long -> Long -> String"
-  [max-chars page offset total]
+  Long -> String -> String"
+  [room finding]
+  (str (subs finding 0 (min (max 0 (dec room)) (count finding))) "…"))
+
+(defn- oversized-first-finding
+  "Cuts the first finding of a page that alone exceeds `max-chars` with
+   `cut`, so that paging still advances by one.
+
+  (Long -> String -> String) -> Long -> [String] -> Long -> Long -> String"
+  [cut max-chars page offset total]
   (if-let [finding (first page)]
     (let [note-chars (count (answer-text [] (inc offset) total))
-          room (max 0 (- max-chars note-chars 2))
-          cut (str (subs finding 0 (min room (count finding))) "…")]
-      (answer-text [cut] offset total))
+          room (max 0 (- max-chars note-chars (if (pos? note-chars) 1 0)))]
+      (answer-text [(cut room finding)] offset total))
     ""))
+
+;; RenderOptions: how `render` cuts a single finding that alone exceeds the
+;; Output budget, {:cut (fn [room finding] ...)}: the finding cut to at most
+;; `room` characters. Without `:cut` the finding ends with `…`.
+
+(s/def ::cut fn?)
+
+(s/def ::render-options (s/keys :opt-un [::cut]))
 
 (defn render
   "Renders `findings` (one string per finding) as an answer within the
    Output budget.
 
-  OutputBudget -> [String] -> String"
-  [{:keys [limit max-chars offset]} findings]
-  (let [total (count findings)
-        page (->> findings (drop offset) (take limit))
-        answers (->> (range (count page) 0 -1)
-                     (map #(answer-text (take % page) offset total)))]
-    (or (first (filter #(<= (count %) max-chars) answers))
-        (oversized-first-finding max-chars page offset total))))
+  OutputBudget -> [String] -> String
+  OutputBudget -> [String] -> RenderOptions -> String"
+  ([budget findings] (render budget findings {}))
+  ([{:keys [limit max-chars offset]} findings {:keys [cut]}]
+   (let [total (count findings)
+         page (->> findings (drop offset) (take limit))
+         answers (->> (range (count page) 0 -1)
+                      (map #(answer-text (take % page) offset total)))]
+     (or (first (filter #(<= (count %) max-chars) answers))
+         (oversized-first-finding (or cut ellipsis-cut) max-chars page offset total)))))
 
 (defn render-framed
   "Renders `findings` inside an AnswerFrame.
@@ -233,14 +249,47 @@
   The optional `header` and `footer` lines go around the findings, the
   whole answer still within the Output budget.
 
-  OutputBudget -> AnswerFrame -> [String] -> String"
-  [budget {:keys [header footer]} findings]
-  (let [frame-chars (+ (if header (inc (count header)) 0)
-                       (if footer (inc (count footer)) 0))
-        body (render (update budget :max-chars - frame-chars) findings)]
-    (->> [header body footer]
-         (remove st/blank?)
-         (st/join "\n"))))
+  OutputBudget -> AnswerFrame -> [String] -> String
+  OutputBudget -> AnswerFrame -> [String] -> RenderOptions -> String"
+  ([budget frame findings] (render-framed budget frame findings {}))
+  ([budget {:keys [header footer]} findings options]
+   (let [frame-chars (+ (if header (inc (count header)) 0)
+                        (if footer (inc (count footer)) 0))
+         body (render (update budget :max-chars - frame-chars) findings options)]
+     (->> [header body footer]
+          (remove st/blank?)
+          (st/join "\n")))))
+
+(defn- single-finding-note
+  "The Truncation note of a single finding cut to `shown` of its `total`
+   characters of `what` (\"docstring\", \"source\"); it has no paging hint.
+
+  String -> Long -> Long -> String"
+  [what shown total]
+  (str "truncated: " what " shown " shown " of " total " chars"))
+
+(defn cut-finding
+  "The finding `finding-of` makes of the longest prefix of `text` that fits
+   `room` characters together with the Truncation note of `what` on the
+   next line.
+
+  String -> (String -> String) -> String -> Long -> String"
+  [what finding-of text room]
+  (let [total (count text)
+        cut (fn [shown]
+              (str (finding-of (subs text 0 shown)) "\n"
+                   (single-finding-note what shown total)))
+        fits? (fn [shown] (<= (count (cut shown)) room))]
+    (if (fits? 0)
+      (loop [low 0
+             high total]
+        (if (< low high)
+          (let [middle (quot (+ low high 1) 2)]
+            (if (fits? middle)
+              (recur middle high)
+              (recur low (dec middle))))
+          (cut low)))
+      (ellipsis-cut room (cut 0)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared answers
@@ -269,6 +318,19 @@
   [index name-str]
   (str "not found: " name-str " " (checked index)))
 
+(defn definition-head
+  "The start of a Definition's Compact answer line:
+   `path:line  kind  ns/name  [arglists]`.
+
+  CodeIndex -> Definition -> String"
+  [index {:keys [filename row kind arglists] :as definition}]
+  (->> [(str (relative-path (code-index/root index) filename) ":" row)
+        kind
+        (code-index/qualified-name definition)
+        (st/join " " arglists)]
+       (remove st/blank?)
+       (st/join "  ")))
+
 (defn definition->line
   "The Compact answer line of a Definition.
 
@@ -281,12 +343,9 @@
   SignatureStrategy -> CodeIndex -> Definition -> {:signature? Boolean} -> String"
   ([signature-strategy index definition]
    (definition->line signature-strategy index definition {:signature? true}))
-  ([signature-strategy index {:keys [filename row kind arglists] :as definition} {:keys [signature?]}]
+  ([signature-strategy index definition {:keys [signature?]}]
    (let [{:keys [summary signature]} (definition-doc signature-strategy definition)]
-     (->> [(str (relative-path (code-index/root index) filename) ":" row)
-           kind
-           (code-index/qualified-name definition)
-           (st/join " " arglists)
+     (->> [(definition-head index definition)
            (when signature? signature)
            summary]
           (remove st/blank?)

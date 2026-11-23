@@ -102,3 +102,16 @@
     (is (re-find #"ambiguous" (:description spec)))
     (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["name"] (get-in spec [:inputSchema :required])))))
+
+(deftest source-line-longer-than-the-budget-ends-with-the-source-truncation-note
+  (let [cfg (assoc project/config
+                   :output/max-chars 200
+                   :index/root-path (.getCanonicalPath (File. "test-resources/fixtures/definitions_project")))
+        long-line (str "  [" (st/join " " (take 60 (for [a "ABC" b "ABCDEFGHIJKLMNOPQRSTUVWXYZ"] (str \" a b \"))))
+                       "])")]
+    (is (= (str "src/app/long_lines.clj:4-6\n"
+                (subs long-line 0 132) "\n"
+                "truncated: source shown 132 of 304 chars")
+           (project/answer-text cfg
+                                (tool/call :get_source {:name "app.long-lines/country-codes" :offset 2}
+                                           {:config cfg :code-index (code-index/build cfg)}))))))

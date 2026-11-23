@@ -98,7 +98,9 @@
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"area :circle" (:description spec)))
     (is (re-find #"::uuid" (:description spec)))
-    (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))))
+    (is (re-find #"doc: \"full\"" (:description spec)))
+    (is (= #{:name :doc :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= ["summary" "full"] (get-in spec [:inputSchema :properties :doc :enum])))))
 
 (deftest old-lookup-tools-are-gone
   (let [names (set (map :name (tools/tool-definitions)))]
@@ -174,3 +176,57 @@
     (is (= "src/app/signatures.clj:6  def  app.signatures/page-size  Rows per page. (+4 chars)"
            (fixture-answer (assoc project/config :doc/signature nil)
                            {:name "app.signatures/page-size"})))))
+
+(def ^:private full-doc-answers
+  "The `find_definition doc: \"full\"` answers on the definitions fixture,
+   by name: each Definition line, then its whole docstring indented by two
+   spaces with its line breaks.
+
+  {String String}"
+  {"app.summaries/relative-path"
+   (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]\n"
+        "  Возвращает путь к файлу относительно корня\n"
+        "   проекта, если файл лежит внутри него. Иначе путь\n"
+        "   возвращается без изменений.\n"
+        "\n"
+        "  Maybe String -> String -> String")
+   "app.signatures/relative-path"
+   (str "src/app/signatures.clj:12  defn  app.signatures/relative-path  [file-path]\n"
+        "  Путь к файлу относительно корня.\n"
+        "\n"
+        "  String -> String")
+   "helper-test"
+   (str "test/app/core_test.clj:5  deftest  app.core-test/helper-test  []\n"
+        "  (no docstring)")})
+
+(deftest full-doc-shows-the-whole-docstring-of-each-definition
+  (testing "one Definition: its line without signature and summary, then the docstring"
+    (is (= (full-doc-answers "app.summaries/relative-path")
+           (fixture-answer {:name "app.summaries/relative-path" :doc "full"}))))
+  (testing "a Definition without a docstring"
+    (is (= (full-doc-answers "helper-test")
+           (fixture-answer {:name "helper-test" :doc "full"}))))
+  (testing "ambiguous: the header, then each candidate with its docstring"
+    (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+                (full-doc-answers "app.signatures/relative-path") "\n"
+                (full-doc-answers "app.summaries/relative-path"))
+           (fixture-answer {:name "relative-path" :doc "full"}))))
+  (testing "\"summary\" is the default"
+    (is (= (fixture-answer {:name "app.summaries/relative-path"})
+           (fixture-answer {:name "app.summaries/relative-path" :doc "summary"})))))
+
+(deftest full-doc-pages-by-definition
+  (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+              (full-doc-answers "app.signatures/relative-path") "\n"
+              "truncated: shown 1 of 2, pass offset=1 or narrow the query")
+         (fixture-answer {:name "relative-path" :doc "full" :limit 1})))
+  (is (= (str "ambiguous: 2 definitions named relative-path, pass a qualified name\n"
+              (full-doc-answers "app.summaries/relative-path"))
+         (fixture-answer {:name "relative-path" :doc "full" :offset 1}))))
+
+(deftest full-doc-longer-than-the-budget-ends-with-the-docstring-truncation-note
+  (let [cfg (assoc project/config :output/max-chars 150)]
+    (is (= (str "src/app/summaries.clj:4  defn  app.summaries/relative-path  [root file-path]\n"
+                "  Возвращает путь к файлу отно\n"
+                "truncated: docstring shown 28 of 155 chars")
+           (fixture-answer cfg {:name "app.summaries/relative-path" :doc "full"})))))

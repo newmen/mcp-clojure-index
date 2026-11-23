@@ -175,10 +175,15 @@ These are exactly the tools returned by `tools/list`. Names can be simple (`rela
 ```
 Input:  name (string, required) — simple, alias-qualified or fully qualified;
         `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
-        limit, offset
+        doc ("summary" | "full", default "summary")
+        limit, offset — in Definitions
 Answer: one line per Definition
-        path:line  kind  ns/name  [arglists]  Docstring summary
+        path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
+        with doc "full": path:line  kind  ns/name  [arglists], then the whole docstring
+        indented by two spaces (`  (no docstring)` when there is none)
 ```
+
+With `doc: "full"`, a single docstring longer than the Output budget is cut and ends with `truncated: docstring shown A of B chars`.
 
 Example: `src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...`
 
@@ -218,7 +223,8 @@ Answer: header   ns name  path  Docstring summary
 Input:  name (string, required) — simple, alias-qualified or fully qualified
         limit, offset — in lines of the body (or in candidates of an ambiguous name)
 Answer: a `path:start-end` header line, then the source of exactly one Definition;
-        a body over the Output budget ends with a truncation note, pass offset for the rest
+        a body over the Output budget ends with a truncation note, pass offset for the rest;
+        a single line longer than the budget is cut and ends with `truncated: source shown A of B chars`
 ```
 
 ### find_implementations

@@ -63,7 +63,7 @@
    :index/exclude     []
    :search/top-k      100
    :search/re-rank-top 10
-   :search/min-relevance 0.05
+   :search/min-relevance 0.3
    :output/limit      50
    :output/max-chars  4000})
 

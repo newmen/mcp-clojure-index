@@ -4,7 +4,7 @@
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Fixtures: unused alias, partly unused `:refer`, use only through `::alias/kw` (not marked), bare require, `:refer :all` (neither marked).
-- [ ] Acceptance case 10.
+- [x] Fixtures: unused alias, partly unused `:refer`, use only through `::alias/kw` (not marked), bare require, `:refer :all` (neither marked).
+- [x] Acceptance case 10.

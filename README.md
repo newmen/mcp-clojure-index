@@ -197,7 +197,7 @@ Answer: per target a header `target: N usages`, then one line per Usage
 
 The Usage context is up to 80 characters of the source line around the Usage, with whitespace runs collapsed; `…` marks a cut end.
 
-A Usage warning ends the line when one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call whose argument count matches no arity of its target.
+A Usage warning ends the line when one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call whose argument count matches no arity of its target; on a `require` of a namespace target, `unused` when the file uses neither the alias nor any referred name (a call or value through the alias, a referred name, `#'`, `::alias/kw`, a fully qualified name), and `unused refer: b, c` when only those referred names are unused. Bare requires and `:refer :all` are never marked. `unused` is a hint: a use hidden in a macro or `resolve` is not seen.
 
 An empty result states what was searched, e.g. `no usages of x (checked 214 files, including tests)`.
 

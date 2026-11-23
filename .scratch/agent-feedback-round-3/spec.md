@@ -1,6 +1,6 @@
 # Spec: signatures in namespace overviews, batch definitions, project settings
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

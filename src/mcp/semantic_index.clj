@@ -3,7 +3,14 @@
    Embeddings are recomputed in the background after the freshness check;
    until they are, the files whose embeddings lag behind the precise index
    are stale (`stale-files`). Qdrant and Ollama are optional (ADR-0003):
-   when either is down nothing here throws, the files simply stay stale."
+   when either is down nothing here throws, the files simply stay stale.
+
+   The files of the CodeIndex handed to `stale-files`, `sync!` and
+   `sync-async!` are the file set of the semantic index: a sync forgets
+   the points of embedded files outside it and embeds its files that are
+   not embedded yet, without recreating the collection. A change of the
+   file set (an exclusion in the Project config) is followed by handing
+   the index of the new set, e.g. narrowed with `code-index/select-files`."
   (:require [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
@@ -58,7 +65,7 @@
 (defn stale-files
   "Absolute paths of the files whose embeddings do not match `index`:
    files embedded from another mtime or not at all, and embedded files
-   that are no longer indexed.
+   that are not in `index` (deleted, or left the file set).
 
   SemanticIndex -> CodeIndex -> IO [String]"
   [{:keys [state]} index]

@@ -4,10 +4,10 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] After adding a path to `:index/exclude`, the next `find_definition`/`find_usages`/`namespace_summary` no longer finds its Definitions; after removing it, they are found again.
-- [ ] Adding an extension to `:index/include-extensions` makes files with it analysed from the next call; removing it drops them.
-- [ ] The semantic index forgets points of files that left the file set and embeds files that joined it, without rebuilding the collection.
-- [ ] Always-excluded directories stay excluded whatever the Project config says.
-- [ ] Server-seam tests cover both keys; semantic-index-seam tests (fake Qdrant) cover forgetting and re-embedding.
+- [x] After adding a path to `:index/exclude`, the next `find_definition`/`find_usages`/`namespace_summary` no longer finds its Definitions; after removing it, they are found again.
+- [x] Adding an extension to `:index/include-extensions` makes files with it analysed from the next call; removing it drops them.
+- [x] The semantic index forgets points of files that left the file set and embeds files that joined it, without rebuilding the collection.
+- [x] Always-excluded directories stay excluded whatever the Project config says.
+- [x] Server-seam tests cover both keys; semantic-index-seam tests (fake Qdrant) cover forgetting and re-embedding.

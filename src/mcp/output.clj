@@ -2,7 +2,10 @@
   "Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as st]
-            [mcp.code-index :as code-index]))
+            [mcp.code-index :as code-index]
+            [mcp.config :as config]
+            [mcp.docstring :as docstring]
+            [mcp.text :as text]))
 
 (set! *warn-on-reflection* true)
 
@@ -23,12 +26,6 @@
 
 (defrecord OutputBudget [limit max-chars offset])
 
-(def ^:private sentence-marks
-  "The characters that end a sentence of a Docstring summary.
-
-  #{Character}"
-  #{\. \! \? \…})
-
 ;; ---------------------------------------------------------------------------
 ;; Budget
 ;; ---------------------------------------------------------------------------
@@ -41,9 +38,9 @@
 
   Config -> ToolArgs -> OutputBudget"
   [cfg {:keys [limit offset]}]
-  (let [ceiling (:output/limit cfg)]
+  (let [ceiling (config/setting cfg :output/limit)]
     (->OutputBudget (min ceiling (or limit ceiling))
-                    (:output/max-chars cfg)
+                    (config/setting cfg :output/max-chars)
                     (max 0 (or offset 0)))))
 
 (defn- truncation-note
@@ -72,135 +69,6 @@
       file-path)))
 
 ;; ---------------------------------------------------------------------------
-;; Text
-;; ---------------------------------------------------------------------------
-
-(defn collapse-whitespace
-  "`text` with every run of whitespace replaced by one space.
-
-  String -> String"
-  [text]
-  (st/replace text #"\s+" " "))
-
-(defn- collapsed-text
-  "`text` with whitespace collapsed and trimmed; nil when nothing remains.
-
-  Maybe String -> Maybe String"
-  [text]
-  (let [collapsed (-> (or text "") collapse-whitespace st/trim)]
-    (when-not (st/blank? collapsed)
-      collapsed)))
-
-(defn- sentence-end
-  "The index just past the first sentence of the whitespace-collapsed
-   `text`; nil when the whole text is one sentence.
-
-  A sentence ends at `.`, `!`, `?` or `…` outside backticks, followed by
-  a space or by the end of the text.
-
-  String -> Maybe Long"
-  [^String text]
-  (loop [index 0
-         in-backticks? false]
-    (when (< index (count text))
-      (let [character (.charAt text index)
-            next-index (inc index)]
-        (cond
-          (= \` character) (recur next-index (not in-backticks?))
-          (and (not in-backticks?)
-               (sentence-marks character)
-               (or (= next-index (count text))
-                   (= \space (.charAt text next-index)))) next-index
-          :else (recur next-index in-backticks?))))))
-
-(defn docstring-summary
-  "The Docstring summary of `doc`: its first sentence with the source line
-   breaks joined; nil when the docstring is blank.
-
-  When text remains after the first sentence, the summary ends with
-  `(+N chars)`, N being the remaining length with whitespace collapsed.
-
-  Maybe String -> Maybe String"
-  [doc]
-  (when-let [text (collapsed-text doc)]
-    (let [end (or (sentence-end text) (count text))
-          remaining (st/trim (subs text end))]
-      (cond-> (subs text 0 end)
-        (not (st/blank? remaining)) (str " (+" (count remaining) " chars)")))))
-
-;; SignatureStrategy: the value of `:doc/signature` in the config, the
-;; built-in strategy that finds a Definition's Type signature:
-;; {:strategy :last-paragraph} or {:strategy :pattern :regex "..."};
-;; nil turns signatures off.
-
-(s/def ::strategy keyword?)
-
-(s/def ::regex string?)
-
-(s/def ::signature-strategy (s/nilable (s/keys :req-un [::strategy] :opt-un [::regex])))
-
-;; DefinitionDoc: what a Definition line shows of its docstring,
-;; {:summary "First sentence. (+N chars)" :signature "String -> Long"};
-;; either may be nil.
-
-(s/def ::summary (s/nilable string?))
-
-(s/def ::signature (s/nilable string?))
-
-(s/def ::definition-doc (s/keys :req-un [::summary ::signature]))
-
-;; SignatureSplit: what `split-signature` returns, the Type signature and
-;; the text the Docstring summary is taken from,
-;; {:text "First sentence. More." :signature "String -> Long"}; :signature
-;; is nil when the docstring has none.
-
-(s/def ::text string?)
-
-(s/def ::signature-split (s/keys :req-un [::text ::signature]))
-
-(defmulti split-signature
-  "Splits the docstring `doc` into its Type signature and the text the
-   Docstring summary is taken from, with the strategy of `signature-strategy`.
-
-  A new strategy is a `defmethod` of this multimethod.
-
-  SignatureStrategy -> String -> SignatureSplit"
-  (fn [signature-strategy _doc] (:strategy signature-strategy)))
-
-(defmethod split-signature :default
-  [_signature-strategy doc]
-  {:text doc :signature nil})
-
-(defmethod split-signature :last-paragraph
-  [_signature-strategy doc]
-  (let [paragraphs (remove st/blank? (st/split doc #"\n\s*\n"))]
-    (if (next paragraphs)
-      {:text (st/join "\n\n" (butlast paragraphs))
-       :signature (collapsed-text (last paragraphs))}
-      {:text doc :signature nil})))
-
-(defmethod split-signature :pattern
-  [{:keys [regex]} doc]
-  (let [^java.util.regex.Matcher matcher (re-matcher (re-pattern regex) doc)]
-    (if (.find matcher)
-      {:text (str (subs doc 0 (.start matcher)) " " (subs doc (.end matcher)))
-       :signature (collapsed-text (.group matcher 1))}
-      {:text doc :signature nil})))
-
-(defn definition-doc
-  "The Docstring summary and Type signature of `definition`, the
-   signature found by `signature-strategy` and left out of the summary.
-
-  Namespaces have no Type signature.
-
-  SignatureStrategy -> Definition -> DefinitionDoc"
-  [signature-strategy {:keys [kind doc]}]
-  (if (or (st/blank? doc) (= "ns" kind))
-    {:summary (docstring-summary doc) :signature nil}
-    (let [{:keys [text signature]} (split-signature signature-strategy doc)]
-      {:summary (docstring-summary text) :signature signature})))
-
-;; ---------------------------------------------------------------------------
 ;; Rendering
 ;; ---------------------------------------------------------------------------
 
@@ -214,19 +82,6 @@
     (cond-> (vec shown)
       (< shown-until total) (conj (truncation-note shown-until total))
       true (->> (st/join "\n")))))
-
-(def ellipsis
-  "The mark of a cut end of a text.
-
-  String"
-  "…")
-
-(defn ellipsis-cut
-  "The first `room` characters of `text`, its last one replaced by `…`.
-
-  Long -> String -> String"
-  [room text]
-  (str (subs text 0 (min (max 0 (dec room)) (count text))) ellipsis))
 
 (defn- oversized-first-finding
   "Cuts the first finding of a page that alone exceeds `max-chars` with
@@ -265,7 +120,7 @@
          answers (->> (range (count page) 0 -1)
                       (map #(answer-text (take % texts) offset total)))]
      (or (first (filter #(<= (count %) max-chars) answers))
-         (oversized-first-finding (or cut #(ellipsis-cut %1 (text-of %2)))
+         (oversized-first-finding (or cut #(text/ellipsis-cut %1 (text-of %2)))
                                   max-chars page offset total)))))
 
 (defn render-framed
@@ -291,6 +146,8 @@
 ;; `:what` (`:docstring` or `:source`) naming the text in the Truncation note.
 
 (s/def ::what #{:docstring :source})
+
+(s/def ::text string?)
 
 (s/def ::finding-of fn?)
 
@@ -325,7 +182,7 @@
               (recur middle high)
               (recur low (dec middle))))
           (cut low)))
-      (ellipsis-cut room (cut 0)))))
+      (text/ellipsis-cut room (cut 0)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared answers
@@ -339,6 +196,8 @@
 
 (s/def ::index :mcp.code-index/code-index)
 
+(s/def ::signature-strategy ::docstring/signature-strategy)
+
 (s/def ::answer-context (s/keys :req-un [::budget ::index ::signature-strategy]))
 
 (defrecord AnswerContext [budget index signature-strategy])
@@ -348,7 +207,7 @@
 
   Config -> ToolArgs -> CodeIndex -> AnswerContext"
   [cfg args index]
-  (->AnswerContext (budget cfg args) index (:doc/signature cfg)))
+  (->AnswerContext (budget cfg args) index (config/setting cfg :doc/signature)))
 
 (defn checked
   "What an answer searched: `(checked N files, including tests)`, or
@@ -399,7 +258,7 @@
   ([ctx definition]
    (definition->line ctx definition {:signature? true}))
   ([{:keys [index signature-strategy]} definition {:keys [signature?]}]
-   (let [{:keys [summary signature]} (definition-doc signature-strategy definition)]
+   (let [{:keys [summary signature]} (docstring/definition-doc signature-strategy definition)]
      (->> [(definition-head index definition)
            (when signature? signature)
            summary]

@@ -22,7 +22,7 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private relative-path-line
-  (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+  (str "src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  "
        "Maybe String -> String -> String  "
        "Returns `file-path` relative to the project root `root-path`; paths outside the root "
        "are returned unchanged."))

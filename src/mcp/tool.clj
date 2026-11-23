@@ -56,6 +56,15 @@
   (str "The index is re-read from changed files (by mtime) before every answer, "
        "so edits are visible immediately."))
 
+(defn flag
+  "The boolean tool argument `arg-key` of `args`, or `default` when the
+   agent passed no boolean there.
+
+  ToolArgs -> Keyword -> Boolean -> Boolean"
+  [args arg-key default]
+  (let [value (get args arg-key)]
+    (if (boolean? value) value default)))
+
 (defn text-result
   "A `tools/call` result carrying one text block.
 

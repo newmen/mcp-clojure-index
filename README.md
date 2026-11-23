@@ -296,6 +296,8 @@ src/mcp/
 ├── code_index.clj     — in-memory clj-kondo analysis of the project (Definitions, Usages)
 ├── usages.clj         — Usages and their kinds
 ├── output.clj         — Output budget and Compact answer helpers
+├── docstring.clj      — Docstring summary and Type signature strategies
+├── text.clj           — whitespace collapsing and ellipsis cuts
 ├── tool.clj           — tool registry (spec/call multimethods)
 ├── tools.clj          — tools/list and tools/call
 ├── tools/             — one namespace per tool

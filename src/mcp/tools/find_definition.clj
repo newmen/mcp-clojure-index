@@ -5,6 +5,7 @@
             [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
+            [mcp.text :as text]
             [mcp.tool :as tool]))
 
 (set! *warn-on-reflection* true)
@@ -106,7 +107,7 @@
                          :text text
                          :finding-of #(full-doc-text (assoc finding :text %))}
                         room)
-    (output/ellipsis-cut room (full-doc-text finding))))
+    (text/ellipsis-cut room (full-doc-text finding))))
 
 (defn- full-doc-answer
   "The `doc: \"full\"` answer for `name-str` that resolved to
@@ -130,20 +131,13 @@
 ;; Tool
 ;; ---------------------------------------------------------------------------
 
-(def ^:private doc-modes
-  "The `doc` argument values and the answers they select.
-
-  {String Keyword}"
-  {"summary" :summary
-   "full" :full})
-
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
   (let [name-str (str (:name params))
         ctx (output/answer-context config params code-index)
         definitions (code-index/resolve-name code-index name-str)]
     (tool/text-result
-     (case (get doc-modes (:doc params) :summary)
-       :full (full-doc-answer ctx name-str definitions)
-       :summary (output/one-definition ctx name-str definitions
-                                       #(output/render (:budget ctx) [(output/definition->line ctx %)]))))))
+     (if (= "full" (:doc params))
+       (full-doc-answer ctx name-str definitions)
+       (output/one-definition ctx name-str definitions
+                              #(output/render (:budget ctx) [(output/definition->line ctx %)]))))))

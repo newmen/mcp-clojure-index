@@ -3,6 +3,7 @@
    matching on names and docstrings (`mcp.lexical`), merged by reciprocal
    rank fusion, then the reranker."
   (:require [clojure.spec.alpha :as s]
+            [mcp.config :as config]
             [mcp.embeddings :as embeddings]
             [mcp.lexical :as lexical]
             [mcp.qdrant :as qdrant]))
@@ -87,7 +88,7 @@
 
   Config -> String -> [SearchUnit] -> #{String} -> Long -> IO (Maybe [Hit])"
   [cfg query units excluded-files hit-count]
-  (let [top-k (:search/top-k cfg)]
+  (let [top-k (config/setting cfg :search/top-k)]
     (when (and (seq query) (pos? top-k) (pos? hit-count))
       (when-let [embedding (first (embeddings/generate [query] cfg))]
         (let [candidates (->> (fuse [(qdrant-candidates cfg embedding top-k excluded-files)

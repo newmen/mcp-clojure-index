@@ -63,7 +63,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."}]
+             :text "src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -82,7 +82,7 @@
     (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
 
 (def ^:private relative-path-definition
-  (str "src/mcp/output.clj:63  defn  mcp.output/relative-path  [root-path file-path]  "
+  (str "src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  "
        "Maybe String -> String -> String  "
        "Returns `file-path` relative to the project root `root-path`; paths outside the root "
        "are returned unchanged."))

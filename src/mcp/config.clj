@@ -91,7 +91,7 @@
   Maybe SignatureStrategy -> Maybe String"
   [{:keys [strategy regex]}]
   (when (= :pattern strategy)
-    (let [pattern (try (re-pattern (str regex)) (catch Exception _ nil))]
+    (let [pattern (try (re-pattern (str regex)) (catch Exception _error nil))]
       (cond
         (nil? pattern) (str ":doc/signature :pattern regex does not compile: " regex)
         (zero? (.groupCount ^java.util.regex.Matcher (re-matcher pattern "")))

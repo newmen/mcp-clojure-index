@@ -270,8 +270,9 @@
           "ar.core/many: 1 usage"
           "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"]
          (answer-lines @arity-project {:targets ["two" "many"] :warnings_only true})))
-  (is (= "no usages of ar.core/one (checked 1 files, including tests)"
-         (answer @arity-project {:targets ["one"] :warnings_only true}))))
+  (testing "the empty answer says that only Usages with a Usage warning were asked for"
+    (is (= "no usages of ar.core/one with a Usage warning (checked 1 files, including tests)"
+           (answer @arity-project {:targets ["one"] :warnings_only true})))))
 
 (deftest unused-requires-carry-a-usage-warning
   (testing "an unused alias is unused, unused referred names are listed; bare requires, :refer :all and uses through ::alias/kw, #' or a qualified name are not marked; a qualified name does not use a referred name"

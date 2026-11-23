@@ -5,6 +5,7 @@
             [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
+            [mcp.text :as text]
             [mcp.tool :as tool]
             [mcp.usages :as usages]))
 
@@ -88,36 +89,17 @@
 
 (s/def ::line-reader ifn?)
 
-(defn- usage-context
-  "The Usage context of the Usage at 1-based `col` of `line`: the line with
-   whitespace runs collapsed, cut to `context-width` characters around the
-   column, an ellipsis marking each cut end.
-
-  String -> Long -> String"
-  [line col]
-  (let [column-index (min (count line) (max 0 (dec col)))
-        lead (output/collapse-whitespace (st/triml (subs line 0 column-index)))
-        text (st/trimr (str lead (output/collapse-whitespace (subs line column-index))))
-        length (count text)
-        start (max 0 (min (- (count lead) context-lead) (- length context-width)))
-        end (min length (+ start context-width))
-        cut-start? (pos? start)
-        cut-end? (< end length)]
-    (str (when cut-start? output/ellipsis)
-         (subs text (cond-> start cut-start? inc) (cond-> end cut-end? dec))
-         (when cut-end? output/ellipsis))))
-
 (defn- usage->line
   "The Compact answer line of a Usage: `path:line:col  kind  enclosing`,
-   followed by its Usage context when `read-lines` is given and by its
-   Usage warning, if any.
+   followed by its Usage context (the source line around the column) when
+   `read-lines` is given, and by its Usage warning, if any.
 
   String -> Maybe LineReader -> Usage -> IO String"
   [root read-lines {:keys [filename row col kind enclosing warning]}]
   (let [line (when read-lines (get (read-lines filename) (dec row)))]
     (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
       (not (st/blank? enclosing)) (str "  " enclosing)
-      (not (st/blank? line)) (str "  " (usage-context line col))
+      (not (st/blank? line)) (str "  " (text/around-column line col context-width context-lead))
       warning (str "  " warning))))
 
 (defn- wanted?
@@ -149,8 +131,9 @@
       (= :defmethod (:target/type target))
       {:header (str (:target/name target) " is a defmethod: it is called through its multimethod, "
                     "find usages of " (code-index/qualified-name (dissoc (:definition target) :dispatch)))}
-      (empty? found) {:header (str "no usages of " (:target/name target) " "
-                                   (output/checked index (:include-tests? opts)))}
+      (empty? found) {:header (str "no usages of " (:target/name target)
+                                   (when (:warnings-only? opts) " with a Usage warning")
+                                   " " (output/checked index (:include-tests? opts)))}
       :else {:header (str (:target/name target) ": " (count found)
                           (if (= 1 (count found)) " usage" " usages"))
              :lines (mapv (partial usage->line (code-index/root index) read-lines) found)})))
@@ -192,9 +175,9 @@
 (defmethod tool/call :find_usages
   [_tool-key params {:keys [config code-index]}]
   (let [opts {:kinds (set (as-strings (:kinds params)))
-              :include-tests? (not (false? (:include_tests params)))
-              :context? (not (false? (:context params)))
-              :warnings-only? (true? (:warnings_only params))}
+              :include-tests? (tool/flag params :include_tests true)
+              :context? (tool/flag params :context true)
+              :warnings-only? (tool/flag params :warnings_only false)}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
         {:keys [budget] :as ctx} (output/answer-context config params code-index)
         groups (map (partial target-group ctx read-lines opts)

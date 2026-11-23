@@ -5,6 +5,8 @@
   (:require [clojure.string :as st]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
+            [mcp.config :as config]
+            [mcp.docstring :as docstring]
             [mcp.output :as output]
             [mcp.search :as search]
             [mcp.search-units :as search-units]
@@ -59,7 +61,7 @@
         (str (output/relative-path (code-index/root index) (:filename unit)) ":" (:row unit))
         (:kind unit)
         (:name unit)
-        (:summary (output/definition-doc signature-strategy unit))]
+        (:summary (docstring/definition-doc signature-strategy unit))]
        (remove st/blank?)
        (st/join "  ")))
 
@@ -70,9 +72,9 @@
 
   Config -> ToolArgs -> Long"
   [config params]
-  (let [page-size (min (:output/limit config)
-                       (or (:limit params) (:search/re-rank-top config)))]
-    (max (:search/re-rank-top config)
+  (let [re-rank-top (config/setting config :search/re-rank-top)
+        page-size (min (config/setting config :output/limit) (or (:limit params) re-rank-top))]
+    (max re-rank-top
          (+ (max 0 (or (:offset params) 0)) page-size))))
 
 (defn- test-files
@@ -99,13 +101,13 @@
   Config -> [Hit] -> Maybe String"
   [config hits]
   (when-let [best (some->> (seq (keep :re-rank hits)) (apply max) double)]
-    (when (< best (:search/min-relevance config))
+    (when (< best (config/setting config :search/min-relevance))
       (format "no confident matches (best %.2f), try rephrasing" best))))
 
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
   (let [query (st/trim (str (:query params)))
-        include-tests? (true? (:include_tests params))]
+        include-tests? (tool/flag params :include_tests false)]
     (tool/text-result
      (if (st/blank? query)
        "query is empty"

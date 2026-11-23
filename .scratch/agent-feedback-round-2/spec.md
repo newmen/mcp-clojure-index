@@ -21,7 +21,8 @@ See `GLOSSARY.md` (Docstring summary, Type signature, Usage context, Usage warni
 ### Output budget
 
 - `:output/max-chars` default is 4000 (was 2000). ADR-0004 is updated.
-- When a single finding (one Definition with its full docstring, one `get_source` body) is longer than the budget, it is cut, and the answer ends with a Truncation note `truncated: docstring shown A of B chars`, or `source shown A of B chars` for `get_source`. `offset` cannot help here, so the note has no paging hint.
+- When a single finding (one Definition with its full docstring) is longer than the budget, it is cut, and the answer ends with a Truncation note `truncated: docstring shown A of B chars`. B is the length of the docstring without the source indentation its continuation lines share, as `doc: "full"` shows it. `offset` cannot help here, so the note has no paging hint.
+- `get_source` reads "one finding" as one source line (ADR-0004): a body longer than the budget is paged by line with `offset`, and `truncated: source shown A of B chars` appears only when one line alone is longer than the budget.
 
 ### Docstring summary
 
@@ -34,7 +35,7 @@ The Docstring summary replaces "first docstring line" in every list answer: `fin
 
 ### Type signature
 
-- `:doc/signature` in `config.edn` selects a built-in strategy. The default is `{:strategy :last-paragraph}`. Without the key, or with `nil`, there are no signatures.
+- `:doc/signature` in `config.edn` selects a built-in strategy. The shipped `resources/config.edn` sets `{:strategy :last-paragraph}`; the server's code defaults leave it out, so a config without the key, or with `nil`, has no signatures. A `:pattern` regex that does not compile or has no capture group is rejected when the config is loaded.
   - `:last-paragraph`: the last paragraph (after a blank line) of a docstring with at least two paragraphs, its lines joined with single spaces. A one-paragraph docstring has no signature, and its paragraph is the summary.
   - `{:strategy :pattern :regex "..."}`: the first group of the regex matched against the whole docstring.
   - A new strategy is a `defmethod` in the server, added by pull request. There is no user code in the config.
@@ -65,8 +66,8 @@ A finding is one Definition with its docstring. `limit` and `offset` count Defin
 - **Usage context** is on by default: up to 80 characters of the source line around the Usage column, with runs of whitespace collapsed, appended to the Usage line. `context: false` turns it off. ADR-0006 is updated.
 - **Usage warnings** are appended to the Usage line:
   - `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a `call` whose argument count matches no arity of the target. Arities come from clj-kondo (`:arity` of the usage, the fixed and varargs arities of the definition).
-  - On `require` Usages of a namespace target: `unused` when neither the alias nor any referred name is used in that file, and `unused refer: b, c` when the alias or some referred names are used but `b` and `c` are not. A use is anything that resolves to the namespace: a call or value through the alias, a referred name, `#'`, `::alias/kw` (the only use an `:as-alias` can have), or a fully qualified name. A bare require (no `:as`, `:as-alias` or `:refer`) is never marked, because it is loaded for side effects; neither is `:refer :all`.
-- `warnings_only: true` returns only Usages that carry a Usage warning.
+  - On `require` Usages of a namespace target: `unused` when neither the alias nor any referred name is used in that file, and `unused refer: b, c` when the alias or some referred names are used but `b` and `c` are not. A use is anything that resolves to the namespace: a call or value through the alias, a referred name, `#'`, `::alias/kw` (the only use an `:as-alias` can have), or a fully qualified name. A fully qualified name uses the namespace, so the require is not `unused`, but it does not use a referred name: `:refer [b]` with only `x.y/b` in the file is `unused refer: b`, since the refer is redundant. A bare require (no `:as`, `:as-alias` or `:refer`) is never marked, because it is loaded for side effects; neither is `:refer :all`.
+- `warnings_only: true` returns only Usages that carry a Usage warning. When none does, the answer says `no usages of X with a Usage warning (checked N files, …)`.
 - The tool description says that `unused` is a hint.
 
 ### `semantic_search`

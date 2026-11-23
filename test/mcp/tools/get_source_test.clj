@@ -22,7 +22,7 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private relative-path-source
-  (str "src/mcp/output.clj:63-72\n"
+  (str "src/mcp/output.clj:60-69\n"
        "(defn relative-path\n"
        "  \"Returns `file-path` relative to the project root `root-path`; paths\n"
        "   outside the root are returned unchanged.\n"
@@ -72,18 +72,18 @@
 (deftest body-over-budget-ends-with-truncation-note-and-pages-by-line
   (let [cfg (assoc project/config :output/max-chars 110)
         text (answer cfg {:name "mcp.output/relative-path"})]
-    (is (= (str "src/mcp/output.clj:63-72\n"
+    (is (= (str "src/mcp/output.clj:60-69\n"
                 "(defn relative-path\n"
                 "truncated: shown 1 of 10, pass offset=1 or narrow the query")
            text))
     (is (<= (count text) 110)))
   (testing "offset skips lines of the body"
-    (is (= (str "src/mcp/output.clj:63-72\n"
+    (is (= (str "src/mcp/output.clj:60-69\n"
                 "      (subs file-path (count prefix))\n"
                 "      file-path)))")
            (answer {:name "mcp.output/relative-path" :offset 8}))))
   (testing "limit lowers the number of lines"
-    (is (= (str "src/mcp/output.clj:63-72\n"
+    (is (= (str "src/mcp/output.clj:60-69\n"
                 "(defn relative-path\n"
                 "  \"Returns `file-path` relative to the project root `root-path`; paths\n"
                 "truncated: shown 2 of 10, pass offset=2 or narrow the query")

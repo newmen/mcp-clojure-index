@@ -4,6 +4,7 @@
    namespaces that require it."
   (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
+            [mcp.docstring :as docstring]
             [mcp.output :as output]
             [mcp.tool :as tool]))
 
@@ -52,7 +53,7 @@
   [root {:keys [filename doc] ns-name :name}]
   (join-fields [(str "ns " ns-name)
                 (output/relative-path root filename)
-                (output/docstring-summary doc)]))
+                (docstring/docstring-summary doc)]))
 
 (defn- summary-line
   "The answer line of one Definition of the namespace, its Type signature
@@ -60,7 +61,7 @@
 
   SignatureStrategy -> Definition -> String"
   [signature-strategy {:keys [row kind arglists private] :as definition}]
-  (let [{:keys [summary signature]} (output/definition-doc signature-strategy definition)]
+  (let [{:keys [summary signature]} (docstring/definition-doc signature-strategy definition)]
     (join-fields [(str row)
                   (if private "private" "public")
                   kind

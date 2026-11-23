@@ -8,12 +8,13 @@
        -e '(token-benchmark/-main \"PROJECT-ROOT\" \"QUERIES-EDN\" \"SKIP-REGEX\")'
 
    QUERIES-EDN holds the semantic search scenarios of that project, a vector
-   of {:query String :grep [String] :expect String}; pass \"\" to skip the
+   of SemanticScenario; pass \"\" to skip the
    semantic scenarios. SKIP-REGEX (optional) matches files no question is
    asked about, such as generated code; grep still searches them."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
+            [clojure.spec.alpha :as s]
             [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.config :as config]
@@ -23,7 +24,7 @@
 
 (set! *warn-on-reflection* true)
 
-;; Measurement shape (one question):
+;; Measurement (one question):
 ;;
 ;; {:scenario :find-usages
 ;;  :question "mcp.output/relative-path"
@@ -32,6 +33,40 @@
 ;;  :typical  180000         ; rg output + whole files, as Read returns them
 ;;  :mcp-found? true :grep-found? true          ; semantic scenarios only
 ;;  :grep-noise 3 :grep-missed 1}               ; find-usages only
+;;
+;; SemanticScenario (one entry of QUERIES-EDN):
+;;
+;; {:query  "shorten a reply that would be longer than the allowed number of characters"
+;;  :grep   ["truncat" "max-chars"]      ; the keywords an agent greps instead
+;;  :expect "mcp.output/render"}         ; the Definition that answers it
+;;
+;; ReportRow (one scenario of the summary): the totals of :mcp, :careful and
+;; :typical, the total and median savings in percent, and the scenario's own
+;; counters (:grep-noise and :grep-missed, or :mcp-found and :grep-found).
+
+(s/def ::scenario #{:find-definition :get-source :find-usages :namespace-summary :semantic-search})
+
+(s/def ::question string?)
+
+(s/def ::mcp nat-int?)
+
+(s/def ::careful nat-int?)
+
+(s/def ::typical nat-int?)
+
+(s/def ::measurement (s/keys :req-un [::scenario ::question ::mcp ::careful ::typical]))
+
+(s/def ::query string?)
+
+(s/def ::grep (s/coll-of string?))
+
+(s/def ::expect string?)
+
+(s/def ::semantic-scenario (s/keys :req-un [::query ::grep ::expect]))
+
+(s/def ::questions nat-int?)
+
+(s/def ::report-row (s/keys :req-un [::scenario ::questions ::mcp ::careful ::typical]))
 
 (def ^:private sample-size
   "Definitions sampled per project for the precise scenarios.
@@ -115,7 +150,7 @@
   String -> [[String Long]]"
   [rg-output]
   (for [line (st/split-lines rg-output)
-        :let [[_ path row] (re-find #"^(?:\./)?([^:]+):(\d+):" line)]
+        :let [[_line path row] (re-find #"^(?:\./)?([^:]+):(\d+):" line)]
         :when path]
     [path (parse-long row)]))
 
@@ -235,7 +270,7 @@
     {:scenario :find-definition
      :question def-name
      :mcp (pages-length :find_definition {:name def-name} state)
-     :careful (+ (count output) (reads-length root found (fn [[_ row]] [row (+ row head-window -1)])))
+     :careful (+ (count output) (reads-length root found (fn [[_path row]] [row (+ row head-window -1)])))
      :typical (+ (count output) (reads-length root found nil))}))
 
 (defn- get-source-measure
@@ -259,7 +294,7 @@
   [pages]
   (set (for [page pages
              line (st/split-lines page)
-             :let [[_ path row] (re-find #"^(\S+):(\d+):\d+\s" line)]
+             :let [[_line path row] (re-find #"^(\S+):(\d+):\d+\s" line)]
              :when path]
          [path (parse-long row)])))
 
@@ -282,7 +317,7 @@
      :mcp (reduce + 0 (map count pages))
      :careful (+ (count careful-output)
                  (reads-length root (seq careful-hits)
-                               (fn [[_ hit-row]] [(- hit-row usage-window) (+ hit-row usage-window)])))
+                               (fn [[_path hit-row]] [(- hit-row usage-window) (+ hit-row usage-window)])))
      :typical (+ (count typical-output) (reads-length root (hits typical-output) nil))
      :grep-noise (count (remove (conj usages definition-hit) careful-hits))
      :grep-missed (count (remove careful-hits usages))}))
@@ -303,13 +338,13 @@
      :typical (+ (read-length root path nil) (count requirers))}))
 
 (defn- top-files
-  "The `n` files with the most hits in `hit-list`.
+  "The `file-count` files with the most hits in `hit-list`.
 
   Long -> [[String Long]] -> [[String Long]]"
-  [n hit-list]
+  [file-count hit-list]
   (let [top (->> (frequencies (map first hit-list))
                  (sort-by (comp - val))
-                 (take n)
+                 (take file-count)
                  (map key)
                  set)]
     (filter (comp top first) hit-list)))
@@ -318,7 +353,7 @@
   "Measures `semantic_search` of one query against grepping its keywords,
    with whether either finds the expected Definition.
 
-  ToolState -> {:query String :grep [String] :expect String} -> IO Measurement"
+  ToolState -> SemanticScenario -> IO Measurement"
   [{:keys [code-index] :as state} {:keys [query grep expect]}]
   (let [root (code-index/root code-index)
         answer (answer-text :semantic_search {:query query} state)
@@ -331,7 +366,7 @@
      :mcp (count answer)
      :careful (+ (count output)
                  (reads-length root (take 5 hit-list)
-                               (fn [[_ row]] [(- row semantic-window) (+ row semantic-window)])))
+                               (fn [[_path row]] [(- row semantic-window) (+ row semantic-window)])))
      :typical (+ (count output) (reads-length root (top-files 3 hit-list) nil))
      :mcp-found? (st/includes? answer (str "  " expect "  "))
      :grep-found? (boolean
@@ -355,18 +390,18 @@
            (and skip-files (re-find skip-files file-path)))))
 
 (defn- sample
-  "`n` functions and macros of `index` that questions may be asked about,
+  "`sample-count` functions and macros of `index` that questions may be asked about,
    the same ones on every run over unchanged code.
 
   CodeIndex -> Maybe Pattern -> Long -> [Definition]"
-  [index skip-files n]
+  [index skip-files sample-count]
   (let [candidates (->> (code-index/definitions index)
                         (filter (comp #{"defn" "defn-" "defmacro"} :kind))
                         (filter (comp (partial asked-about? index skip-files) :filename))
                         (sort-by code-index/qualified-name))
         candidates (java.util.ArrayList. ^java.util.Collection candidates)]
     (java.util.Collections/shuffle candidates (java.util.Random. seed))
-    (take n candidates)))
+    (take sample-count candidates)))
 
 (defn- namespaces
   "[namespace-name file-path] of every namespace questions may be asked
@@ -397,7 +432,7 @@
 (defn- summarize
   "One report row per scenario of `measurements`.
 
-  [Measurement] -> [Map]"
+  [Measurement] -> [ReportRow]"
   [measurements]
   (for [[scenario group] (group-by :scenario measurements)
         :let [total (fn [k] (reduce + 0 (map k group)))]]
@@ -422,7 +457,7 @@
    semantic search scenarios (may be empty), `skip-files` matches files no
    question is asked about (generated code), though grep still reads them.
 
-  String -> [Map] -> Maybe Pattern -> IO [Measurement]"
+  String -> [SemanticScenario] -> Maybe Pattern -> IO [Measurement]"
   [root-path queries skip-files]
   (let [cfg (-> (config/load-config "resources/config.edn")
                 (assoc :index/root-path root-path)
@@ -431,9 +466,10 @@
                 config/validate-config)
         index (code-index/build cfg)
         semantic (semantic-index/create cfg)
-        _ (when (seq queries) (semantic-index/sync! semantic index))
         state {:config cfg :code-index index :semantic-index semantic}
         definitions (sample index skip-files sample-size)]
+    (when (seq queries)
+      (semantic-index/sync! semantic index))
     ;; Every tool call recomputes all Definitions of the index (3 s on a
     ;; project of 6500 Definitions); memoizing them changes no answer, only
     ;; how long the measurement takes.

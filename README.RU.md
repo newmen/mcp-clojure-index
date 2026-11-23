@@ -426,6 +426,8 @@ src/mcp/
 ├── usages.clj         — Usages и их типы
 ├── output.clj         — Output budget и вспомогательные функции
 │                        для формирования компактных ответов
+├── docstring.clj      — Docstring summary и стратегии Type signature
+├── text.clj           — схлопывание пробелов и обрезка с многоточием
 ├── tool.clj           — реестр инструментов (multimethods spec/call)
 ├── tools.clj          — tools/list и tools/call
 ├── tools/             — отдельный namespace для каждого инструмента

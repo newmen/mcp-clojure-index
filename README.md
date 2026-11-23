@@ -206,19 +206,30 @@ These are exactly the tools returned by `tools/list`. Names can be simple (`rela
 ### find_definition
 
 ```
-Input:  name (string, required) — simple, alias-qualified or fully qualified;
+Input:  names (array of strings, required) — each simple, alias-qualified or fully qualified;
         `multi dispatch-value` for a defmethod (`area :circle`); a keyword for a spec
         doc ("summary" | "full", default "summary")
-        limit, offset — in Definitions
-Answer: one line per Definition
+        limit, offset — in Definitions, counted across all names
+Answer: one group per distinct name, like `rg --heading`, a blank line between groups:
+        the name as asked, then one line per Definition
         path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
         with doc "full": path:line  kind  ns/name  [arglists], then the whole docstring
         indented by two spaces (`  (no docstring)` when there is none)
 ```
 
+A name that is not found says so in its header (`foo: not found (checked 214 files, including tests)`); an ambiguous one is headed by `ambiguous: N definitions named foo, pass a qualified name` and lists its candidates. The other names still answer. A page that starts inside a group repeats that group's header. An empty list answers `no names given`.
+
 With `doc: "full"`, a single docstring longer than the Output budget is cut and ends with `truncated: docstring shown A of B chars`.
 
-Example: `src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...`
+Example (`names: ["relative-path", "output/render"]`):
+
+```
+relative-path
+src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns ...
+
+output/render
+src/mcp/output.clj:110  defn  mcp.output/render  ...
+```
 
 ### find_usages
 
@@ -230,7 +241,8 @@ Input:  targets (array of strings, required) — names and/or keywords (`:k`, `:
         context (boolean, default true) — end each line with its Usage context
         warnings_only (boolean, default false) — only Usages that carry a Usage warning
         limit, offset
-Answer: per target a header `target: N usages`, then one line per Usage
+Answer: per target a header `target: N usages`, then one line per Usage,
+        a blank line between targets
         path:line:col  usage-kind  ns/enclosing-definition  context  warning
 ```
 

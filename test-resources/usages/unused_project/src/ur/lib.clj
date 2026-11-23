@@ -1,0 +1,7 @@
+(ns ur.lib)
+
+(defn a [] 1)
+
+(defn b [] 2)
+
+(defn c [] 3)

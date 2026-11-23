@@ -27,6 +27,7 @@
 (def ^:private keyword-project (delay (fixture-index "keyword_project")))
 (def ^:private context-project (delay (fixture-index "context_project")))
 (def ^:private arity-project (delay (fixture-index "arity_project")))
+(def ^:private unused-project (delay (fixture-index "unused_project")))
 
 (defn- context-answer
   "The answer text of `find_usages` on `code-index`, with Usage context
@@ -272,6 +273,24 @@
   (is (= "no usages of ar.core/one (checked 1 files, including tests)"
          (answer @arity-project {:targets ["one"] :warnings_only true}))))
 
+(deftest unused-requires-carry-a-usage-warning
+  (testing "an unused alias is unused, unused referred names are listed; bare requires, :refer :all and uses through ::alias/kw, #' or a qualified name are not marked"
+    (is (= ["ur.lib: 7 usages"
+            "src/ur/alias_only.clj:2:14  require  ur.alias-only  unused refer: b, c"
+            "src/ur/bare.clj:2:14  require  ur.bare"
+            "src/ur/kw_only.clj:2:14  require  ur.kw-only"
+            "src/ur/partly.clj:2:14  require  ur.partly  unused refer: b, c"
+            "src/ur/qualified.clj:2:14  require  ur.qualified"
+            "src/ur/refer_all.clj:2:14  require  ur.refer-all"
+            "src/ur/unused_alias.clj:2:14  require  ur.unused-alias  unused"]
+           (answer-lines @unused-project {:targets ["ur.lib"]}))))
+  (testing "warnings_only selects them"
+    (is (= ["ur.lib: 3 usages"
+            "src/ur/alias_only.clj:2:14  require  ur.alias-only  unused refer: b, c"
+            "src/ur/partly.clj:2:14  require  ur.partly  unused refer: b, c"
+            "src/ur/unused_alias.clj:2:14  require  ur.unused-alias  unused"]
+           (answer-lines @unused-project {:targets ["ur.lib"] :warnings_only true})))))
+
 (deftest answer-with-context-respects-output-budget
   (let [cfg (assoc project/config :output/limit 4 :output/max-chars 300)
         text (context-answer cfg @lein-project {:targets ["get-uuid"]})
@@ -290,6 +309,7 @@
     (is (re-find #"context" (:description spec)))
     (is (re-find #"wrong arity" (:description spec)))
     (is (re-find #"warnings_only" (:description spec)))
+    (is (re-find #"`unused` is a hint" (:description spec)))
     (is (= #{:targets :kinds :include_tests :context :warnings_only :limit :offset}
            (set (keys (get-in spec [:inputSchema :properties])))))))
 

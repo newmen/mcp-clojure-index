@@ -39,9 +39,15 @@
                                     tool/paging-properties)
                  :required ["query"]}})
 
+(def ^:private precise-tools-note
+  "the precise tools (find_definition, get_source, ...) still work")
+
 (def ^:private unavailable-answer
-  (str "semantic search unavailable (Qdrant or Ollama not reachable); "
-       "the precise tools (find_definition, get_source, ...) still work"))
+  (str "semantic search unavailable (Qdrant or Ollama not reachable); " precise-tools-note))
+
+(def ^:private lost-collection-answer
+  (str "semantic search unavailable: the Qdrant collection was deleted or replaced, "
+       "every file is being embedded again; " precise-tools-note))
 
 ;; ---------------------------------------------------------------------------
 ;; Answer
@@ -93,6 +99,13 @@
     (when (pos? stale-count)
       (str "embeddings stale for " stale-count " files"))))
 
+(defn- with-note
+  "`text` followed by the line `note`, when there is one.
+
+  String -> Maybe String -> String"
+  [text note]
+  (cond-> text note (str "\n" note)))
+
 (defn- confidence-note
   "The first line saying that no hit is confident: the best relevance of
    `hits` is below `:search/min-relevance`. Nil when it is not, or when
@@ -120,12 +133,12 @@
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line ctx) hits)]
            (if (empty? lines)
-             (->> [(str "no results for: " query " " (output/checked code-index include-tests?)) note]
-                  (remove nil?)
-                  (st/join "\n"))
+             (with-note (str "no results for: " query " " (output/checked code-index include-tests?)) note)
              (output/render-framed (:budget ctx)
                                    {:header (confidence-note config hits) :footer note}
                                    lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))
-           unavailable-answer))))))
+           (if (some-> semantic-index (semantic-index/forget-lost-collection! e))
+             (with-note lost-collection-answer (stale-note semantic-index code-index))
+             unavailable-answer)))))))

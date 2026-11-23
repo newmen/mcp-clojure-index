@@ -7,7 +7,6 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
-            [mcp.config :as config]
             [mcp.embeddings :as embeddings]
             [mcp.qdrant :as qdrant]
             [mcp.search-units :as search-units]))
@@ -19,7 +18,8 @@
 ;; SemanticState shape (the value of the atom):
 ;;
 ;; {:embedded   {"/abs/file.clj" 1700000000000} ; file -> mtime its points were built from
-;;  :prepared?  true                            ; collection checked and in the current format
+;;  :prepared?  true                            ; collection checked and in the current format;
+;;                                              ; false again once it is found deleted or replaced
 ;;  :failed-at  1700000000000                   ; last failed sync, absent after a success
 ;;  :latest-index {...}                         ; newest precise index handed to `sync-async!`
 ;;  :queued?    false                           ; a background sync is waiting to start
@@ -82,8 +82,7 @@
   SemanticIndex -> IO ()"
   [{cfg :config state :state}]
   (let [layout (qdrant/stored-layout cfg)
-        current? (and (= {:format qdrant/payload-format :model (config/setting cfg :ollama/embedding-model)}
-                         layout)
+        current? (and (= (qdrant/current-layout cfg) layout)
                       (not (:qdrant/recreate? cfg)))]
     (when-not current?
       (let [vector-size (count (first (embeddings/generate ["vector size"] cfg)))]
@@ -94,6 +93,20 @@
     (swap! state assoc
            :embedded (if current? (qdrant/embedded-files cfg) {})
            :prepared? true)))
+
+(defn forget-lost-collection!
+  "Forgets that the collection was prepared and what it holds when `e`
+   says it was deleted or replaced (by another server instance or by
+   hand), so every file is stale and the next sync prepares and fills it
+   again. Returns whether it did.
+
+  SemanticIndex -> Exception -> IO Boolean"
+  [{state :state} e]
+  (let [lost? (qdrant/collection-lost? e)]
+    (when lost?
+      (log/info "Qdrant collection was deleted or replaced, embedding every file again")
+      (swap! state assoc :prepared? false :embedded {}))
+    lost?))
 
 (defn- store-file!
   "Replaces the points of `file-path` with its Search `units` and their
@@ -110,7 +123,8 @@
 
 (defn sync!
   "Recomputes and stores the embeddings of the stale files of `index`,
-   synchronously. Failures are logged and leave the files stale.
+   synchronously. Failures are logged and leave the files stale; one
+   saying the collection was deleted or replaced makes every file stale.
 
   SemanticIndex -> CodeIndex -> IO ()"
   [{cfg :config state :state :as semantic-index} index]
@@ -129,6 +143,7 @@
       (swap! state dissoc :failed-at))
     (catch Exception e
       (log/warn "Embeddings not updated, semantic search is stale:" (.getMessage e))
+      (forget-lost-collection! semantic-index e)
       (swap! state assoc :failed-at (System/currentTimeMillis)))))
 
 (defn- retry-due?

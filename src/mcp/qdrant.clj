@@ -47,6 +47,13 @@
 
 (def ^:private scroll-batch-size 1000)
 
+(def ^:private vector-size-error
+  "What Qdrant's error message of a 400 answer contains when the
+   collection takes vectors of another size.
+
+  Pattern"
+  #"(?i)vector dimension")
+
 ;; ---------------------------------------------------------------------------
 ;; HTTP
 ;; ---------------------------------------------------------------------------
@@ -84,8 +91,22 @@
   (let [{:keys [status] :as response} (request method url body-map)]
     (when-not (contains? statuses status)
       (throw (ex-info (str "Qdrant " description " failed")
-                      {:status status :body (:body response) :url url})))
+                      {:qdrant/status status :body (:body response) :url url})))
     response))
+
+(defn collection-lost?
+  "True when `e` was thrown by an operation of this namespace because the
+   collection was deleted (404) or replaced by one of another layout: its
+   points were stored with another CollectionLayout, or it takes vectors
+   of another size (400). Failures of other services are never this.
+
+  Exception -> Boolean"
+  [e]
+  (let [{:keys [foreign-layout body] status :qdrant/status} (ex-data e)]
+    (boolean (or foreign-layout
+                 (= 404 status)
+                 (and (= 400 status)
+                      (re-find vector-size-error (str (get-in body [:status :error]))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Collection
@@ -121,6 +142,24 @@
     {:points (get-in body [:result :points])
      :next (get-in body [:result :next_page_offset])}))
 
+(defn current-layout
+  "The CollectionLayout this server stores points with: the current
+   payload format and the configured embedding model.
+
+  Config -> CollectionLayout"
+  [cfg]
+  {:format payload-format
+   :model (config/setting cfg :ollama/embedding-model)})
+
+(defn- point-layout
+  "The CollectionLayout a Point was stored with: format 1 for points of
+   the old chunk format.
+
+  Point -> CollectionLayout"
+  [{:keys [payload]}]
+  {:format (:format payload 1)
+   :model (:model payload)})
+
 (defn stored-layout
   "Reads the payload format and embedding model of the points in the
    collection: nil when it is missing or empty, format 1 for points of the
@@ -130,9 +169,7 @@
   [cfg]
   (let [{:keys [status]} (request :get (collection-url cfg) nil)]
     (when-not (= 404 status)
-      (when-let [payload (some-> (first (:points (scroll cfg nil 1 ["format" "model"]))) :payload)]
-        {:format (:format payload 1)
-         :model (:model payload)}))))
+      (some-> (first (:points (scroll cfg nil 1 ["format" "model"]))) point-layout))))
 
 (defn embedded-files
   "Reads the mtime of each file whose points the collection holds; a file
@@ -206,15 +243,19 @@
 (defn search
   "Finds the `top-k` points nearest to `query-vector`, leaving out in
    Qdrant the points of `excluded-files` (absolute paths), so they take
-   none of the `top-k` places.
+   none of the `top-k` places. Throws, as `collection-lost?` recognises,
+   when a point found was stored with another CollectionLayout.
 
   Config -> Embedding -> Long -> #{String} -> IO [ScoredUnit]"
   [cfg query-vector top-k excluded-files]
-  (->> (request! :post (str (collection-url cfg) "/points/search")
-                 (cond-> {:vector query-vector :limit top-k :with_payload true :with_vector false}
-                   (seq excluded-files)
-                   (assoc :filter {:must_not [{:key "filename" :match {:any (vec (sort excluded-files))}}]}))
-                 "search" #{200})
-       :body
-       :result
-       (mapv (fn [point] {:unit (point->unit point) :score (:score point 0.0)}))))
+  (let [points (-> (request! :post (str (collection-url cfg) "/points/search")
+                             (cond-> {:vector query-vector :limit top-k :with_payload true :with_vector false}
+                               (seq excluded-files)
+                               (assoc :filter {:must_not [{:key "filename" :match {:any (vec (sort excluded-files))}}]}))
+                             "search" #{200})
+                   (get-in [:body :result]))
+        layout (current-layout cfg)]
+    (when-let [foreign (->> points (map point-layout) (remove #{layout}) first)]
+      (throw (ex-info "Qdrant collection holds points of another layout"
+                      {:foreign-layout foreign :url (collection-url cfg)})))
+    (mapv (fn [point] {:unit (point->unit point) :score (:score point 0.0)}) points)))

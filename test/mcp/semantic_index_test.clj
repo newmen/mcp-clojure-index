@@ -122,6 +122,34 @@
           (sut/sync! semantic-index @fixture-index)))
       (is (= 6 (count (sut/stale-files semantic-index @fixture-index)))))))
 
+(defn- collection-missing
+  "Throws what the Qdrant adapter throws for a collection that is gone.
+
+  & Any -> IO a"
+  [& _args]
+  (throw (ex-info "Qdrant delete failed" {:qdrant/status 404 :body nil :url "http://localhost/collections/x"})))
+
+(deftest sync-after-the-collection-was-deleted-recreates-it-and-re-embeds-every-file
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        edited (update-in @fixture-index [:files inventory :mtime] inc)
+        created (atom 0)]
+    (with-services points
+      (sut/sync! semantic-index @fixture-index)
+      (reset! points {})
+      (with-redefs [qdrant/delete! collection-missing
+                    qdrant/upsert! collection-missing]
+        (sut/sync! semantic-index edited))
+      (testing "every file is stale once the collection is known to be gone"
+        (is (= 6 (count (sut/stale-files semantic-index edited)))))
+      (with-redefs [qdrant/create-collection! (fn [_cfg _vector-size] (swap! created inc))]
+        (sut/sync! semantic-index edited)))
+    (is (= 1 @created))
+    (is (= (set (map :id (search-units/search-units edited)))
+           (set (keys @points))))
+    (is (= [] (sut/stale-files semantic-index edited)))))
+
 (defn- prepare-calls
   "The collection operations and embedding requests (`:embed`) `prepare!`
    performs on a collection found with `layout`, and the stale files after

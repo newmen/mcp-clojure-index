@@ -56,25 +56,35 @@
         "Sum of price times quantity over all line items of an order." 0.91234)
    (hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil 0.5)])
 
+(defn- answer-searching
+  "The answer text of `semantic_search` on the fixture, with Qdrant search
+   replaced by `qdrant-search`, stubbed Ollama and a reranker that keeps
+   the vector scores.
+
+  ToolArgs -> SemanticIndex -> (Config -> Embedding -> Long -> #{String} -> IO [ScoredUnit]) -> IO String"
+  [args semantic-index qdrant-search]
+  (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
+                qdrant/search qdrant-search
+                embeddings/rerank (fn [_query candidates _cfg]
+                                    (mapv #(assoc % :re-rank (:score %)) candidates))]
+    (-> (tool/call :semantic_search args {:config config
+                                          :code-index @fixture-index
+                                          :semantic-index semantic-index})
+        :content first :text)))
+
 (defn- answer
-  "The answer text of `semantic_search` on the fixture, with stubbed Ollama
-   and Qdrant and a reranker that keeps the vector scores.
+  "The answer text of `semantic_search` on the fixture, with Qdrant finding
+   `stub-hits`, stubbed Ollama and a reranker that keeps the vector scores.
 
   ToolArgs -> IO String
   ToolArgs -> SemanticIndex -> [ScoredUnit] -> IO String"
   ([args] (answer args (fresh-semantic-index) hits))
   ([args semantic-index stub-hits]
-   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
-                 qdrant/search (fn [_cfg _vector top-k excluded-files]
-                                 (->> stub-hits
-                                      (remove (comp (set excluded-files) :filename :unit))
-                                      (take top-k)))
-                 embeddings/rerank (fn [_query candidates _cfg]
-                                     (mapv #(assoc % :re-rank (:score %)) candidates))]
-     (-> (tool/call :semantic_search args {:config config
-                                           :code-index @fixture-index
-                                           :semantic-index semantic-index})
-         :content first :text))))
+   (answer-searching args semantic-index
+                     (fn [_cfg _vector top-k excluded-files]
+                       (->> stub-hits
+                            (remove (comp (set excluded-files) :filename :unit))
+                            (take top-k))))))
 
 (deftest answers-one-compact-line-per-search-unit
   (is (= (str "0.91  src/shop/orders.clj:5  defn  shop.orders/order-total  "
@@ -347,3 +357,17 @@
     (is (= {}
            (into {} (filter (comp #(st/starts-with? % "no confident matches") val))
                  (confidence-lines (answers project/config multilingual-root (keys multilingual-top-3))))))))
+
+(deftest a-deleted-or-replaced-collection-makes-every-file-stale
+  (doseq [[case-name lost] [["deleted" (ex-info "Qdrant search failed" {:qdrant/status 404})]
+                            ["replaced" (ex-info "Qdrant collection holds points of another layout"
+                                                 {:foreign-layout {:format 2 :model nil}})]]]
+    (testing case-name
+      (let [semantic-index (fresh-semantic-index)]
+        (is (= (str "semantic search unavailable: the Qdrant collection was deleted or replaced, "
+                    "every file is being embedded again; "
+                    "the precise tools (find_definition, get_source, ...) still work\n"
+                    "embeddings stale for 6 files")
+               (answer-searching {:query "qwerty"} semantic-index
+                                 (fn [_cfg _vector _top-k _excluded-files] (throw lost)))))
+        (is (= 6 (count (semantic-index/stale-files semantic-index @fixture-index))))))))

@@ -7,10 +7,11 @@
                  [rewrite-clj "1.2.55"]
                  [clj-kondo/clj-kondo "2026.10.26"]]
   :main mcp.server
-  :aot [mcp.server]
   :repl-options {:init-ns mcp.server}
   :profiles {:dev {:plugins [[lambdaisland/kaocha "1.91.1392"]]}
-             :uberjar {:aot :all}}
+             ;; Own compile path, see "AOT and the REPL" in AGENTS.md.
+             :uberjar {:aot :all
+                       :compile-path "target/uberjar/classes"}}
   :test-paths ["test"]
   :test-selectors {:default (complement :integration)
                    :integration :integration})

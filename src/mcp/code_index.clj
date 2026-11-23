@@ -281,13 +281,15 @@
                         range-keys))))
 
 (defn- spec-definitions
-  "The Definitions of the `s/def` forms of one file's `analysis`.
+  "The Definitions of the `s/def` forms of one file's `analysis`. A spec
+   belongs to the namespace of its file, whatever the namespace of its
+   keyword (`(s/def :other.ns/x ...)`); the keyword itself is its `:name`.
 
   Analysis -> [Definition]"
   [analysis]
   (for [spec-key (:keywords analysis)
         :when (= 'clojure.spec.alpha/def (:reg spec-key))]
-    (merge {:ns (:ns spec-key)
+    (merge {:ns (:from spec-key)
             :name (keyword (some-> (:ns spec-key) str) (:name spec-key))
             :kind "s/def"
             :filename (:filename spec-key)}

@@ -72,11 +72,23 @@
     (is (contains? defs [":app.core/uuid" "s/def" 23]))
     (is (contains? defs ["app.core/handle-uuid" "defhandler" 26]))))
 
+(defn- definitions-by-name
+  "The Definitions of the fixture project by their qualified names.
+
+  IO {String Definition}"
+  []
+  (into {} (map (juxt sut/qualified-name identity)) (sut/definitions @fixture-index)))
+
 (deftest defmethod-and-spec-definitions-span-their-whole-form
-  (let [by-name (into {} (map (juxt sut/qualified-name identity))
-                      (sut/definitions @fixture-index))]
+  (let [by-name (definitions-by-name)]
     (is (= [15 1 17 22] ((juxt :row :col :end-row :end-col) (by-name "app.core/area :circle"))))
     (is (= [23 1 24 39] ((juxt :row :col :end-row :end-col) (by-name ":app.core/uuid"))))))
+
+(deftest spec-definition-belongs-to-the-namespace-of-its-file
+  (let [by-name (definitions-by-name)]
+    (is (= 'app.core (:ns (by-name ":app.core/uuid"))))
+    (is (= 'app.core (:ns (by-name ":app.contract.Order/amount"))))
+    (is (= 'app.core (:ns (by-name ":plain-key"))))))
 
 (deftest resolves-test-method-spec-and-macro-names
   (let [idx @fixture-index

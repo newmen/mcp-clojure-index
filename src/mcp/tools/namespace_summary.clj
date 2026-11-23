@@ -18,7 +18,8 @@
        "records and specs) with its arglists, and which namespaces require it. "
        "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
        "(line  kind  name  [arglists]; a private Definition whose kind is not `defn-` is named "
-       "`^:private name`, the namespace's own specs `::name`; "
+       "`^:private name`; every spec written in the namespace's files is listed, "
+       "a spec of the namespace's own keyword as `::name`, of another keyword in full; "
        "`detail: true` adds  Type signature  Docstring summary), "
        "then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
@@ -70,14 +71,17 @@
 
 (defn- name-as-written
   "The name of a Definition of the namespace as its source writes it: a
-   spec as `::name` (a namespace lists only the specs of its own keywords),
-   else `code-index/local-name`, preceded by `^:private` when the Definition
-   is private and its kind is not `defn-`, which says so by itself.
+   spec of the namespace's own keyword as `::name`, of any other keyword in
+   full (`:other.ns/name`, `:name`), else `code-index/local-name`, preceded
+   by `^:private` when the Definition is private and its kind is not
+   `defn-`, which says so by itself.
 
   Definition -> String"
-  [{:keys [kind private] def-name :name :as definition}]
+  [{:keys [kind private ns] def-name :name :as definition}]
   (if (keyword? def-name)
-    (str "::" (name def-name))
+    (if (= (str ns) (namespace def-name))
+      (str "::" (name def-name))
+      (str def-name))
     (cond->> (code-index/local-name definition)
       (and private (not (self-private-kinds kind))) (str "^:private "))))
 

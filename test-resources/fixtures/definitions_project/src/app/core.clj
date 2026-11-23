@@ -31,3 +31,7 @@
 (defrecord Circle [r]
   Object
   (toString [_] (str (helper r))))
+
+(s/def :app.contract.Order/amount string?)
+
+(s/def :plain-key int?)

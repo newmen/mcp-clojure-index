@@ -87,6 +87,9 @@
   (testing "s/def by keyword"
     (is (= "src/app/core.clj:23  s/def  :app.core/uuid"
            (fixture-answer {:name ":app.core/uuid"}))))
+  (testing "s/def of another namespace's keyword"
+    (is (= "src/app/core.clj:35  s/def  :app.contract.Order/amount"
+           (fixture-answer {:name ":app.contract.Order/amount"}))))
   (testing "form of a project macro declared via lint-as"
     (is (= "src/app/core.clj:26  defhandler  app.core/handle-uuid  [req]  Handles a uuid."
            (fixture-answer {:name "handle-uuid"})))))

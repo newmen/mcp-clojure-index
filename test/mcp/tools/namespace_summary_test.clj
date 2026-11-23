@@ -191,6 +191,16 @@
   (assoc project/config :index/root-path
          (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))
 
+(defn- app-core-lines
+  "The lines of the answer for `app.core` in the definitions fixture project.
+
+  IO #{String}"
+  []
+  (-> (tool/call :namespace_summary {:ns "app.core"}
+                 {:config definitions-fixture-config
+                  :code-index (code-index/build definitions-fixture-config)})
+      :content first :text st/split-lines set))
+
 (deftest defmethods-belong-to-the-namespace-of-their-file
   (testing "a tool namespace lists its own defmethods with their dispatch values"
     (let [lines (st/split-lines (answer {:ns "mcp.tools.get-source"}))]
@@ -199,18 +209,18 @@
   (testing "the multimethod's namespace does not list defmethods written in other files"
     (is (not (st/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
   (testing "a defmethod of a local multimethod is named without its namespace"
-    (let [text (-> (tool/call :namespace_summary {:ns "app.core"}
-                              {:config definitions-fixture-config
-                               :code-index (code-index/build definitions-fixture-config)})
-                   :content first :text)]
-      (is (some #{"15  defmethod  area :circle"} (st/split-lines text))))))
+    (is (contains? (app-core-lines) "15  defmethod  area :circle"))))
 
 (deftest specs-of-the-namespace-are-written-as-auto-resolved-keywords
-  (let [lines (-> (tool/call :namespace_summary {:ns "app.core"}
-                             {:config definitions-fixture-config
-                              :code-index (code-index/build definitions-fixture-config)})
-                  :content first :text st/split-lines set)]
+  (let [lines (app-core-lines)]
     (is (contains? lines "23  s/def  ::uuid"))))
+
+(deftest specs-of-foreign-keywords-are-listed-in-full
+  (let [lines (app-core-lines)]
+    (testing "a keyword of another namespace"
+      (is (contains? lines "35  s/def  :app.contract.Order/amount")))
+    (testing "a keyword without a namespace"
+      (is (contains? lines "37  s/def  :plain-key")))))
 
 (def ^:private visibility-fixture-config
   (assoc project/config :index/root-path

@@ -25,20 +25,21 @@
   "Hand-checked Definitions of `src/mcp/output.clj`.
 
   [String]"
-  ["12  private  defn-  effective-limit  [cfg args]  How many findings a page shows."
-   "23  private  defn-  truncation-note  [shown-until total]  The Truncation note of a page."
-   "37  public  defn  relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths"
-   "52  public  defn  first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."
-   "66  private  defn-  answer-text  [shown offset total]  Joins the `shown` findings of a page starting at `offset`, adding a"
-   "77  private  defn-  oversized-first-finding  [cfg page offset total]  The answer for an oversized first finding."
-   "92  public  defn  render  [cfg args findings]  Renders `findings` (one string per finding) as an answer within the"
-   "107  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  Renders `findings` between an optional `header` line and an optional"
-   "124  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
-   "138  public  defn  not-found  [index name-str]  The answer for `name-str` that resolves to nothing, saying what was"
-   "146  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  The Compact answer line of a Definition."
-   "161  public  defn  ambiguous-header  [what name-str candidate-count]  The header line for `name-str` that denotes `candidate-count`"
-   "169  public  defn  ambiguous  [cfg args index what name-str definitions]  The answer for `name-str` that denotes several `definitions`: an"
-   "179  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  The answer for `name-str` that resolved to `definitions`: `not-found`"])
+  ["12  public  s/def  :mcp.output/frame"
+   "18  private  defn-  effective-limit  [cfg args]  How many findings a page shows."
+   "29  private  defn-  truncation-note  [shown-until total]  The Truncation note of a page."
+   "43  public  defn  relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths"
+   "58  public  defn  first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."
+   "72  private  defn-  answer-text  [shown offset total]  Joins the `shown` findings of a page starting at `offset`, adding a"
+   "83  private  defn-  oversized-first-finding  [cfg page offset total]  The answer for an oversized first finding."
+   "98  public  defn  render  [cfg args findings]  Renders `findings` (one string per finding) as an answer within the"
+   "113  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  Renders `findings` inside a Frame."
+   "132  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
+   "146  public  defn  not-found  [index name-str]  The answer for a name that resolves to nothing."
+   "155  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  The Compact answer line of a Definition."
+   "170  public  defn  ambiguous-header  [what name-str candidate-count]  The header line for `name-str` that denotes `candidate-count`"
+   "178  public  defn  ambiguous  [cfg args index what name-str definitions]  The answer for `name-str` that denotes several `definitions`: an"
+   "188  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  The answer for `name-str` that resolved to `definitions`: `not-found`"])
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added).

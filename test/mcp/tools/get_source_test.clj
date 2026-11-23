@@ -20,7 +20,7 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private first-line-source
-  (str "src/mcp/output.clj:52-60\n"
+  (str "src/mcp/output.clj:58-66\n"
        "(defn first-line\n"
        "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
        "\n"
@@ -55,18 +55,18 @@
 (deftest body-over-budget-ends-with-truncation-note-and-pages-by-line
   (let [cfg (assoc project/config :output/max-chars 100)
         text (answer cfg {:name "mcp.output/first-line"})]
-    (is (= (str "src/mcp/output.clj:52-60\n"
+    (is (= (str "src/mcp/output.clj:58-66\n"
                 "(defn first-line\n"
                 "truncated: shown 1 of 9, pass offset=1 or narrow the query")
            text))
     (is (<= (count text) 100)))
   (testing "offset skips lines of the body"
-    (is (= (str "src/mcp/output.clj:52-60\n"
+    (is (= (str "src/mcp/output.clj:58-66\n"
                 "           (remove st/blank?)\n"
                 "           first))")
            (answer {:name "mcp.output/first-line" :offset 7}))))
   (testing "limit lowers the number of lines"
-    (is (= (str "src/mcp/output.clj:52-60\n"
+    (is (= (str "src/mcp/output.clj:58-66\n"
                 "(defn first-line\n"
                 "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
                 "truncated: shown 2 of 9, pass offset=2 or narrow the query")

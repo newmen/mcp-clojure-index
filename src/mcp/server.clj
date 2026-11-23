@@ -99,8 +99,8 @@
     state))
 
 (defn- ensure-fresh-code-index!
-  "Re-analyse files changed on disk since the last answer, synchronously,
-   so a precise tool never answers from a stale index (ADR-0005), then let
+  "Re-analyses files changed on disk since the last answer, synchronously,
+   so a precise tool never answers from a stale index (ADR-0005), then lets
    the embeddings of changed files catch up in the background.
 
   ServerState -> IO ServerState"

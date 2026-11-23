@@ -62,9 +62,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn prepare!
-  "Make sure the collection exists in the current payload format, dropping
-   a collection of an older format (or any, with `:qdrant/recreate?`), and
-   learn which files it already holds.
+  "Makes sure the collection exists in the current payload format,
+   dropping a collection of an older format (or any, with
+   `:qdrant/recreate?`), and learns which files it already holds.
 
   Config -> Atom SemanticState -> IO ()"
   [cfg state]

@@ -50,6 +50,13 @@
 
 (s/def ::group (s/keys :req-un [::header] :opt-un [::lines]))
 
+;; A UsageFilter is what the call asks for:
+;;
+;; {:kinds          #{"call" ...}   ; only these Usage kinds; empty for all
+;;  :include-tests? true}           ; false drops Usages under Test paths
+
+(s/def ::usage-filter (s/keys :req-un [::kinds ::include-tests?]))
+
 (defn- usage->line
   "The Compact answer line of a Usage: `path:line:col  kind  enclosing`.
 
@@ -62,7 +69,7 @@
   "True when `usage` is of one of the asked `kinds` (all when empty) and,
    unless tests are included, outside the Test paths.
 
-  CodeIndex -> {:kinds #{UsageKind} :include-tests? Boolean} -> Usage -> Boolean"
+  CodeIndex -> UsageFilter -> Usage -> Boolean"
   [index {:keys [kinds include-tests?]} {:keys [filename kind]}]
   (and (or (empty? kinds) (contains? kinds kind))
        (or include-tests? (not (code-index/test-file? index filename)))))
@@ -70,7 +77,7 @@
 (defn- target-group
   "The group that answers for one target as written by the agent.
 
-  CodeIndex -> {:kinds #{UsageKind} :include-tests? Boolean} -> String -> IO Group"
+  CodeIndex -> UsageFilter -> String -> IO Group"
   [index opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)

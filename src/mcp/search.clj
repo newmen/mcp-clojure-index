@@ -24,7 +24,8 @@
 ;;  :score 0.87}                                    ; vector similarity, only from Qdrant
 ;;
 ;; After `embeddings/rerank` a Candidate also carries its relevance (0..1)
-;; as `:re-rank`. A Hit is what `search` returns: {:unit :re-rank}.
+;; as `:re-rank`. A Hit is what `search` returns: {:unit :re-rank}, without
+;; `:re-rank` when the reranker is unavailable.
 
 (s/def ::candidate (s/keys :req-un [::unit ::text] :opt-un [::score ::re-rank]))
 

@@ -1,9 +1,15 @@
 (ns mcp.output
   "Output budget (ADR-0004) and Compact answer helpers (ADR-0006)."
-  (:require [clojure.string :as st]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [mcp.code-index :as code-index]))
 
 (set! *warn-on-reflection* true)
+
+;; A Frame is the optional header and footer line around the findings of an
+;; answer: {:header "..." :footer "..."}, either absent or nil.
+
+(s/def ::frame (s/keys :opt-un [::header ::footer]))
 
 ;; ---------------------------------------------------------------------------
 ;; Budget
@@ -105,10 +111,12 @@
         (oversized-first-finding cfg page offset total))))
 
 (defn render-framed
-  "Renders `findings` between an optional `header` line and an optional
-   `footer` line, the whole answer still within `:output/max-chars`.
+  "Renders `findings` inside a Frame.
 
-  Config -> ToolArgs -> {:header Maybe String, :footer Maybe String} -> [String] -> String"
+  The optional `header` and `footer` lines go around the findings, the
+  whole answer still within `:output/max-chars`.
+
+  Config -> ToolArgs -> Frame -> [String] -> String"
   [cfg args {:keys [header footer]} findings]
   (let [frame-chars (+ (if header (inc (count header)) 0)
                        (if footer (inc (count footer)) 0))
@@ -136,8 +144,9 @@
           (if include-tests? "including" "excluding") " tests)"))))
 
 (defn not-found
-  "The answer for `name-str` that resolves to nothing, saying what was
-   searched.
+  "The answer for a name that resolves to nothing.
+
+  It says what was searched.
 
   CodeIndex -> String -> String"
   [index name-str]

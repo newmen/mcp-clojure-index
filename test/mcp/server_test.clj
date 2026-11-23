@@ -62,7 +62,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:52  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
+             :text "src/mcp/output.clj:58  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -81,7 +81,7 @@
     (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
 
 (def ^:private first-line-definition
-  (str "src/mcp/output.clj:52  defn  mcp.output/first-line  [text]  "
+  (str "src/mcp/output.clj:58  defn  mcp.output/first-line  [text]  "
        "The first non-blank line of `text`, trimmed; nil if none."))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable

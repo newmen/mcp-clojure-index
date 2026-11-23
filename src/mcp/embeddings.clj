@@ -22,10 +22,13 @@
 
 ;; Embedding: the vector Ollama returns for one text.
 ;; HttpResponse: a clj-http response whose `:body` is parsed JSON.
+;; Timeouts: clj-http's {:socket-timeout :connection-timeout}, in ms.
 
 (s/def ::embedding (s/coll-of double? :kind vector?))
 
 (s/def ::http-response (s/keys :req-un [::status ::body]))
+
+(s/def ::timeouts (s/keys :req-un [::socket-timeout ::connection-timeout]))
 
 (def ^:private batch-size 50)
 (def ^:private embedding-timeouts
@@ -34,7 +37,7 @@
 (def ^:private rerank-timeouts
   "The reranker is optional: an absent one is given up on quickly.
 
-  {:socket-timeout Long :connection-timeout Long}"
+  Timeouts"
   {:socket-timeout 120000 :connection-timeout 2000})
 
 (def ^:private rerank-max-chars
@@ -143,7 +146,7 @@
   "Posts `body-map` as JSON to `url`; `timeouts` are clj-http's
    {:socket-timeout :connection-timeout}. The body comes back parsed.
 
-  String -> Map -> {:socket-timeout Long :connection-timeout Long} -> IO HttpResponse"
+  String -> Map -> Timeouts -> IO HttpResponse"
   [url body-map timeouts]
   (let [response (http/post url (merge {:content-type "application/json"
                                         :body (json/write-str body-map)}

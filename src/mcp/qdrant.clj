@@ -21,12 +21,16 @@
 ;; A Point is {:id :vector :payload}; points read back have keyword payload
 ;; keys and no vector. A QdrantResponse is {:status :body}, the body parsed.
 ;; A ScoredUnit is a Search unit found by `search`, {:unit :score}.
+;; A ScrollPage is one page of points and the offset of the next page,
+;; {:points :next}; :next is nil on the last page.
 
 (s/def ::point (s/keys :req-un [::id ::payload] :opt-un [::vector]))
 
 (s/def ::qdrant-response (s/keys :req-un [::status ::body]))
 
 (s/def ::scored-unit (s/keys :req-un [::unit ::score]))
+
+(s/def ::scroll-page (s/keys :req-un [::points ::next]))
 
 (def payload-format
   "Version of the point payload; a collection holding another version is
@@ -105,7 +109,7 @@
   "Reads one page of at most `limit` points, with the payload keys
    `payload-keys`, starting at `page-offset` (nil for the first page).
 
-  Config -> Maybe String -> Long -> [String] -> IO {:points [Point] :next Maybe String}"
+  Config -> Maybe String -> Long -> [String] -> IO ScrollPage"
   [cfg page-offset limit payload-keys]
   (let [{:keys [body]} (request! :post (str (collection-url cfg) "/points/scroll")
                                  (cond-> {:limit limit

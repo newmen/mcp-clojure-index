@@ -30,6 +30,17 @@
   (s/keys :req-un [::id ::filename ::row ::kind ::name ::text]
           :opt-un [::doc ::hash]))
 
+;; UnitFields: what `unit` builds a Search unit from; :unit-name becomes
+;; :name, and the non-blank :text-parts are joined into :text.
+;;
+;; {:filename "/abs/src/shop/orders.clj" :row 5 :kind "defn"
+;;  :unit-name "shop.orders/order-total"
+;;  :doc "..."                      ; absent or nil when there is none
+;;  :text-parts ["..." nil "..."]}
+
+(s/def ::unit-fields
+  (s/keys :req-un [::filename ::row ::kind ::unit-name ::text-parts] :opt-un [::doc]))
+
 (def ^:private max-source-chars
   "Source beyond this many characters is not embedded.
 
@@ -71,7 +82,7 @@
   "The Search unit with an embedding text joined from the non-blank
    `text-parts`.
 
-  {:filename String :row Long :kind String :unit-name String :doc Maybe String, :text-parts [Maybe String]} -> SearchUnit"
+  UnitFields -> SearchUnit"
   [{:keys [filename row kind unit-name doc text-parts]}]
   (let [text (->> text-parts (remove st/blank?) (st/join "\n"))]
     (cond-> {:id (unit-id filename kind unit-name row)

@@ -5,7 +5,8 @@
 
    The index keeps clj-kondo's raw analysis per file, so a changed file is
    re-analysed on its own (`update-files`) and every query derives what it
-   needs from `entries`. Definitions are normalised by `definitions`;
+   needs from `entries`. Each file also keeps its Definitions, built once
+   when the file is analysed and listed by `definitions`;
    `resolve-name` maps a name as an agent writes it (simple, alias-qualified
    or fully qualified) to the Definitions it may denote."
   (:require [clj-kondo.core :as kondo]
@@ -31,7 +32,10 @@
 ;;                                           :keywords [...]
 ;;                                           :protocol-impls [...]
 ;;                                           :symbols [...]
-;;                                           :java-class-usages [...]}}}}
+;;                                           :java-class-usages [...]}
+;;                                :definitions [...]}}}  ; Definitions of the
+;;                                                       ;  analysis, see
+;;                                                       ;  `file-definitions`
 ;;
 ;; Analysis entries are clj-kondo's own maps (see clj-kondo's analysis
 ;; docs); every entry has an absolute `:filename`.
@@ -177,6 +181,129 @@
     {:test-paths (canonical-paths root ["test"]) :test-names? true}))
 
 ;; ---------------------------------------------------------------------------
+;; Definitions of a file
+;; ---------------------------------------------------------------------------
+
+;; Definition shape:
+;;
+;; {:ns       mcp.output            ; namespace of the file it is written in;
+;;                                  ;  absent for a namespace Definition
+;;  :name     relative-path         ; symbol; a keyword (:app.core/uuid) for a spec
+;;  :dispatch ":circle"             ; only for a defmethod, as written
+;;  :multimethod-ns mcp.tool        ; only for a defmethod: namespace of its
+;;                                  ;  multimethod, which (with :name) names it
+;;  :kind     "defn"                ; defining form ("deftest", "defmethod", "s/def",
+;;                                  ;  a lint-as project macro, ...), "ns", "protocol-method"
+;;  :filename "/abs/src/mcp/output.clj"
+;;  :row 25 :col 1 :end-row 33 :end-col 20   ; whole form, :end-col exclusive
+;;  :arglists ["[root-path file-path]"]
+;;  :fixed-arities #{2}             ; only for a function or macro: its fixed
+;;  :varargs-min-arity 1            ;  arities and the least argument count of
+;;                                  ;  its varargs arity (clj-kondo)
+;;  :doc      "Return ..."
+;;  :private  true}                 ; only when private
+;;
+;; clj-kondo reports `defmethod` and `s/def` forms only as usages, so their
+;; Definitions are built from the usage of the defining macro, whose range
+;; spans the whole form.
+
+(s/def ::definition
+  (s/keys :req-un [::name ::kind ::filename ::row ::col ::end-row ::end-col]
+          :opt-un [::ns ::dispatch ::multimethod-ns ::arglists ::doc ::private
+                   ::fixed-arities ::varargs-min-arity]))
+
+(def ^:private range-keys [:row :col :end-row :end-col])
+
+(defn- var-definition->definition
+  "The Definition of a clj-kondo var definition entry.
+
+  AnalysisEntry -> Definition"
+  [{:keys [defined-by protocol-name arglist-strs] :as var-def}]
+  (cond-> (select-keys var-def [:ns :name :filename :row :col :end-row :end-col :doc :private
+                                :fixed-arities :varargs-min-arity])
+    true (assoc :kind (cond protocol-name "protocol-method"
+                            defined-by (name defined-by)
+                            :else "def"))
+    (seq arglist-strs) (assoc :arglists arglist-strs)))
+
+(defn- namespace-definition->definition
+  "The Definition of a clj-kondo namespace definition entry.
+
+  AnalysisEntry -> Definition"
+  [ns-def]
+  (-> (select-keys ns-def [:name :filename :row :col :end-row :end-col :doc])
+      (assoc :kind "ns")))
+
+(defn contains-position?
+  "True when the form range of `entry` contains `position` [row col].
+
+  FormRange -> [Long Long] -> Boolean"
+  [{:keys [row col end-row end-col]} position]
+  (and row end-row
+       (<= (compare [row col] position) 0)
+       (neg? (compare position [end-row end-col]))))
+
+(defn- defining-form
+  "The innermost usage of the macro `macro-ns`/`macro-name` in `analysis`
+   whose form contains the entry `inner`, or nil.
+
+  Analysis -> Symbol -> Symbol -> AnalysisEntry -> Maybe AnalysisEntry"
+  [analysis macro-ns macro-name inner]
+  (->> (:var-usages analysis)
+       (filter #(and (= macro-ns (:to %)) (= macro-name (:name %))))
+       (filter #(contains-position? % [(:row inner) (:col inner)]))
+       (sort-by (juxt :row :col))
+       last))
+
+(defn- defmethod-definitions
+  "The Definitions of the `defmethod` forms of one file's `analysis`.
+
+  Analysis -> [Definition]"
+  [analysis]
+  (for [method-head (:var-usages analysis)
+        :when (:defmethod method-head)]
+    (merge {:ns (:from method-head)
+            :multimethod-ns (:to method-head)
+            :name (:name method-head)
+            :dispatch (:dispatch-val-str method-head)
+            :kind "defmethod"
+            :filename (:filename method-head)}
+           (select-keys (or (defining-form analysis 'clojure.core 'defmethod method-head)
+                            method-head)
+                        range-keys))))
+
+(defn- spec-definitions
+  "The Definitions of the `s/def` forms of one file's `analysis`.
+
+  Analysis -> [Definition]"
+  [analysis]
+  (for [spec-key (:keywords analysis)
+        :when (= 'clojure.spec.alpha/def (:reg spec-key))]
+    (merge {:ns (:ns spec-key)
+            :name (keyword (some-> (:ns spec-key) str) (:name spec-key))
+            :kind "s/def"
+            :filename (:filename spec-key)}
+           (select-keys (or (defining-form analysis 'clojure.spec.alpha 'def spec-key)
+                            spec-key)
+                        range-keys))))
+
+(defn- file-definitions
+  "The Definitions of one file's clj-kondo `analysis`, one per defining form.
+
+  A `.cljc` form analysed for several languages appears once.
+
+  Analysis -> [Definition]"
+  [analysis]
+  (->> (concat (map var-definition->definition (:var-definitions analysis))
+               (map namespace-definition->definition (:namespace-definitions analysis))
+               (defmethod-definitions analysis)
+               (spec-definitions analysis))
+       (map #(into {} (remove (comp nil? val)) %))
+       (group-by (juxt :row :col :ns :name :dispatch))
+       vals
+       (map first)))
+
+;; ---------------------------------------------------------------------------
 ;; Analysis
 ;; ---------------------------------------------------------------------------
 
@@ -210,8 +337,9 @@
                (:analysis result))))
 
 (defn update-files
-  "Re-analyses `file-paths` (absolute) and replaces their entries in `index`.
-   Paths that no longer exist are dropped from the index.
+  "Re-analyses `file-paths` (absolute) and replaces their entries and
+   Definitions in `index`. Paths that no longer exist are dropped from the
+   index.
 
   CodeIndex -> [String] -> IO CodeIndex"
   [index file-paths]
@@ -222,8 +350,10 @@
         (update :files merge
                 (into {}
                       (map (fn [file-path]
-                             [file-path {:mtime (.lastModified (io/file ^String file-path))
-                                         :analysis (get analyses file-path)}]))
+                             (let [analysis (get analyses file-path)]
+                               [file-path {:mtime (.lastModified (io/file ^String file-path))
+                                           :analysis analysis
+                                           :definitions (vec (file-definitions analysis))}])))
                       existing)))))
 
 (defn build
@@ -414,132 +544,13 @@
 ;; Definitions
 ;; ---------------------------------------------------------------------------
 
-;; Definition shape:
-;;
-;; {:ns       mcp.output            ; namespace of the file it is written in;
-;;                                  ;  absent for a namespace Definition
-;;  :name     relative-path         ; symbol; a keyword (:app.core/uuid) for a spec
-;;  :dispatch ":circle"             ; only for a defmethod, as written
-;;  :multimethod-ns mcp.tool        ; only for a defmethod: namespace of its
-;;                                  ;  multimethod, which (with :name) names it
-;;  :kind     "defn"                ; defining form ("deftest", "defmethod", "s/def",
-;;                                  ;  a lint-as project macro, ...), "ns", "protocol-method"
-;;  :filename "/abs/src/mcp/output.clj"
-;;  :row 25 :col 1 :end-row 33 :end-col 20   ; whole form, :end-col exclusive
-;;  :arglists ["[root-path file-path]"]
-;;  :fixed-arities #{2}             ; only for a function or macro: its fixed
-;;  :varargs-min-arity 1            ;  arities and the least argument count of
-;;                                  ;  its varargs arity (clj-kondo)
-;;  :doc      "Return ..."
-;;  :private  true}                 ; only when private
-;;
-;; clj-kondo reports `defmethod` and `s/def` forms only as usages, so their
-;; Definitions are built from the usage of the defining macro, whose range
-;; spans the whole form.
-
-(s/def ::definition
-  (s/keys :req-un [::name ::kind ::filename ::row ::col ::end-row ::end-col]
-          :opt-un [::ns ::dispatch ::multimethod-ns ::arglists ::doc ::private
-                   ::fixed-arities ::varargs-min-arity]))
-
-(def ^:private range-keys [:row :col :end-row :end-col])
-
-(defn- var-definition->definition
-  "The Definition of a clj-kondo var definition entry.
-
-  AnalysisEntry -> Definition"
-  [{:keys [defined-by protocol-name arglist-strs] :as var-def}]
-  (cond-> (select-keys var-def [:ns :name :filename :row :col :end-row :end-col :doc :private
-                                :fixed-arities :varargs-min-arity])
-    true (assoc :kind (cond protocol-name "protocol-method"
-                            defined-by (name defined-by)
-                            :else "def"))
-    (seq arglist-strs) (assoc :arglists arglist-strs)))
-
-(defn- namespace-definition->definition
-  "The Definition of a clj-kondo namespace definition entry.
-
-  AnalysisEntry -> Definition"
-  [ns-def]
-  (-> (select-keys ns-def [:name :filename :row :col :end-row :end-col :doc])
-      (assoc :kind "ns")))
-
-(defn contains-position?
-  "True when the form range of `entry` contains `position` [row col].
-
-  FormRange -> [Long Long] -> Boolean"
-  [{:keys [row col end-row end-col]} position]
-  (and row end-row
-       (<= (compare [row col] position) 0)
-       (neg? (compare position [end-row end-col]))))
-
-(defn- defining-form
-  "The innermost usage of the macro `macro-ns`/`macro-name` in `analysis`
-   whose form contains the entry `inner`, or nil.
-
-  Analysis -> Symbol -> Symbol -> AnalysisEntry -> Maybe AnalysisEntry"
-  [analysis macro-ns macro-name inner]
-  (->> (:var-usages analysis)
-       (filter #(and (= macro-ns (:to %)) (= macro-name (:name %))))
-       (filter #(contains-position? % [(:row inner) (:col inner)]))
-       (sort-by (juxt :row :col))
-       last))
-
-(defn- defmethod-definitions
-  "The Definitions of the `defmethod` forms of one file's `analysis`.
-
-  Analysis -> [Definition]"
-  [analysis]
-  (for [method-head (:var-usages analysis)
-        :when (:defmethod method-head)]
-    (merge {:ns (:from method-head)
-            :multimethod-ns (:to method-head)
-            :name (:name method-head)
-            :dispatch (:dispatch-val-str method-head)
-            :kind "defmethod"
-            :filename (:filename method-head)}
-           (select-keys (or (defining-form analysis 'clojure.core 'defmethod method-head)
-                            method-head)
-                        range-keys))))
-
-(defn- spec-definitions
-  "The Definitions of the `s/def` forms of one file's `analysis`.
-
-  Analysis -> [Definition]"
-  [analysis]
-  (for [spec-key (:keywords analysis)
-        :when (= 'clojure.spec.alpha/def (:reg spec-key))]
-    (merge {:ns (:ns spec-key)
-            :name (keyword (some-> (:ns spec-key) str) (:name spec-key))
-            :kind "s/def"
-            :filename (:filename spec-key)}
-           (select-keys (or (defining-form analysis 'clojure.spec.alpha 'def spec-key)
-                            spec-key)
-                        range-keys))))
-
-(defn- file-definitions
-  "The Definitions of one file's clj-kondo `analysis`, one per defining form.
-
-  A `.cljc` form analysed for several languages appears once.
-
-  Analysis -> [Definition]"
-  [analysis]
-  (->> (concat (map var-definition->definition (:var-definitions analysis))
-               (map namespace-definition->definition (:namespace-definitions analysis))
-               (defmethod-definitions analysis)
-               (spec-definitions analysis))
-       (map #(into {} (remove (comp nil? val)) %))
-       (group-by (juxt :row :col :ns :name :dispatch))
-       vals
-       (map first)))
-
 (defn definitions
   "All Definitions of the project: vars, tests, multimethods and their
    methods, protocols, records, specs and forms of project macros.
 
   CodeIndex -> [Definition]"
   [index]
-  (mapcat (comp file-definitions :analysis) (vals (:files index))))
+  (mapcat :definitions (vals (:files index))))
 
 (defn enclosing-definition
   "The Enclosing definition of the position `row`:`col` (1-based) in
@@ -549,7 +560,7 @@
 
   CodeIndex -> String -> Long -> Long -> Maybe Definition"
   [index file-path row col]
-  (->> (file-definitions (get-in index [:files file-path :analysis]))
+  (->> (get-in index [:files file-path :definitions])
        (filter #(contains-position? % [row col]))
        ;; innermost first: latest start, then earliest end; of forms sharing
        ;; one range (`Circle`, `->Circle`) the shortest name

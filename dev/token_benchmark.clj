@@ -470,16 +470,12 @@
         definitions (sample index skip-files sample-size)]
     (when (seq queries)
       (semantic-index/sync! semantic index))
-    ;; Every tool call recomputes all Definitions of the index (3 s on a
-    ;; project of 6500 Definitions); memoizing them changes no answer, only
-    ;; how long the measurement takes.
     (binding [*excluded* (:index/exclude cfg)]
-     (with-redefs [code-index/definitions (memoize code-index/definitions)]
       (vec (concat (map (partial find-definition-measure state) definitions)
                    (map (partial get-source-measure state) definitions)
                    (map (partial find-usages-measure state) definitions)
                    (map (partial namespace-summary-measure state) (namespaces index skip-files))
-                   (map (partial semantic-search-measure state) queries)))))))
+                   (map (partial semantic-search-measure state) queries))))))
 
 (defn -main
   "Prints the per-question measurements and the summary of one project.

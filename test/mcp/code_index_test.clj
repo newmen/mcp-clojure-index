@@ -221,6 +221,19 @@
         (is (empty? (sut/resolve-name fresh "helper")))
         (is (not-any? #{(str root "/src/app/util.clj")} (sut/files fresh)))))))
 
+(deftest refresh-rebuilds-the-definitions-of-the-refreshed-files-only
+  (let [root (temp-project {"src/app/core.clj" core-v1
+                            "src/app/util.clj" util-src})
+        cfg (temp-config root)
+        idx (sut/build cfg)
+        by-name (fn [index name-str] (first (sut/resolve-name index name-str)))]
+    (write-later! (str root "/src/app/core.clj") "(ns app.core)\n(defn alpha [x y] x)\n")
+    (let [fresh (sut/refresh cfg idx)]
+      (testing "an untouched file keeps its Definitions"
+        (is (identical? (by-name idx "helper") (by-name fresh "helper"))))
+      (testing "a refreshed file gets new ones"
+        (is (= ["[x y]"] (:arglists (by-name fresh "alpha"))))))))
+
 (deftest stale-files-are-only-the-changed-added-and-deleted-ones
   (let [root (temp-project {"src/app/core.clj" core-v1
                             "src/app/util.clj" util-src

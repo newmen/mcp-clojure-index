@@ -1,6 +1,6 @@
 # 02: `code-index/definitions` is recomputed on every tool call
 
-**Status:** needs-triage
+**Status:** resolved
 
 `mcp.code-index/definitions` runs `file-definitions` over the analysis of every file on each call. On the large project (6535 Definitions) that is ~3 s per call. `dev/token_benchmark.clj` works around it with `(with-redefs [code-index/definitions (memoize ...)])`; the live server pays it on every answer that calls it.
 

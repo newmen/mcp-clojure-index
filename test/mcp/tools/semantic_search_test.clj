@@ -99,6 +99,33 @@
                            :semantic-index (fresh-semantic-index)})
                :content first :text)))))
 
+(deftest weak-best-relevance-is-announced-before-the-hits
+  (is (= (str "no confident matches (best 0.04), try rephrasing\n"
+              "0.04  src/shop/orders.clj:5  defn  shop.orders/order-total  "
+              "Sum of price times quantity over all line items of an order.\n"
+              "0.01  resources/config.edn:1  edn  :db/connection-pool")
+         (answer {:query "qwerty"} (fresh-semantic-index)
+                 [(hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total"
+                       "Sum of price times quantity over all line items of an order." 0.04)
+                  (hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil 0.01)])))
+  (testing "a best relevance at the threshold is confident"
+    (is (st/starts-with? (answer {:query "qwerty"} (fresh-semantic-index)
+                                 [(hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil
+                                       (:search/min-relevance config))])
+                         "0.05  resources/config.edn:1"))))
+
+(deftest without-reranker-there-is-no-confidence-line
+  (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
+                qdrant/search (fn [_cfg _vector _top-k]
+                                [(hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil 0.01)])
+                embeddings/rerank (fn [_query candidates _cfg] candidates)]
+    (is (= "resources/config.edn:1  edn  :db/connection-pool"
+           (-> (tool/call :semantic_search {:query "qwerty"}
+                          {:config config
+                           :code-index @fixture-index
+                           :semantic-index (fresh-semantic-index)})
+               :content first :text)))))
+
 (deftest a-definition-matched-by-its-words-is-found-without-the-vector-search
   (is (= (str "src/shop/orders.clj:10  defn  shop.orders/apply-discount  "
               "Reduce an amount by a percentage discount code.\n"
@@ -202,15 +229,14 @@
   []
   (str (Files/createTempDirectory "semantic-search-it" (make-array FileAttribute 0))))
 
-(defn- top-3-misses
-  "The queries of `expected` whose expected Definition is not among the
-   first three hits of `semantic_search` on the project at `root`, each
-   with its answer; also asserts that every file is embedded and every
-   answer fits the budget. Uses a fresh collection and embedding cache,
-   so it measures the models of `cfg`.
+(defn- answers
+  "The answer of `semantic_search` to each of `queries` on the project at
+   `root`; also asserts that every file is embedded and every answer fits
+   the budget. Uses a fresh collection and embedding cache, so it
+   measures the models of `cfg`.
 
-  Config -> String -> {String String} -> IO {String String}"
-  [cfg root expected]
+  Config -> String -> [String] -> IO {String String}"
+  [cfg root queries]
   (let [cfg (assoc cfg
                    :index/root-path root
                    :qdrant/collection (str "mcp-integration-" (random-uuid))
@@ -221,16 +247,27 @@
       (semantic-index/sync! semantic-index index)
       (is (= [] (semantic-index/stale-files semantic-index index)) "every file embedded")
       (into (sorted-map)
-            (keep (fn [[query expected-name]]
-                    (let [text (-> (tool/call :semantic_search {:query query}
-                                              {:config cfg :code-index index :semantic-index semantic-index})
-                                   :content first :text)]
-                      (is (<= (count text) (:output/max-chars cfg)))
-                      (when-not (some #(and % (st/starts-with? % expected-name)) (top-names text))
-                        [query (str expected-name "\n" text)]))))
-            expected)
+            (map (fn [query]
+                   [query (project/answer-text
+                           cfg (tool/call :semantic_search {:query query}
+                                          {:config cfg :code-index index :semantic-index semantic-index}))]))
+            queries)
       (finally
         (qdrant/delete-collection! cfg)))))
+
+(defn- top-3-misses
+  "The queries of `expected` whose expected Definition is not among the
+   first three hits of `semantic_search` on the project at `root`, each
+   with its answer.
+
+  Config -> String -> {String String} -> IO {String String}"
+  [cfg root expected]
+  (into (sorted-map)
+        (keep (fn [[query text]]
+                (let [expected-name (expected query)]
+                  (when-not (some #(and % (st/starts-with? % expected-name)) (top-names text))
+                    [query (str expected-name "\n" text)]))))
+        (answers cfg root (keys expected))))
 
 (deftest ^:integration expected-definition-is-in-the-top-3-of-semantic-search
   (is (= {} (top-3-misses project/config fixture-root expected-top-3))))
@@ -263,3 +300,38 @@
 
 (deftest ^:integration russian-docstrings-are-found-by-english-and-russian-queries
   (is (= {} (top-3-misses project/config multilingual-root multilingual-top-3))))
+
+;; ---------------------------------------------------------------------------
+;; Acceptance case 13: `no confident matches` (ADR-0008).
+;; ---------------------------------------------------------------------------
+
+(def ^:private unmatched-queries
+  "Queries in English and Russian that no Search unit of either fixture
+   matches.
+
+  [String]"
+  ["parse a JSON web token and verify its signature"
+   "render a 3D scene with shaders on the GPU"
+   "convert temperature from Celsius to Fahrenheit"
+   "send a push notification to a mobile phone"
+   "отрендерить трёхмерную сцену на видеокарте"
+   "прогноз погоды на завтра"
+   "рассчитать орбиту спутника"])
+
+(defn- confidence-lines
+  "The first line of each answer, keyed by query.
+
+  {String String} -> {String String}"
+  [query-answers]
+  (update-vals query-answers (comp first st/split-lines)))
+
+(deftest ^:integration queries-without-a-matching-unit-get-no-confident-matches
+  (doseq [root [multilingual-root fixture-root]]
+    (testing root
+      (is (= {}
+             (into {} (remove (comp #(st/starts-with? % "no confident matches (best ") val))
+                   (confidence-lines (answers project/config root unmatched-queries)))))))
+  (testing "the queries of case 12 are confident"
+    (is (= {}
+           (into {} (filter (comp #(st/starts-with? % "no confident matches") val))
+                 (confidence-lines (answers project/config multilingual-root (keys multilingual-top-3))))))))

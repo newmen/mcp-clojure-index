@@ -136,6 +136,7 @@ curl http://localhost:8012/health
 | `:reranker/model`              | `"qllama/bge-reranker-v2-m3"`                                          | Имя модели, передаваемое reranker (только для семантического поиска)                                                                                                                     |
 | `:search/top-k`                | `100`                                                                  | Количество кандидатов, получаемых отдельно из векторного поиска и поиска по словам, а также количество объединённых кандидатов, передаваемых reranker (только для семантического поиска) |
 | `:search/re-rank-top`          | `10`                                                                   | Количество результатов, оставляемых после reranking (только для семантического поиска)                                                                                                   |
+| `:search/min-relevance`        | `0.05`                                                                 | Если лучшая релевантность ниже этого порога, `semantic_search` ставит перед результатами строку `no confident matches (best 0.03), try rephrasing`; подобран для `qllama/bge-reranker-v2-m3` (ADR-0008), для reranker, который даёт посторонним текстам более высокие оценки, порог нужно поднять (только для семантического поиска, нужен reranker) |
 | `:embedding/cache-dir`         | `<root>/.mcp/embedding-cache`                                          | Директория кэша embeddings (только для семантического поиска)                                                                                                                            |
 
 Если ответ достигает установленного Output budget, в его конце добавляется уведомление об усечении. Например:
@@ -385,6 +386,11 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
   score — оценка релевантности от reranker в диапазоне 0..1.
           Не возвращается, если reranker недоступен.
 
+  Если лучшая релевантность ниже :search/min-relevance,
+  первой строкой идёт
+  `no confident matches (best 0.03), try rephrasing`.
+  Без reranker такой строки не бывает.
+
   Пока выполняется индексация последних изменений,
   в конце ответа добавляется:
   `embeddings stale for N files`
@@ -424,8 +430,8 @@ src/mcp/
 lein test
 
 # Интеграционные тесты, которым нужны Qdrant и Ollama с моделями по умолчанию;
-# тесту с русскими docstrings (acceptance case 12) нужен ещё и reranker,
-# остальные проходят и без него
+# тесту с русскими docstrings (acceptance case 12) и тесту строки
+# `no confident matches` (case 13) нужен ещё и reranker, остальные проходят и без него
 lein test :integration
 
 # Статический анализ

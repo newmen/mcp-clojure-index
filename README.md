@@ -108,6 +108,7 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:reranker/model` | `"qllama/bge-reranker-v2-m3"` | Model name sent to the reranker (semantic search only) |
 | `:search/top-k` | `100` | Candidates taken from vector search and from word matching each, and fused candidates passed to the reranker (semantic search only) |
 | `:search/re-rank-top` | `10` | Hits kept after reranking (semantic search only) |
+| `:search/min-relevance` | `0.05` | When the best relevance is below it, `semantic_search` puts `no confident matches (best 0.03), try rephrasing` before the hits; calibrated for `qllama/bge-reranker-v2-m3` (ADR-0008), raise it for a reranker whose scores of unrelated text are higher (semantic search only, needs the reranker) |
 | `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
 
 An answer that hits the Output budget ends with a Truncation note, e.g. `truncated: shown 50 of 120, pass offset=50 or narrow the query`.
@@ -263,6 +264,8 @@ Search: query embedding → Qdrant top :search/top-k ─┐
 Answer: one line per hit, no source bodies
         score  path:line  kind  ns/name  Docstring summary
         (score: the reranker's relevance, 0..1; left out when the reranker is unavailable)
+        starts with `no confident matches (best 0.03), try rephrasing` when the best
+        relevance is below :search/min-relevance (never without the reranker)
         ends with `embeddings stale for N files` while recent edits are being embedded
 ```
 
@@ -295,7 +298,8 @@ src/mcp/
 lein test
 
 # Tests that need Qdrant and Ollama with the default models; the Russian-docstring
-# test (acceptance case 12) also needs the reranker, the others pass without it
+# test (acceptance case 12) and the `no confident matches` test (case 13) also need
+# the reranker, the others pass without it
 lein test :integration
 
 # Linter

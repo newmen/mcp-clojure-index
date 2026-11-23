@@ -20,6 +20,7 @@
        "and docstrings, then a reranker). "
        "Answer: one line per hit (relevance score  path:line  kind  ns/name  Docstring summary), "
        "no source bodies, at most :output/limit lines and :output/max-chars characters; "
+       "starts with `no confident matches` when even the best hit scores low; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
        "Definitions in Test paths are left out unless `include_tests` is true. "
        "Use find_definition for known names and get_source for bodies."))
@@ -83,6 +84,17 @@
     (when (pos? stale-count)
       (str "embeddings stale for " stale-count " files"))))
 
+(defn- confidence-note
+  "The first line saying that no hit is confident: the best relevance of
+   `hits` is below `:search/min-relevance`. Nil when it is not, or when
+   the reranker gave no scores.
+
+  Config -> [Hit] -> Maybe String"
+  [config hits]
+  (when-let [best (some->> (seq (keep :re-rank hits)) (apply max) double)]
+    (when (< best (:search/min-relevance config))
+      (format "no confident matches (best %.2f), try rephrasing" best))))
+
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
   (let [query (st/trim (str (:query params)))
@@ -103,7 +115,9 @@
              (->> [(str "no results for: " query " " (output/checked code-index include-tests?)) note]
                   (remove nil?)
                   (st/join "\n"))
-             (output/render-framed (output/budget config params) {:footer note} lines)))
+             (output/render-framed (output/budget config params)
+                                   {:header (confidence-note config hits) :footer note}
+                                   lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))
            unavailable-answer))))))

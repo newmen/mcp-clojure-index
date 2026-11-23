@@ -42,7 +42,7 @@
                 :server/transport
                 :index/root-path :index/include-extensions :index/exclude
                 :embedding/cache-dir
-                :search/top-k :search/re-rank-top
+                :search/top-k :search/re-rank-top :search/min-relevance
                 :output/limit :output/max-chars
                 :doc/signature]))
 
@@ -59,6 +59,7 @@
    :index/exclude     []
    :search/top-k      100
    :search/re-rank-top 10
+   :search/min-relevance 0.05
    :output/limit      50
    :output/max-chars  4000
    :doc/signature     {:strategy :last-paragraph}})

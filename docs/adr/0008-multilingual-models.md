@@ -32,6 +32,15 @@ The fixtures have fewer Search units than `:search/top-k`, so with a reranker ru
 
 Relevance of the expected hits with the chosen pair (for `:search/min-relevance`, ticket 10): case 12 from 0.08 (`overdue-fine`, 2nd behind 0.19) to 0.98, best hit of each query at least 0.12; case 9 from 0.00 (`:shop.orders/email`, a spec without a docstring) and 0.02 (`shipping-cost`, 2nd behind 0.05) to 0.99.
 
+## Threshold of `no confident matches`
+
+`:search/min-relevance` is `0.05`: `semantic_search` puts `no confident matches (best X), try rephrasing` before the hits when the best relevance of a query is below it. Measured with the chosen pair on the same day, best hit of each query:
+
+- 7 queries with no matching Search unit (JSON web tokens, 3D rendering, temperature conversion, push notifications, weather, satellite orbits; English and Russian), plus 5 more of the same kind in the measurement: 0.000–0.004 on `multilingual_project`, 0.000–0.024 on `semantic_project` (`convert temperature from Celsius to Fahrenheit` → `:smtp/server`).
+- The 12 queries of case 12: 0.129 (`запретить выдачу должникам`) to 0.983.
+
+`0.05` lies between them with room on both sides: twice the highest unrelated score, less than half of the weakest case 12 query. It is the relevance of the best hit that matters, so case 12's expected hit at 0.08 in second place does not trigger the line. Case 9 has queries whose best hit is 0.00–0.05 (a spec without a docstring, `shipping-cost`), so its queries may get the line while still finding the right hit; no threshold avoids that, and acceptance case 13 only requires case 12 to be free of it. The threshold belongs to this reranker: BCE put the best hit of every case 12 query at 0.43–0.64, so another reranker needs its own value.
+
 ## Consequences
 
 - Switching models re-embeds the whole project once (the collection is rebuilt and the cache directory of the new model starts empty).

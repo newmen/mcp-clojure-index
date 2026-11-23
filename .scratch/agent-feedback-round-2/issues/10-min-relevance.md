@@ -4,8 +4,8 @@
 
 **Blocked by:** 09
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `^:integration`: queries with no matching unit get the line, and the queries of ticket 09 don't (acceptance case 13).
-- [ ] Without the reranker the line never appears (default `lein test`).
-- [ ] The chosen threshold and the scores behind it are recorded in ADR-0008.
+- [x] `^:integration`: queries with no matching unit get the line, and the queries of ticket 09 don't (acceptance case 13).
+- [x] Without the reranker the line never appears (default `lein test`).
+- [x] The chosen threshold and the scores behind it are recorded in ADR-0008.

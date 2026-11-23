@@ -81,6 +81,9 @@
             :reranker/model "qllama/bge-reranker-v2-m3"}
            (select-keys cfg [:ollama/embedding-model :reranker/model])))))
 
+(deftest min-relevance-defaults-to-the-calibrated-threshold
+  (is (= 0.05 (:search/min-relevance (sut/load-config "resources/config.edn")))))
+
 (deftest load-config-defaults-output-budget
   (let [cfg (sut/load-config (fixture-path "config.edn"))]
     (is (= 50 (:output/limit cfg)))

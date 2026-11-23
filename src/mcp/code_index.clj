@@ -797,6 +797,14 @@
        (filter #(and (= ns-sym (:from %)) (= alias-str (str (:alias %)))))
        (some :to)))
 
+(defn- project-alias?
+  "True when some namespace of the project `:require`s a namespace under
+   the alias `alias-str`.
+
+  CodeIndex -> String -> Boolean"
+  [index alias-str]
+  (boolean (some (comp #{alias-str} str :alias) (entries index :namespace-usages))))
+
 (defn- own-definition?
   "True when the namespace `ns-sym` defines a Definition named `simple-sym`
    (a defmethod counts for its multimethod's namespace).
@@ -830,7 +838,8 @@
   "The symbol name `name-str` (with an optional dispatch value) as written
    in the namespace `ns-sym`: an alias goes through its `:require`, a
    simple name to the namespace's own Definition, then to its `:refer`s; a
-   qualified name or a namespace name stays as it is; nil otherwise.
+   namespace name, or a name qualified by anything but an alias of the
+   project, stays as it is; nil otherwise.
 
   CodeIndex -> Symbol -> String -> Maybe String"
   [index ns-sym name-str]
@@ -842,7 +851,7 @@
                     (or (when (own-definition? index ns-sym simple-sym) ns-sym)
                         (referred-namespace index ns-sym simple-sym)))]
     (cond target-ns (cond-> (str target-ns "/" simple) dispatch (str " " dispatch))
-          (namespace-name? index (or ns-part head)) name-str)))
+          (if ns-part (not (project-alias? index ns-part)) (namespace-name? index head)) name-str)))
 
 (defn qualify-in-namespace
   "`name-str` as the source of the namespace `ns-str` would resolve it,

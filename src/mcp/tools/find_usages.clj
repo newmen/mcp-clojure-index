@@ -4,6 +4,7 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as st]
             [mcp.code-index :as code-index]
+            [mcp.in-namespace :as in-namespace]
             [mcp.output :as output]
             [mcp.text :as text]
             [mcp.tool :as tool]
@@ -123,7 +124,7 @@
 
   AnswerContext -> Maybe LineReader -> UsageFilter -> String -> TargetResolution -> IO TargetAnswer"
   [{:keys [index] :as ctx} read-lines opts target-str {:keys [target candidates]}]
-  (let [        found (when (usages/has-usages? target)
+  (let [found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
@@ -147,11 +148,10 @@
 
   AnswerContext -> Maybe LineReader -> UsageFilter -> Maybe String -> String -> IO TargetAnswer"
   [{:keys [index] :as ctx} read-lines opts ns-str target-str]
-  (let [{:keys [result unresolvable]}
-        (tool/lookup-in-namespace index ns-str (partial usages/resolve-target index)
-                                    (some-fn :target :candidates) target-str)]
-    (cond-> (target-answer ctx read-lines opts target-str result)
-      unresolvable (update :header (partial str unresolvable "\n")))))
+  (let [{:keys [result] :as name-lookup}
+        (in-namespace/lookup index ns-str (partial usages/resolve-target index)
+                             (some-fn :target :candidates) target-str)]
+    (in-namespace/headed name-lookup (target-answer ctx read-lines opts target-str result))))
 
 ;; ---------------------------------------------------------------------------
 ;; Call
@@ -164,12 +164,13 @@
               :context? (tool/flag params :context true)
               :warnings-only? (tool/flag params :warnings_only false)}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
-        ns-str (tool/namespace-arg params)
         {:keys [budget] :as ctx} (output/answer-context config params code-index)
-        groups (map (partial target-group ctx read-lines opts ns-str)
-                    (tool/distinct-strings (:targets params)))]
+        target-strs (tool/distinct-strings (:targets params))]
     (tool/text-result
-     (or (tool/unknown-namespace code-index ns-str)
-         (if (empty? groups)
-           "no targets given"
-           (output/render-grouped budget groups))))))
+     (in-namespace/answer code-index params
+                          (fn [ns-str]
+                            (if (empty? target-strs)
+                              "no targets given"
+                              (output/render-grouped budget
+                                                     (map (partial target-group ctx read-lines opts ns-str)
+                                                          target-strs))))))))

@@ -60,13 +60,6 @@
 ;; Embedding cache (hash -> vector) — thread-safe via atomic write
 ;; ---------------------------------------------------------------------------
 
-(defn- embedding-model
-  "The name of the embedding model.
-
-  Config -> String"
-  [cfg]
-  (or (:ollama/embedding-model cfg) (:ollama/embedding-model config/defaults)))
-
 (defn- cache-dir
   "The directory of the embedding cache of the configured embedding
    model: one subdirectory per model, so vectors of another model are
@@ -75,7 +68,7 @@
   Config -> File"
   [cfg]
   (let [dir (or (:embedding/cache-dir cfg) ".mcp/embedding-cache")]
-    (io/file dir (st/replace (embedding-model cfg) #"[^A-Za-z0-9._-]" "_"))))
+    (io/file dir (st/replace (config/setting cfg :ollama/embedding-model) #"[^A-Za-z0-9._-]" "_"))))
 
 (defn- cache-file
   "The cache file of the embedding of the text with hash `hash-str`.
@@ -134,14 +127,7 @@
 
   Config -> String"
   [cfg]
-  (endpoint-url (or (:ollama/url cfg) "http://localhost:11434/v1") "/embeddings"))
-
-(defn- reranker-model
-  "The name of the reranker model.
-
-  Config -> String"
-  [cfg]
-  (or (:reranker/model cfg) (:reranker/model config/defaults)))
+  (endpoint-url (config/setting cfg :ollama/url) "/embeddings"))
 
 (defn- http-post-json
   "Posts `body-map` as JSON to `url`; `timeouts` are clj-http's
@@ -179,7 +165,7 @@
   ([texts cfg]
    (when (seq texts)
      (let [url (ollama-embed-url cfg)
-           model (embedding-model cfg)
+           model (config/setting cfg :ollama/embedding-model)
            batcher (fn [batch]
                      (let [response (http-post-json url {:model model :input (vec batch)} embedding-timeouts)
                            data (:body response)
@@ -247,7 +233,7 @@
 
   Config -> String"
   [cfg]
-  (endpoint-url (or (:reranker/url cfg) "http://localhost:8012/v1") "/rerank"))
+  (endpoint-url (config/setting cfg :reranker/url) "/rerank"))
 
 (defn- scores-in-order
   "The scores of the reranker's `results` by candidate index, or nil
@@ -269,7 +255,7 @@
   [cfg query texts]
   (try
     (-> (http-post-json (rerank-url cfg)
-                        {:model (reranker-model cfg) :query query :documents texts}
+                        {:model (config/setting cfg :reranker/model) :query query :documents texts}
                         rerank-timeouts)
         (get-in [:body :results])
         (scores-in-order (count texts)))

@@ -313,20 +313,31 @@
          (st/join "|" (cond-> (mapv str (sort fixed-arities))
                         varargs-min-arity (conj (str varargs-min-arity "+")))))))
 
+(defn- written-unqualified?
+  "True when the symbol of `var-usage` is written without a namespace
+   (`b`, not `x.y/b`), as a referred name is: its source span is as long
+   as its name.
+
+  AnalysisEntry -> Boolean"
+  [{:keys [name name-col name-end-col]}]
+  (or (nil? name-end-col)
+      (= (count (str name)) (- name-end-col name-col))))
+
 (defn- unused-require-warning
   "The `unused` Usage warning of a require (`namespace-usage`) of `ns-name`
    that nothing in its file uses, or `unused refer: b, c` when only those
    referred names are unused; nil otherwise. A use is any var-usage of the
    namespace outside the `ns` form (through the alias, a referred name,
-   `#'` or a qualified name) or an `::alias/kw` keyword. A bare require and
-   `:refer :all` refer to nothing by name and are never marked.
+   `#'` or a qualified name) or an `::alias/kw` keyword; only a name
+   written unqualified uses its refer. A bare require and `:refer :all`
+   refer to nothing by name and are never marked.
 
   Symbol -> FileContext -> UsageKind -> AnalysisEntry -> Maybe String"
   [ns-name {:keys [index filename file-usages]} _kind namespace-usage]
   (let [[refers uses] ((juxt filter remove) :refer (filter (comp #{ns-name} :to) file-usages))
         keyword-uses (filter #(and (= ns-name (:ns %)) (:alias %))
                              (code-index/file-entries index filename :keywords))
-        used-names (into #{} (comp (remove :alias) (map :name)) uses)
+        used-names (into #{} (comp (remove :alias) (filter written-unqualified?) (map :name)) uses)
         unused-refers (remove (comp used-names :name) refers)]
     (cond
       (and (nil? (:alias namespace-usage)) (empty? refers)) nil

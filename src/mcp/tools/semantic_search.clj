@@ -75,6 +75,13 @@
     (max (:search/re-rank-top config)
          (+ (max 0 (or (:offset params) 0)) page-size))))
 
+(defn- test-files
+  "The absolute paths of the files under the Test paths of `index`.
+
+  CodeIndex -> #{String}"
+  [index]
+  (into #{} (filter (partial code-index/test-file? index)) (code-index/files index)))
+
 (defn- stale-note
   "The footer saying how many files have stale embeddings; nil when none.
 
@@ -105,9 +112,7 @@
        (try
          (let [hits (search/search config query
                                    (search-units/search-units code-index)
-                                   (fn [unit]
-                                     (or include-tests?
-                                         (not (code-index/test-file? code-index (:filename unit)))))
+                                   (if include-tests? #{} (test-files code-index))
                                    (hit-count config params))
                note (some-> semantic-index (stale-note code-index))
                lines (mapv (partial hit->line (:doc/signature config) (code-index/root code-index)) hits)]

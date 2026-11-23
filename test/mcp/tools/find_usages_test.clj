@@ -274,20 +274,22 @@
          (answer @arity-project {:targets ["one"] :warnings_only true}))))
 
 (deftest unused-requires-carry-a-usage-warning
-  (testing "an unused alias is unused, unused referred names are listed; bare requires, :refer :all and uses through ::alias/kw, #' or a qualified name are not marked"
-    (is (= ["ur.lib: 7 usages"
+  (testing "an unused alias is unused, unused referred names are listed; bare requires, :refer :all and uses through ::alias/kw, #' or a qualified name are not marked; a qualified name does not use a referred name"
+    (is (= ["ur.lib: 8 usages"
             "src/ur/alias_only.clj:2:14  require  ur.alias-only  unused refer: b, c"
             "src/ur/bare.clj:2:14  require  ur.bare"
             "src/ur/kw_only.clj:2:14  require  ur.kw-only"
             "src/ur/partly.clj:2:14  require  ur.partly  unused refer: b, c"
             "src/ur/qualified.clj:2:14  require  ur.qualified"
+            "src/ur/qualified_refer.clj:2:14  require  ur.qualified-refer  unused refer: b"
             "src/ur/refer_all.clj:2:14  require  ur.refer-all"
             "src/ur/unused_alias.clj:2:14  require  ur.unused-alias  unused"]
            (answer-lines @unused-project {:targets ["ur.lib"]}))))
   (testing "warnings_only selects them"
-    (is (= ["ur.lib: 3 usages"
+    (is (= ["ur.lib: 4 usages"
             "src/ur/alias_only.clj:2:14  require  ur.alias-only  unused refer: b, c"
             "src/ur/partly.clj:2:14  require  ur.partly  unused refer: b, c"
+            "src/ur/qualified_refer.clj:2:14  require  ur.qualified-refer  unused refer: b"
             "src/ur/unused_alias.clj:2:14  require  ur.unused-alias  unused"]
            (answer-lines @unused-project {:targets ["ur.lib"] :warnings_only true})))))
 

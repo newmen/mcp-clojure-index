@@ -65,7 +65,10 @@
   ([args] (answer args (fresh-semantic-index) hits))
   ([args semantic-index stub-hits]
    (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
-                 qdrant/search (fn [_cfg _vector _top-k] stub-hits)
+                 qdrant/search (fn [_cfg _vector top-k excluded-files]
+                                 (->> stub-hits
+                                      (remove (comp (set excluded-files) :filename :unit))
+                                      (take top-k)))
                  embeddings/rerank (fn [_query candidates _cfg]
                                      (mapv #(assoc % :re-rank (:score %)) candidates))]
      (-> (tool/call :semantic_search args {:config config
@@ -88,7 +91,7 @@
 
 (deftest without-reranker-no-raw-vector-score-is-shown
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
-                qdrant/search (fn [_cfg _vector _top-k] hits)
+                qdrant/search (fn [_cfg _vector _top-k _excluded-files] hits)
                 embeddings/rerank (fn [_query candidates _cfg] candidates)]
     (is (= (str "src/shop/orders.clj:5  defn  shop.orders/order-total  "
                 "Sum of price times quantity over all line items of an order.\n"
@@ -116,7 +119,7 @@
 
 (deftest without-reranker-there-is-no-confidence-line
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
-                qdrant/search (fn [_cfg _vector _top-k]
+                qdrant/search (fn [_cfg _vector _top-k _excluded-files]
                                 [(hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil 0.01)])
                 embeddings/rerank (fn [_query candidates _cfg] candidates)]
     (is (= "resources/config.edn:1  edn  :db/connection-pool"
@@ -172,6 +175,15 @@
          (answer {:query "nothing" :include_tests true} (fresh-semantic-index) []))))
 
 ;; Acceptance case 11
+(deftest excluding-tests-keeps-the-recall-of-the-vector-search
+  (let [test-hits (mapv #(hit "test/shop/orders_test.clj" % "deftest" (str "shop.orders-test/t" %) nil 0.99)
+                        (range 1 4))
+        orders-hit (hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total" nil 0.9)]
+    (is (= "0.90  src/shop/orders.clj:5  defn  shop.orders/order-total"
+           (with-redefs [config (assoc config :search/top-k 2)]
+             (answer {:query "qwerty"} (fresh-semantic-index) (conj test-hits orders-hit)))))))
+
+
 (deftest test-definitions-are-found-only-with-include-tests
   (let [test-hit (hit "test/shop/orders_test.clj" 5 "deftest" "shop.orders-test/order-total-test" nil 0.95)
         stub-hits (conj hits test-hit)

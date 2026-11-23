@@ -98,7 +98,7 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:index/exclude` | `[]` | Directories to exclude; `.calva`, `.claude`, `.clj-kondo`, `.cpcache`, `.git`, `.kilo`, `.lsp`, `.mcp`, `logs`, `target`, `tmp` are always excluded |
 | `:output/limit` | `50` | Output budget: the maximum number of findings in one answer; a call's `limit` can only lower it |
 | `:output/max-chars` | `4000` | Output budget: the maximum number of characters in one answer |
-| `:doc/signature` | `{:strategy :last-paragraph}` | How the Type signature is found in a docstring: `:last-paragraph` (the last paragraph of a docstring with at least two), or `{:strategy :pattern :regex "..."}` (the first group of the regex); `nil` turns signatures off |
+| `:doc/signature` | `{:strategy :last-paragraph}` in the shipped config | How the Type signature is found in a docstring: `:last-paragraph` (the last paragraph of a docstring with at least two), or `{:strategy :pattern :regex "..."}` (the first capture group of the regex; a regex without one is rejected at startup); without the key, or with `nil`, there are no signatures |
 | `:qdrant/host`, `:qdrant/port` | `"localhost"`, `6333` | Qdrant (semantic search only) |
 | `:qdrant/collection` | `QD_COLLECTION` env, else `<project dir>-collection` | Qdrant collection (semantic search only) |
 | `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |

@@ -7,6 +7,7 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
+            [mcp.config :as config]
             [mcp.embeddings :as embeddings]
             [mcp.qdrant :as qdrant]
             [mcp.search-units :as search-units]))
@@ -75,19 +76,21 @@
    the configured embedding model, dropping a collection of an older
    format or another model (or any, with `:qdrant/recreate?`), and learns
    which files it already holds. A new collection takes vectors of the
-   size the model returns.
+   size the model returns; only then is Ollama asked, so a current
+   collection is used without it.
 
   SemanticIndex -> IO ()"
   [{cfg :config state :state}]
   (let [layout (qdrant/stored-layout cfg)
-        current? (and (= {:format qdrant/payload-format :model (:ollama/embedding-model cfg)}
+        current? (and (= {:format qdrant/payload-format :model (config/setting cfg :ollama/embedding-model)}
                          layout)
-                      (not (:qdrant/recreate? cfg)))
-        vector-size (count (first (embeddings/generate ["vector size"] cfg)))]
-    (when (and layout (not current?))
-      (log/info "Dropping Qdrant collection of" layout)
-      (qdrant/delete-collection! cfg))
-    (qdrant/create-collection! cfg vector-size)
+                      (not (:qdrant/recreate? cfg)))]
+    (when-not current?
+      (let [vector-size (count (first (embeddings/generate ["vector size"] cfg)))]
+        (when layout
+          (log/info "Dropping Qdrant collection of" layout)
+          (qdrant/delete-collection! cfg))
+        (qdrant/create-collection! cfg vector-size)))
     (swap! state assoc
            :embedded (if current? (qdrant/embedded-files cfg) {})
            :prepared? true)))

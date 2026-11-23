@@ -3,7 +3,8 @@
    Qdrant holds embeddings only, never the precise index (ADR-0003)."
   (:require [clojure.data.json :as json]
             [clojure.spec.alpha :as s]
-            [clj-http.client :as http]))
+            [clj-http.client :as http]
+            [mcp.config :as config]))
 
 (set! *warn-on-reflection* true)
 
@@ -55,7 +56,7 @@
 
   Config -> String"
   [cfg]
-  (str "http://" (or (:qdrant/host cfg) "localhost") ":" (or (:qdrant/port cfg) 6333)
+  (str "http://" (config/setting cfg :qdrant/host) ":" (config/setting cfg :qdrant/port)
        "/collections/" (:qdrant/collection cfg)))
 
 (defn- request
@@ -190,7 +191,7 @@
 
   Config -> [SearchUnit] -> [Embedding] -> Long -> IO ()"
   [cfg units unit-vectors mtime]
-  (doseq [batch (partition-all upsert-batch-size (map (partial unit->point (:ollama/embedding-model cfg) mtime) units unit-vectors))]
+  (doseq [batch (partition-all upsert-batch-size (map (partial unit->point (config/setting cfg :ollama/embedding-model) mtime) units unit-vectors))]
     (request! :put (str (collection-url cfg) "/points?wait=true") {:points batch} "upsert" #{200})))
 
 (defn delete!
@@ -203,12 +204,16 @@
             "delete" #{200}))
 
 (defn search
-  "Finds the `top-k` points nearest to `query-vector`.
+  "Finds the `top-k` points nearest to `query-vector`, leaving out in
+   Qdrant the points of `excluded-files` (absolute paths), so they take
+   none of the `top-k` places.
 
-  Config -> Embedding -> Long -> IO [ScoredUnit]"
-  [cfg query-vector top-k]
+  Config -> Embedding -> Long -> #{String} -> IO [ScoredUnit]"
+  [cfg query-vector top-k excluded-files]
   (->> (request! :post (str (collection-url cfg) "/points/search")
-                 {:vector query-vector :limit top-k :with_payload true :with_vector false}
+                 (cond-> {:vector query-vector :limit top-k :with_payload true :with_vector false}
+                   (seq excluded-files)
+                   (assoc :filter {:must_not [{:key "filename" :match {:any (vec (sort excluded-files))}}]}))
                  "search" #{200})
        :body
        :result

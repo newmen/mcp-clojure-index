@@ -32,13 +32,13 @@
    :text (:text unit "")})
 
 (defn- qdrant-candidates
-  "The `top-k` Candidates nearest to `embedding` in Qdrant, with their
-   vector similarity.
+  "The `top-k` Candidates nearest to `embedding` in Qdrant outside
+   `excluded-files`, with their vector similarity.
 
-  Config -> Embedding -> Long -> IO [Candidate]"
-  [cfg embedding top-k]
+  Config -> Embedding -> Long -> #{String} -> IO [Candidate]"
+  [cfg embedding top-k excluded-files]
   (mapv (fn [{:keys [unit score]}] (assoc (candidate unit) :score score))
-        (qdrant/search cfg embedding top-k)))
+        (qdrant/search cfg embedding top-k excluded-files)))
 
 (defn- lexical-candidates
   "The `top-k` best lexical matches among `units`, shaped like the units
@@ -74,8 +74,9 @@
    matching against `units` (all Search units of the project), fused,
    then reranked; at most `hit-count` hits. No expansion.
 
-   Search units failing `searched?` (such as those in Test paths) are
-   dropped from both before ranking.
+   Search units of `excluded-files` (such as those in Test paths) are left
+   out of both before ranking; Qdrant leaves them out itself, so they do
+   not take the places of other candidates.
 
    `:search/top-k` in `cfg` is the number of candidates from each of
    Qdrant and the lexical matching, and of fused candidates reranked.
@@ -84,20 +85,18 @@
    nil for a blank query. Without the reranker hits have no `:re-rank`
    and keep the fused order.
 
-  Config -> String -> [SearchUnit] -> Long -> IO (Maybe [Hit])
-  Config -> String -> [SearchUnit] -> (SearchUnit -> Boolean) -> Long -> IO (Maybe [Hit])"
-  ([cfg query units hit-count]
-   (search cfg query units (constantly true) hit-count))
-  ([cfg query units searched? hit-count]
-   (let [top-k (:search/top-k cfg)]
-     (when (and (seq query) (pos? top-k) (pos? hit-count))
-       (when-let [embedding (first (embeddings/generate [query] cfg))]
-         (let [candidates (->> (fuse [(filterv (comp searched? :unit)
-                                               (qdrant-candidates cfg embedding top-k))
-                                      (lexical-candidates query (filter searched? units) top-k)])
-                               (take top-k)
-                               vec)]
-           (->> (when (seq candidates)
-                  (embeddings/rerank query candidates cfg))
-                (take hit-count)
-                (mapv #(select-keys % [:unit :re-rank])))))))))
+  Config -> String -> [SearchUnit] -> #{String} -> Long -> IO (Maybe [Hit])"
+  [cfg query units excluded-files hit-count]
+  (let [top-k (:search/top-k cfg)]
+    (when (and (seq query) (pos? top-k) (pos? hit-count))
+      (when-let [embedding (first (embeddings/generate [query] cfg))]
+        (let [candidates (->> (fuse [(qdrant-candidates cfg embedding top-k excluded-files)
+                                     (lexical-candidates query
+                                                         (remove (comp (set excluded-files) :filename) units)
+                                                         top-k)])
+                              (take top-k)
+                              vec)]
+          (->> (when (seq candidates)
+                 (embeddings/rerank query candidates cfg))
+               (take hit-count)
+               (mapv #(select-keys % [:unit :re-rank]))))))))

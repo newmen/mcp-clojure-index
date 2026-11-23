@@ -123,9 +123,9 @@
       (is (= 6 (count (sut/stale-files semantic-index @fixture-index)))))))
 
 (defn- prepare-calls
-  "The collection operations `prepare!` performs on a collection found
-   with `layout`, and the stale files after it; the embedding model returns
-   vectors of size 3.
+  "The collection operations and embedding requests (`:embed`) `prepare!`
+   performs on a collection found with `layout`, and the stale files after
+   it; the embedding model returns vectors of size 3.
 
   Maybe CollectionLayout -> IO {:calls [Any] :stale Long}"
   [layout]
@@ -133,7 +133,9 @@
         semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
         mtime (get-in @fixture-index [:files inventory :mtime])]
-    (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2 0.3]) texts))
+    (with-redefs [embeddings/generate (fn [texts _cfg]
+                                        (swap! calls conj :embed)
+                                        (mapv (constantly [0.1 0.2 0.3]) texts))
                   qdrant/stored-layout (fn [_cfg] layout)
                   qdrant/delete-collection! (fn [_cfg] (swap! calls conj :delete))
                   qdrant/create-collection! (fn [_cfg vector-size] (swap! calls conj [:create vector-size]))
@@ -146,16 +148,16 @@
   (:ollama/embedding-model project/config))
 
 (deftest prepare-creates-a-missing-collection-with-the-vector-size-of-the-model
-  (is (= {:calls [[:create 3]] :stale 6} (prepare-calls nil))))
+  (is (= {:calls [:embed [:create 3]] :stale 6} (prepare-calls nil))))
 
 (deftest prepare-recreates-an-old-format-collection
-  (is (= {:calls [:delete [:create 3]] :stale 6}
+  (is (= {:calls [:embed :delete [:create 3]] :stale 6}
          (prepare-calls {:format 1 :model current-model}))))
 
 (deftest prepare-recreates-a-collection-of-another-embedding-model
-  (is (= {:calls [:delete [:create 3]] :stale 6}
+  (is (= {:calls [:embed :delete [:create 3]] :stale 6}
          (prepare-calls {:format qdrant/payload-format :model "another-model"}))))
 
-(deftest prepare-keeps-a-current-collection-and-its-embedded-files
-  (is (= {:calls [[:create 3]] :stale 5}
+(deftest prepare-keeps-a-current-collection-and-its-embedded-files-without-ollama
+  (is (= {:calls [] :stale 5}
          (prepare-calls {:format qdrant/payload-format :model current-model}))))

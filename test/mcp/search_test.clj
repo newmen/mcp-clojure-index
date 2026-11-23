@@ -54,27 +54,27 @@
   String -> [SearchUnit] -> [SearchUnit] -> (String -> [Candidate] -> Config -> [Candidate]) -> IO [String]"
   [query vector-units all-units rerank]
   (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
-                qdrant/search (fn [_cfg _emb _k]
+                qdrant/search (fn [_cfg _emb _k _excluded]
                                 (mapv (fn [unit] {:unit unit :score 0.5}) vector-units))
                 embeddings/rerank rerank]
-    (mapv (comp :name :unit) (sut/search test-config query all-units 10))))
+    (mapv (comp :name :unit) (sut/search test-config query all-units #{} 10))))
 
 (deftest search-empty-query-returns-nil
-  (is (nil? (sut/search test-config "" [] 10))))
+  (is (nil? (sut/search test-config "" [] #{} 10))))
 
 (deftest search-nil-query-returns-nil
-  (is (nil? (sut/search test-config nil [] 10))))
+  (is (nil? (sut/search test-config nil [] #{} 10))))
 
 (deftest search-throws-on-qdrant-error
-  (is (thrown? Exception (sut/search test-config "find user creation" [] 10))))
+  (is (thrown? Exception (sut/search test-config "find user creation" [] #{} 10))))
 
 (deftest search-keeps-at-most-hit-count-hits
   (let [units (mapv #(make-unit (str "f" %)) (range 5))]
     (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
-                  qdrant/search (fn [_cfg _emb _k]
+                  qdrant/search (fn [_cfg _emb _k _excluded]
                                   (mapv (fn [c] {:unit c :score 0.5}) units))
                   embeddings/rerank reverse-rerank]
-      (is (= 2 (count (sut/search test-config "f" units 2)))))))
+      (is (= 2 (count (sut/search test-config "f" units #{} 2)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Rank fusion of vector and lexical candidates
@@ -107,17 +107,17 @@
 
 (deftest hits-carry-the-relevance-score-of-the-reranker
   (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
-                qdrant/search (fn [_cfg _emb _k] [{:unit create-user :score 0.85}])
+                qdrant/search (fn [_cfg _emb _k _excluded] [{:unit create-user :score 0.85}])
                 embeddings/rerank reverse-rerank]
     (is (= [{:unit create-user :re-rank (float 1.0)}]
-           (sut/search test-config "xyzzy" all-units 10)))))
+           (sut/search test-config "xyzzy" all-units #{} 10)))))
 
 (deftest search-with-zero-top-k
   (let [cfg (assoc test-config :search/top-k 0)]
-    (is (nil? (sut/search cfg "test" all-units 10)))))
+    (is (nil? (sut/search cfg "test" all-units #{} 10)))))
 
 (deftest search-with-zero-hit-count
-  (is (nil? (sut/search test-config "test" all-units 0))))
+  (is (nil? (sut/search test-config "test" all-units #{} 0))))
 
 (deftest search-with-no-candidates-returns-empty
   (is (= [] (search-names "xyzzy" [] all-units no-rerank))))

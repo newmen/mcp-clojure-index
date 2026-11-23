@@ -1,5 +1,6 @@
 (ns mcp.config-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is]]
             [mcp.config :as sut]))
 
 (def fixtures-dir "test-resources/fixtures")
@@ -82,7 +83,8 @@
            (select-keys cfg [:ollama/embedding-model :reranker/model])))))
 
 (deftest min-relevance-defaults-to-the-calibrated-threshold
-  (is (= 0.05 (:search/min-relevance (sut/load-config "resources/config.edn")))))
+  (is (= 0.05 (:search/min-relevance (sut/load-config "resources/config.edn"))))
+  (is (= 0.05 (:search/min-relevance (edn/read-string (slurp "resources/config.edn"))))))
 
 (deftest load-config-defaults-output-budget
   (let [cfg (sut/load-config (fixture-path "config.edn"))]
@@ -285,3 +287,29 @@
                                    :embedding/cache-dir custom-dir})]
       (is (= custom-dir (:embedding/cache-dir cfg))
           "Explicit :embedding/cache-dir in config must override the default computation"))))
+;; ---------------------------------------------------------------------------
+;; :doc/signature
+;; ---------------------------------------------------------------------------
+
+(defn- load-error
+  "The message `load-config` throws for the config file `name`, nil when
+   it loads.
+
+  String -> IO (Maybe String)"
+  [name]
+  (try (sut/load-config (fixture-path name)) nil
+       (catch clojure.lang.ExceptionInfo e (ex-message e))))
+
+(deftest a-config-without-doc-signature-has-no-signatures
+  (is (= nil (:doc/signature (sut/load-config (fixture-path "config-without-signature.edn"))))))
+
+(deftest the-shipped-config-finds-signatures-in-the-last-paragraph
+  (is (= {:strategy :last-paragraph} (:doc/signature (sut/load-config "resources/config.edn")))))
+
+(deftest a-pattern-without-a-capture-group-is-rejected-at-load
+  (is (= ":doc/signature :pattern regex needs a capture group for the Type signature: Signature: .*"
+         (load-error "config-pattern-without-group.edn"))))
+
+(deftest an-invalid-pattern-is-rejected-at-load
+  (is (= ":doc/signature :pattern regex does not compile: Signature: (.*"
+         (load-error "config-pattern-invalid.edn"))))

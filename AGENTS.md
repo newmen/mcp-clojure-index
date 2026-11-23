@@ -1,5 +1,7 @@
 ## Clojure codebase
 
+To investigate the current project Clojure codebase, **always** use the MCP-Server: `clojure-code-index`.
+
 To check any Clojure functionality, **always** use the `/clojure-eval` skill. Use this when you need to test code, check if edited files compile, verify function behavior, or interact with a running REPL session.
 
 External tools:

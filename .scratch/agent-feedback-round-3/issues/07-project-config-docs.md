@@ -4,8 +4,8 @@
 
 **Blocked by:** 04, 05, 06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The `initialize` instructions carry the two or three lines with the generic example; the existing server test is extended to check them.
-- [ ] README (and README.RU) describes location, allowed keys, hot and cold keys, replacement semantics, error and restart lines, and a full example.
-- [ ] Nothing in the instructions or README names the user's other projects.
+- [x] The `initialize` instructions carry the two or three lines with the generic example; the existing server test is extended to check them.
+- [x] README (and README.RU) describes location, allowed keys, hot and cold keys, replacement semantics, error and restart lines, and a full example.
+- [x] Nothing in the instructions or README names the user's other projects.

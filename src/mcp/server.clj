@@ -26,7 +26,10 @@
        "It resolves names like the compiler: aliases, :refer, #'var, with-redefs, functions passed as values, keywords in EDN.\n"
        "Answers are compact `path:line` lines under a hard size ceiling; page with `offset` when an answer says it is truncated.\n"
        "Use get_source for a definition's body instead of reading the whole file.\n"
-       tool/freshness-note " No need to re-check with grep."))
+       tool/freshness-note " No need to re-check with grep.\n"
+       "The Project config `.clojure-index.edn` at the project root (optional) overrides the server config, any key; "
+       "you may edit it, and edits apply from the next answer (connection settings after a restart).\n"
+       "E.g. keep generated code out of semantic_search: `{:search/exclude [\"com/google/protobuf\"]}`."))
 (defonce ^:private server-state-atom (atom nil))
 
 ;; JsonRpcMessage: a parsed request or notification, keyword keys.

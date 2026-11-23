@@ -32,7 +32,7 @@
        "positives from other definitions with the same simple name. "
        "Marks test doubles bound in `with-redefs` (kind redef) and REPL scratch code inside "
        "`comment` (kind in-comment). "
-       "Answer: grouped by target, one line per Usage (path:line:col  usage-kind  "
+       "Answer: grouped by target (a header line per target, a blank line between groups), one line per Usage (path:line:col  usage-kind  "
        "ns/enclosing-definition  context), where context is up to 80 characters of the source "
        "line around the Usage, whitespace collapsed (`context: false` leaves it out), then a Usage "
        "warning if one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call "
@@ -70,10 +70,12 @@
 
 ;; A TargetAnswer is the answer for one target:
 ;;
-;; {:header "app.core/get-uuid: 11 usages"   ; or a not-found/ambiguous line
-;;  :lines  ["src/app/other.clj:6:5  call  app.other/caller" ...]}
+;; {:header   "app.core/get-uuid: 11 usages"   ; or a not-found/ambiguous line
+;;  :findings ["src/app/other.clj:6:5  call  app.other/caller" ...]}
+;;
+;; It is an AnswerGroup of `mcp.output` whose findings are Usage lines.
 
-(s/def ::target-answer (s/keys :req-un [::header] :opt-un [::lines]))
+(s/def ::target-answer :mcp.output/answer-group)
 
 ;; A UsageFilter is what the call asks for:
 ;;
@@ -125,7 +127,7 @@
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
-                  :lines (mapv #(output/definition->line ctx % {:signature? false})
+                  :findings (mapv #(output/definition->line ctx % {:signature? false})
                                candidates)}
       (nil? target) {:header (str "not found: " target-str " " (output/checked index (:include-tests? opts)))}
       (= :defmethod (:target/type target))
@@ -136,53 +138,23 @@
                                    " " (output/checked index (:include-tests? opts)))}
       :else {:header (str (:target/name target) ": " (count found)
                           (if (= 1 (count found)) " usage" " usages"))
-             :lines (mapv (partial usage->line (code-index/root index) read-lines) found)})))
-
-(defn- findings
-  "One finding per Usage line of the TargetAnswers.
-
-  The header of an answer is joined to its first line and to the line a
-  page starts at, so every page names its targets. An answer without lines
-  is a finding of its own.
-
-  [TargetAnswer] -> Long -> [String]"
-  [groups offset]
-  (->> groups
-       (mapcat (fn [{:keys [header lines]}]
-                 (if (seq lines)
-                   (map-indexed (fn [i line] {:header header :first? (zero? i) :line line}) lines)
-                   [{:line header}])))
-       (map-indexed (fn [i {:keys [header first? line]}]
-                      (if (and header (or first? (= i offset)))
-                        (str header "\n" line)
-                        line)))
-       vec))
+             :findings (mapv (partial usage->line (code-index/root index) read-lines) found)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Call
 ;; ---------------------------------------------------------------------------
 
-(defn- as-strings
-  "The non-blank strings of a tool argument that is one value or a list.
-
-  Any -> [String]"
-  [value]
-  (->> (if (sequential? value) value [value])
-       (remove nil?)
-       (map (comp st/trim str))
-       (remove st/blank?)))
-
 (defmethod tool/call :find_usages
   [_tool-key params {:keys [config code-index]}]
-  (let [opts {:kinds (set (as-strings (:kinds params)))
+  (let [opts {:kinds (set (tool/strings (:kinds params)))
               :include-tests? (tool/flag params :include_tests true)
               :context? (tool/flag params :context true)
               :warnings-only? (tool/flag params :warnings_only false)}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
         {:keys [budget] :as ctx} (output/answer-context config params code-index)
         groups (map (partial target-group ctx read-lines opts)
-                    (distinct (as-strings (:targets params))))]
+                    (tool/strings (:targets params)))]
     (tool/text-result
      (if (empty? groups)
        "no targets given"
-       (output/render budget (findings groups (:offset budget)))))))
+       (output/render-grouped budget groups)))))

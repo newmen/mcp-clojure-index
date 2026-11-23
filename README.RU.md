@@ -268,16 +268,18 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 
 ```text
 Входные параметры:
-  name (string, обязательный) — простое, квалифицированное через alias
-                               или полностью квалифицированное имя;
+  names (array of strings, обязательный) — имена: простые, квалифицированные
+                               через alias или полностью квалифицированные;
                                `multi dispatch-value` для defmethod
                                (например, `area :circle`);
                                keyword для spec.
   doc ("summary" | "full", по умолчанию "summary")
-  limit, offset — считают определения (Definition)
+  limit, offset — считают определения (Definition) по всем именам вместе
 
 Ответ:
-  Одна строка на каждое определение (Definition):
+  Одна группа на каждое различное имя, как в `rg --heading`,
+  между группами — пустая строка:
+  имя, как оно передано, затем одна строка на каждое определение (Definition):
   path:line  kind  ns/name  [arglists]  Type signature  Docstring summary
 
   С doc "full": строка path:line  kind  ns/name  [arglists],
@@ -287,10 +289,16 @@ java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
   `truncated: docstring shown A of B chars`.
 ```
 
-Пример:
+Ненайденное имя сообщает об этом в заголовке своей группы (`foo: not found (checked 214 files, including tests)`); неоднозначное — заголовком `ambiguous: N definitions named foo, pass a qualified name` и списком кандидатов. Остальные имена отвечают как обычно. Страница, начинающаяся внутри группы, повторяет её заголовок. Пустой список имён даёт ответ `no names given`.
+
+Пример (`names: ["relative-path", "output/render"]`):
 
 ```text
-src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Return ...
+relative-path
+src/mcp/output.clj:60  defn  mcp.output/relative-path  [root-path file-path]  Maybe String -> String -> String  Returns ...
+
+output/render
+src/mcp/output.clj:110  defn  mcp.output/render  ...
 ```
 
 ### find_usages
@@ -310,7 +318,8 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
 
 Ответ:
   Для каждой цели — заголовок `target: N usages`,
-  затем одна строка на каждое использование (Usage):
+  затем одна строка на каждое использование (Usage);
+  между целями — пустая строка:
   path:line:col  usage-kind  ns/enclosing-definition  context  warning
 ```
 

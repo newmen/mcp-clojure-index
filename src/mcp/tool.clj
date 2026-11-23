@@ -10,7 +10,8 @@
    {:config     resolved config (see mcp.config)
     :code-index the precise index (see mcp.code-index), current at call time
     :semantic-index the SemanticIndex of semantic_search (see mcp.semantic-index)}"
-  (:require [clojure.spec.alpha :as s]))
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]))
 
 (set! *warn-on-reflection* true)
 
@@ -64,6 +65,18 @@
   [args arg-key default]
   (let [value (get args arg-key)]
     (if (boolean? value) value default)))
+
+(defn strings
+  "The distinct non-blank strings, trimmed, of a tool argument that is one
+   value or a list.
+
+  Any -> [String]"
+  [value]
+  (->> (if (sequential? value) value [value])
+       (remove nil?)
+       (map (comp st/trim str))
+       (remove st/blank?)
+       distinct))
 
 (defn text-result
   "A `tools/call` result carrying one text block.

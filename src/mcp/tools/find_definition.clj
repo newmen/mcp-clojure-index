@@ -1,6 +1,6 @@
 (ns mcp.tools.find-definition
-  "`find_definition`: where a name is defined, resolved like the compiler
-   resolves it (ADR-0002), as Compact answer lines (ADR-0006)."
+  "`find_definition`: where names are defined, each resolved like the
+   compiler resolves it (ADR-0002), as Compact answer lines (ADR-0006)."
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as st]
             [mcp.code-index :as code-index]
@@ -11,19 +11,23 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private description
-  (str "Find where a Clojure var, macro, protocol, record, test (deftest), multimethod or "
-       "one of its methods, spec (s/def), form of a project macro (lint-as) or namespace is defined. "
-       "Unlike grep, resolves the name the way the code does: a simple name, an alias-qualified "
+  (str "Find where Clojure vars, macros, protocols, records, tests (deftest), multimethods or "
+       "their methods, specs (s/def), forms of a project macro (lint-as) or namespaces are "
+       "defined, several names in one call. "
+       "Unlike grep, resolves each name the way the code does: a simple name, an alias-qualified "
        "name as written in some namespace (e.g. `c/get-uuid`) or a fully qualified one; "
        "a defmethod as name plus dispatch value (`area :circle`); a spec by keyword "
        "(`:app.core/uuid`, `::uuid`, `::c/uuid`); "
        "an ambiguous name returns the candidates. "
-       "Answer: one line per Definition (path:line  kind  ns/name  [arglists]  Type signature  "
-       "Docstring summary), "
-       "at most :output/limit lines and :output/max-chars characters. "
+       "Answer: one group per distinct name, laid out like `rg --heading`: a header line with "
+       "the name as asked (or `name: not found (checked N files, ...)`, or the ambiguity), then "
+       "one line per Definition (path:line  kind  ns/name  [arglists]  Type signature  "
+       "Docstring summary), a blank line between groups; "
+       "at most :output/limit Definitions and :output/max-chars characters, limit and offset "
+       "count Definitions across groups. "
        "With doc: \"full\", each Definition (path:line  kind  ns/name  [arglists]) is followed by "
-       "its whole docstring, indented by two spaces; limit and offset count Definitions, and a "
-       "docstring longer than :output/max-chars ends with `truncated: docstring shown A of B chars`. "
+       "its whole docstring, indented by two spaces; a docstring longer than :output/max-chars "
+       "ends with `truncated: docstring shown A of B chars`. "
        "Use get_source for the body. "
        tool/freshness-note))
 
@@ -32,13 +36,14 @@
   {:name "find_definition"
    :description description
    :inputSchema {:type "object"
-                 :properties (merge {:name {:type "string"
-                                            :description "Name: simple, alias-qualified or fully qualified; `multi dispatch-value` for a defmethod; a keyword for a spec"}
+                 :properties (merge {:names {:type "array"
+                                             :items {:type "string"}
+                                             :description "Names, each simple, alias-qualified or fully qualified; `multi dispatch-value` for a defmethod; a keyword for a spec"}
                                      :doc {:type "string"
                                            :enum ["summary" "full"]
                                            :description "\"summary\" (default): the Docstring summary on the Definition line; \"full\": the whole docstring under it"}}
                                     tool/paging-properties)
-                 :required ["name"]}})
+                 :required ["names"]}})
 
 ;; ---------------------------------------------------------------------------
 ;; Full docstrings
@@ -109,35 +114,34 @@
                         room)
     (text/ellipsis-cut room (full-doc-text finding))))
 
-(defn- full-doc-answer
-  "The `doc: \"full\"` answer for `name-str` that resolved to
-   `definitions`, one finding per Definition.
-
-  A finding that alone exceeds the Output budget has its docstring cut and
-  ends with the docstring Truncation note.
-
-  AnswerContext -> String -> [Definition] -> String"
-  [{:keys [budget index] :as ctx} name-str definitions]
-  (let [findings (mapv (partial full-doc-finding index) definitions)
-        answer (fn [header]
-                 (output/render-framed budget {:header header} findings
-                                       {:text-of full-doc-text :cut cut-full-doc}))]
-    (output/one-definition ctx name-str definitions
-                           (fn [_definition] (answer nil))
-                           (fn [candidates]
-                             (answer (output/ambiguous-header "definitions" name-str (count candidates)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Tool
 ;; ---------------------------------------------------------------------------
 
+(defn- name-group
+  "The AnswerGroup of `name-str` as the agent wrote it: headed by the
+   name, its Definitions as findings; a name that is not found or is
+   ambiguous says so in the header.
+
+  CodeIndex -> String -> AnswerGroup"
+  [index name-str]
+  (let [definitions (code-index/resolve-name index name-str)]
+    (case (count definitions)
+      0 {:header (str name-str ": not found " (output/checked index))}
+      1 {:header name-str :findings definitions}
+      {:header (output/ambiguous-header "definitions" name-str (count definitions))
+       :findings definitions})))
+
 (defmethod tool/call :find_definition
   [_tool-key params {:keys [config code-index]}]
-  (let [name-str (str (:name params))
-        ctx (output/answer-context config params code-index)
-        definitions (code-index/resolve-name code-index name-str)]
+  (let [{:keys [budget] :as ctx} (output/answer-context config params code-index)
+        groups (map (partial name-group code-index) (tool/strings (:names params)))]
     (tool/text-result
-     (if (= "full" (:doc params))
-       (full-doc-answer ctx name-str definitions)
-       (output/one-definition ctx name-str definitions
-                              #(output/render (:budget ctx) [(output/definition->line ctx %)]))))))
+     (cond
+       (empty? groups) "no names given"
+       (= "full" (:doc params))
+       (output/render-grouped budget groups
+                              {:text-of (comp full-doc-text (partial full-doc-finding code-index))
+                               :cut #(cut-full-doc %1 (full-doc-finding code-index %2))})
+       :else (output/render-grouped budget groups
+                                    {:text-of (partial output/definition->line ctx)})))))

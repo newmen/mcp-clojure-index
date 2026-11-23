@@ -780,6 +780,85 @@
                  auto-resolved? (some? (namespace def-name))
                  :else (nil? (namespace def-name)))))))
 
+(defn namespace-name?
+  "True when `ns-str` names a namespace defined in the project.
+
+  CodeIndex -> String -> Boolean"
+  [index ns-str]
+  (boolean (some (comp #{ns-str} str :name) (entries index :namespace-definitions))))
+
+(defn- namespace-alias-target
+  "The namespace that `alias-str` stands for in the `:require`s of the
+   namespace `ns-sym`, or nil.
+
+  CodeIndex -> Symbol -> String -> Maybe Symbol"
+  [index ns-sym alias-str]
+  (->> (entries index :namespace-usages)
+       (filter #(and (= ns-sym (:from %)) (= alias-str (str (:alias %)))))
+       (some :to)))
+
+(defn- own-definition?
+  "True when the namespace `ns-sym` defines a Definition named `simple-sym`
+   (a defmethod counts for its multimethod's namespace).
+
+  CodeIndex -> Symbol -> Symbol -> Boolean"
+  [index ns-sym simple-sym]
+  (boolean (some #(and (= simple-sym (:name %)) (= ns-sym (name-ns %))) (definitions index))))
+
+(defn- referred-namespace
+  "The namespace whose `simple-sym` the namespace `ns-sym` takes in with
+   `:refer`, or nil.
+
+  CodeIndex -> Symbol -> Symbol -> Maybe Symbol"
+  [index ns-sym simple-sym]
+  (->> (entries index :var-usages)
+       (filter #(and (:refer %) (= ns-sym (:from %)) (= simple-sym (:name %))))
+       (some :to)))
+
+(defn- qualify-keyword
+  "The auto-resolved keyword `keyword-str` (`::k`, `::alias/k`) as written
+   in the namespace `ns-sym`, fully qualified; nil for an unknown alias.
+
+  CodeIndex -> Symbol -> String -> Maybe String"
+  [index ns-sym keyword-str]
+  (let [[alias-str simple] (split-name (subs keyword-str 2))]
+    (some-> (if alias-str (namespace-alias-target index ns-sym alias-str) ns-sym)
+            (str "/" simple)
+            (#(str ":" %)))))
+
+(defn- qualify-symbol
+  "The symbol name `name-str` (with an optional dispatch value) as written
+   in the namespace `ns-sym`: an alias goes through its `:require`, a
+   simple name to the namespace's own Definition, then to its `:refer`s; a
+   qualified name or a namespace name stays as it is; nil otherwise.
+
+  CodeIndex -> Symbol -> String -> Maybe String"
+  [index ns-sym name-str]
+  (let [[head dispatch] (st/split name-str #"\s+" 2)
+        [ns-part simple] (split-name head)
+        simple-sym (symbol simple)
+        target-ns (if ns-part
+                    (namespace-alias-target index ns-sym ns-part)
+                    (or (when (own-definition? index ns-sym simple-sym) ns-sym)
+                        (referred-namespace index ns-sym simple-sym)))]
+    (cond target-ns (cond-> (str target-ns "/" simple) dispatch (str " " dispatch))
+          (namespace-name? index (or ns-part head)) name-str)))
+
+(defn qualify-in-namespace
+  "`name-str` as the source of the namespace `ns-str` would resolve it,
+   written fully qualified: `::k` as `:<ns>/k`, `::alias/k` and
+   `alias/name` through the namespace's `:require` aliases, a simple name
+   as its own Definition, then a `:refer`red one. A qualified name or
+   keyword stays as it is; nil when the name does not resolve there.
+
+  CodeIndex -> String -> String -> Maybe String"
+  [index ns-str name-str]
+  (let [ns-sym (symbol ns-str)
+        name-str (st/trim name-str)]
+    (cond (st/starts-with? name-str "::") (qualify-keyword index ns-sym name-str)
+          (st/starts-with? name-str ":") name-str
+          :else (qualify-symbol index ns-sym name-str))))
+
 (defn resolve-name
   "Definitions that `name-str` may denote: a simple name (`get-uuid`, or a
    namespace name), an alias-qualified name as written in some namespace

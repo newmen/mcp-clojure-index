@@ -61,6 +61,7 @@
                                                :description "End each Usage line with its Usage context (default true)"}
                                      :warnings_only {:type "boolean"
                                                      :description "Only Usages that carry a Usage warning (default false)"}}
+                                    tool/namespace-properties
                                     tool/paging-properties)
                  :required ["targets"]}})
 
@@ -115,15 +116,14 @@
        (or include-tests? (not (code-index/test-file? index filename)))
        (or (not warnings-only?) (some? warning))))
 
-(defn- target-group
-  "The TargetAnswer for one target as written by the agent.
+(defn- target-answer
+  "The TargetAnswer for the TargetResolution of `target-str`.
 
   Ambiguous candidates show no Type signature.
 
-  AnswerContext -> Maybe LineReader -> UsageFilter -> String -> IO TargetAnswer"
-  [{:keys [index] :as ctx} read-lines opts target-str]
-  (let [{:keys [target candidates]} (usages/resolve-target index target-str)
-        found (when (usages/has-usages? target)
+  AnswerContext -> Maybe LineReader -> UsageFilter -> String -> TargetResolution -> IO TargetAnswer"
+  [{:keys [index] :as ctx} read-lines opts target-str {:keys [target candidates]}]
+  (let [        found (when (usages/has-usages? target)
                 (filter (partial wanted? index opts) (usages/usages index target)))]
     (cond
       candidates {:header (output/ambiguous-header "definitions" target-str (count candidates))
@@ -140,6 +140,19 @@
                           (if (= 1 (count found)) " usage" " usages"))
              :findings (mapv (partial usage->line (code-index/root index) read-lines) found)})))
 
+(defn- target-group
+  "The TargetAnswer for one target as written by the agent, in the
+   namespace `ns-str` when one is given; a target that does not resolve
+   there is headed by the `not resolvable` line.
+
+  AnswerContext -> Maybe LineReader -> UsageFilter -> Maybe String -> String -> IO TargetAnswer"
+  [{:keys [index] :as ctx} read-lines opts ns-str target-str]
+  (let [{:keys [result unresolvable]}
+        (tool/lookup-in-namespace index ns-str (partial usages/resolve-target index)
+                                    (some-fn :target :candidates) target-str)]
+    (cond-> (target-answer ctx read-lines opts target-str result)
+      unresolvable (update :header (partial str unresolvable "\n")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Call
 ;; ---------------------------------------------------------------------------
@@ -151,10 +164,12 @@
               :context? (tool/flag params :context true)
               :warnings-only? (tool/flag params :warnings_only false)}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
+        ns-str (tool/namespace-arg params)
         {:keys [budget] :as ctx} (output/answer-context config params code-index)
-        groups (map (partial target-group ctx read-lines opts)
+        groups (map (partial target-group ctx read-lines opts ns-str)
                     (tool/distinct-strings (:targets params)))]
     (tool/text-result
-     (if (empty? groups)
-       "no targets given"
-       (output/render-grouped budget groups)))))
+     (or (tool/unknown-namespace code-index ns-str)
+         (if (empty? groups)
+           "no targets given"
+           (output/render-grouped budget groups))))))

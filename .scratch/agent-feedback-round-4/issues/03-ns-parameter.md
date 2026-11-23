@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] One shared `ns` schema field on the four tools: "Resolve names as written in this namespace (`::k`, aliases, :refer)".
-- [ ] `::k`, `::alias/k`, `alias/name` and bare names resolve in `ns`. Qualified names and keywords are unchanged.
-- [ ] In batches (`names`, `targets`) `ns` applies to every name. A name that does not resolve gets the fallback line as its group header.
-- [ ] An unknown `ns` answers only `unknown namespace: <ns>`.
-- [ ] Without `ns`, every answer is unchanged.
-- [ ] Tool-seam tests for each tool, including two namespaces with the same alias for different targets.
+- [x] One shared `ns` schema field on the four tools: "Resolve names as written in this namespace (`::k`, aliases, :refer)".
+- [x] `::k`, `::alias/k`, `alias/name` and bare names resolve in `ns`. Qualified names and keywords are unchanged.
+- [x] In batches (`names`, `targets`) `ns` applies to every name. A name that does not resolve gets the fallback line as its group header.
+- [x] An unknown `ns` answers only `unknown namespace: <ns>`.
+- [x] Without `ns`, every answer is unchanged.
+- [x] Tool-seam tests for each tool, including two namespaces with the same alias for different targets.

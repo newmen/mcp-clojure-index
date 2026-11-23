@@ -87,4 +87,40 @@
     (is (contains? names "find_implementations"))
     (is (empty? (filter #{"find_protocol" "find_record" "find_macro"} names)))
     (is (re-find #"grep" (:description spec)))
-    (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))))
+    (is (= #{:name :ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))))
+
+;; ---------------------------------------------------------------------------
+;; Names as written in a namespace
+;; ---------------------------------------------------------------------------
+
+(defn- ns-answer
+  "The answer text of `find_implementations` on the namespaces fixture.
+
+  ToolArgs -> IO String"
+  [args]
+  (project/answer-text project/config
+                       (tool/call :find_implementations args
+                                  {:config project/config :code-index (project/namespaces-index)})))
+
+(deftest name-resolves-as-written-in-the-given-namespace
+  (testing "one alias for different protocols"
+    (is (= "src/ns_app/one.clj:11  ns-app.one/OneStore  save"
+           (ns-answer {:name "store/Store" :ns "ns-app.one"})))
+    (is (= "src/ns_app/two.clj:11  ns-app.two/TwoStore  save"
+           (ns-answer {:name "store/Store" :ns "ns-app.two"}))))
+  (testing "one alias for different multimethods"
+    (is (= "src/ns_app/two.clj:13  :two  handle"
+           (ns-answer {:name "store/handle" :ns "ns-app.two"}))))
+  (testing "a bare name of the namespace's own Definition"
+    (is (= "src/ns_app/one.clj:13  :one  handle"
+           (ns-answer {:name "handle" :ns "ns-app.alpha"})))))
+
+(deftest name-not-resolvable-in-the-namespace-lists-all-candidates
+  (is (= (str "not resolvable in ns-app.one, all candidates:\n"
+              "ambiguous: 2 protocols or multimethods named Store, pass a qualified name\n"
+              "src/ns_app/alpha.clj:12  defprotocol  ns-app.alpha/Store\n"
+              "src/ns_app/beta.clj:12  defprotocol  ns-app.beta/Store")
+         (ns-answer {:name "Store" :ns "ns-app.one"}))))
+
+(deftest unknown-namespace-answers-only-that
+  (is (= "unknown namespace: ns-app.nope" (ns-answer {:name "Store" :ns "ns-app.nope"}))))

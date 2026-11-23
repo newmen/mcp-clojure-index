@@ -100,7 +100,7 @@
                    (tools/tool-definitions))]
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"ambiguous" (:description spec)))
-    (is (= #{:name :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
+    (is (= #{:name :ns :limit :offset} (set (keys (get-in spec [:inputSchema :properties])))))
     (is (= ["name"] (get-in spec [:inputSchema :required])))))
 
 (deftest source-line-longer-than-the-budget-ends-with-the-source-truncation-note
@@ -115,3 +115,42 @@
            (project/answer-text cfg
                                 (tool/call :get_source {:name "app.long-lines/country-codes" :offset 2}
                                            {:config cfg :code-index (code-index/build cfg)}))))))
+
+;; ---------------------------------------------------------------------------
+;; Names as written in a namespace
+;; ---------------------------------------------------------------------------
+
+(defn- ns-answer
+  "The answer text of `get_source` on the namespaces fixture.
+
+  ToolArgs -> IO String"
+  [args]
+  (project/answer-text project/config
+                       (tool/call :get_source args
+                                  {:config project/config :code-index (project/namespaces-index)})))
+
+(def ^:private beta-fetch-source
+  (str "src/ns_app/beta.clj:7-10\n"
+       "(defn fetch\n"
+       "  \"Fetches from beta.\"\n"
+       "  [id]\n"
+       "  id)"))
+
+(deftest name-resolves-as-written-in-the-given-namespace
+  (testing "alias/name"
+    (is (= beta-fetch-source (ns-answer {:name "store/fetch" :ns "ns-app.two"}))))
+  (testing "a referred bare name"
+    (is (= beta-fetch-source (ns-answer {:name "fetch" :ns "ns-app.two"}))))
+  (testing "::alias/k"
+    (is (= "src/ns_app/alpha.clj:5-5\n(s/def ::id string?)"
+           (ns-answer {:name "::store/id" :ns "ns-app.one"})))))
+
+(deftest name-not-resolvable-in-the-namespace-lists-all-candidates
+  (is (= (str "not resolvable in ns-app.alpha, all candidates:\n"
+              "ambiguous: 2 definitions named run, pass a qualified name\n"
+              "src/ns_app/one.clj:4  defn  ns-app.one/run  []  Runs on alpha.\n"
+              "src/ns_app/two.clj:4  defn  ns-app.two/run  []  Runs on beta.")
+         (ns-answer {:name "run" :ns "ns-app.alpha"}))))
+
+(deftest unknown-namespace-answers-only-that
+  (is (= "unknown namespace: ns-app.nope" (ns-answer {:name "fetch" :ns "ns-app.nope"}))))

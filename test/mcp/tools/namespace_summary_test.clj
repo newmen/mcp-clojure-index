@@ -49,27 +49,31 @@
    "108  s/def  ::render-options"
    "110  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [String] -> String OutputBudget -> [a] -> RenderOptions -> String"
    "126  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]  OutputBudget -> AnswerFrame -> [String] -> String OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String"
-   "148  s/def  ::what"
-   "150  s/def  ::text"
-   "152  s/def  ::finding-of"
-   "154  s/def  ::finding-cut"
-   "156  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String"
-   "164  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String"
-   "195  s/def  ::budget"
-   "197  s/def  ::index"
-   "199  s/def  ::signature-strategy"
-   "201  s/def  ::answer-context"
-   "203  defrecord  ->AnswerContext  [budget index signature-strategy]"
-   "203  defrecord  AnswerContext"
-   "203  defrecord  map->AnswerContext  [m]"
-   "205  defn  answer-context  [cfg args index]  Config -> ToolArgs -> CodeIndex -> AnswerContext"
-   "212  defn  checked  [index] [index include-tests?]  CodeIndex -> String CodeIndex -> Boolean -> String"
-   "226  defn  not-found  [index name-str]  CodeIndex -> String -> String"
-   "235  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]  CodeIndex -> Definition -> String"
-   "248  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]  AnswerContext -> Definition -> String AnswerContext -> Definition -> {:signature? Boolean} -> String"
-   "268  defn  ambiguous-header  [what name-str candidate-count]  String -> String -> Long -> String"
-   "276  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]  AnswerContext -> String -> String -> [Definition] -> String"
-   "287  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String"])
+   "148  s/def  ::findings"
+   "150  s/def  ::answer-group"
+   "152  defn-  grouped-findings  [groups offset]  [AnswerGroup] -> Long -> [{:prefix String :finding a}]"
+   "176  defn  render-grouped  [budget groups] [budget groups {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [AnswerGroup] -> String OutputBudget -> [AnswerGroup] -> RenderOptions -> String"
+   "203  s/def  ::what"
+   "205  s/def  ::text"
+   "207  s/def  ::finding-of"
+   "209  s/def  ::finding-cut"
+   "211  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String"
+   "219  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String"
+   "250  s/def  ::budget"
+   "252  s/def  ::index"
+   "254  s/def  ::signature-strategy"
+   "256  s/def  ::answer-context"
+   "258  defrecord  ->AnswerContext  [budget index signature-strategy]"
+   "258  defrecord  AnswerContext"
+   "258  defrecord  map->AnswerContext  [m]"
+   "260  defn  answer-context  [cfg args index]  Config -> ToolArgs -> CodeIndex -> AnswerContext"
+   "267  defn  checked  [index] [index include-tests?]  CodeIndex -> String CodeIndex -> Boolean -> String"
+   "281  defn  not-found  [index name-str]  CodeIndex -> String -> String"
+   "290  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]  CodeIndex -> Definition -> String"
+   "303  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]  AnswerContext -> Definition -> String AnswerContext -> Definition -> {:signature? Boolean} -> String"
+   "323  defn  ambiguous-header  [what name-str candidate-count]  String -> String -> Long -> String"
+   "331  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]  AnswerContext -> String -> String -> [Definition] -> String"
+   "342  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String"])
 
 (def ^:private output-unsigned-definitions
   "Hand-checked Definitions of `src/mcp/output.clj` in the default answer
@@ -213,7 +217,7 @@
       (is (= output-unsigned-definitions (butlast lines)))))
   (testing "detail adds only the Docstring summary"
     (let [lines (set (st/split-lines (answer unsigned-config {:ns "mcp.output" :detail true})))]
-      (is (contains? lines "205  defn  answer-context  [cfg args index]  The AnswerContext of a call with the tool's `args` on `index`. (+48 chars)"))
+      (is (contains? lines "260  defn  answer-context  [cfg args index]  The AnswerContext of a call with the tool's `args` on `index`. (+48 chars)"))
       (is (contains? lines "27  defrecord  OutputBudget")))))
 
 (deftest lists-namespaces-that-require-it

@@ -25,7 +25,12 @@ Every `defn`, `defn-` and `defmacro` has a docstring, in English, in the vocabul
 - `IO X`: the function has side effects (files, network, Qdrant, Ollama, atoms, logging). `IO ()`: no meaningful result. A function without `IO` must be pure.
 - Lowercase letters are type variables: `(a -> b) -> [a] -> [b]`.
 - A function argument is always written in parentheses with its own arrows: `(a -> b)`. A predicate is `(a -> Boolean)`. Never write `Any`, `Map` or a bare name for a function argument.
-- Capitalized names are domain types (`Definition`, `Usage`, `SearchUnit`, `Config`). Each must be defined with `clojure.spec` (`(s/def ::definition ...)`, the type name in PascalCase, the spec key in kebab-case) in its owning namespace. A type that is a `GLOSSARY.md` term uses the term's name. Never use an undefined type name. Use `Map` and `Any` only for truly arbitrary values.
+- Built-in types need no spec:
+  - Values: `String`, `Long`, `Double`, `Boolean`, `Symbol`, `Keyword`, `UUID`, and `Pattern` (a regex).
+  - `Map` and `Any`.
+  - Type constructors: `Maybe X`, `IO X`, `Atom X` (an atom holding an `X`).
+  - JVM classes by their simple name, such as `File` or `OutputStreamWriter`.
+- Every other capitalized name is a domain type (`Definition`, `Usage`, `SearchUnit`, `Config`). Each must be defined with `clojure.spec` (`(s/def ::definition ...)`, the type name in PascalCase, the spec key in kebab-case) in its owning namespace. A type that is a `GLOSSARY.md` term uses the term's name. Never use an undefined type name. Use `Map` and `Any` only for truly arbitrary values.
 - Prefer destructuring in the arglist to show the map keys a function uses.
 
 ```clojure

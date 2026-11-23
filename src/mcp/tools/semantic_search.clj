@@ -46,8 +46,8 @@
   (str "semantic search unavailable (Qdrant or Ollama not reachable); " precise-tools-note))
 
 (def ^:private lost-collection-answer
-  (str "semantic search unavailable: the Qdrant collection was deleted or replaced, "
-       "every file is being embedded again; " precise-tools-note))
+  (str "semantic search unavailable: the Qdrant collection was deleted, emptied or replaced, "
+       "every file will be embedded again; " precise-tools-note))
 
 ;; ---------------------------------------------------------------------------
 ;; Answer
@@ -117,6 +117,9 @@
     (when (< best (config/setting config :search/min-relevance))
       (format "no confident matches (best %.2f), try rephrasing" best))))
 
+;; Besides answering, `semantic_search` checks the collection of the
+;; SemanticIndex before searching it and, when it was deleted, emptied or
+;; replaced, makes the SemanticIndex forget it, so the next sync rebuilds it.
 (defmethod tool/call :semantic_search
   [_tool-key params {:keys [config code-index semantic-index]}]
   (let [query (st/trim (str (:query params)))
@@ -125,6 +128,7 @@
      (if (st/blank? query)
        "query is empty"
        (try
+         (some-> semantic-index semantic-index/verify-collection!)
          (let [hits (search/search config query
                                    (search-units/search-units code-index)
                                    (if include-tests? #{} (test-files code-index))
@@ -139,6 +143,6 @@
                                    lines)))
          (catch Exception e
            (log/warn "semantic_search unavailable:" (.getMessage e))
-           (if (some-> semantic-index (semantic-index/forget-lost-collection! e))
+           (if (some-> semantic-index (semantic-index/forget-if-collection-lost! e))
              (with-note lost-collection-answer (stale-note semantic-index code-index))
              unavailable-answer)))))))

@@ -73,11 +73,12 @@
 
 (defn prepare!
   "Makes sure the collection exists in the current payload format and for
-   the configured embedding model, dropping a collection of an older
-   format or another model (or any, with `:qdrant/recreate?`), and learns
-   which files it already holds. A new collection takes vectors of the
-   size the model returns; only then is Ollama asked, so a current
-   collection is used without it.
+   the configured embedding model, dropping any other collection: one of
+   an older format or another model, an empty one (it may take vectors of
+   another size), or any with `:qdrant/recreate?`; then learns which files
+   it already holds. A new collection takes vectors of the size the model
+   returns; only then is Ollama asked, so a current collection is used
+   without it.
 
   SemanticIndex -> IO ()"
   [{cfg :config state :state}]
@@ -87,18 +88,30 @@
     (when-not current?
       (let [vector-size (count (first (embeddings/generate ["vector size"] cfg)))]
         (when layout
-          (log/info "Dropping Qdrant collection of" layout)
-          (qdrant/delete-collection! cfg))
+          (log/info "Dropping Qdrant collection of" layout))
+        (qdrant/delete-collection! cfg)
         (qdrant/create-collection! cfg vector-size)))
     (swap! state assoc
            :embedded (if current? (qdrant/embedded-files cfg) {})
            :prepared? true)))
 
-(defn forget-lost-collection!
+(defn verify-collection!
+  "Throws, as `qdrant/collection-lost?` recognises, when the prepared
+   collection was deleted, emptied or replaced by one of another
+   CollectionLayout (by another server instance or by hand). Does nothing
+   while the collection is not prepared: `prepare!` checks it then.
+
+  SemanticIndex -> IO ()"
+  [{cfg :config state :state}]
+  (let [{:keys [prepared? embedded]} @state]
+    (when prepared?
+      (qdrant/verify-layout! cfg (boolean (seq embedded))))))
+
+(defn forget-if-collection-lost!
   "Forgets that the collection was prepared and what it holds when `e`
-   says it was deleted or replaced (by another server instance or by
-   hand), so every file is stale and the next sync prepares and fills it
-   again. Returns whether it did.
+   says it was deleted, emptied or replaced, so every file is stale and
+   the next sync prepares and fills it again. Returns true when it did,
+   false when `e` is another failure and nothing changed.
 
   SemanticIndex -> Exception -> IO Boolean"
   [{state :state} e]
@@ -110,7 +123,9 @@
 
 (defn- store-file!
   "Replaces the points of `file-path` with its Search `units` and their
-   `vectors`, and records the mtime they were built from.
+   `vectors`, and records the mtime they were built from, unless the
+   collection was found lost meanwhile (by `semantic_search`): then the
+   file stays stale, so the next sync stores it in the prepared collection.
 
   SemanticIndex -> CodeIndex -> String -> [SearchUnit] -> [Embedding] -> IO ()"
   [{cfg :config state :state} index file-path units vectors]
@@ -118,33 +133,55 @@
   (if-let [mtime (get (code-index/file-mtimes index) file-path)]
     (do (when (seq units)
           (qdrant/upsert! cfg units vectors mtime))
-        (swap! state assoc-in [:embedded file-path] mtime))
+        (swap! state (fn [{:keys [prepared?] :as current}]
+                       (cond-> current
+                         prepared? (assoc-in [:embedded file-path] mtime)))))
     (swap! state update :embedded dissoc file-path)))
 
-(defn sync!
-  "Recomputes and stores the embeddings of the stale files of `index`,
-   synchronously. Failures are logged and leave the files stale; one
-   saying the collection was deleted or replaced makes every file stale.
+(defn- embed-stale-files!
+  "Prepares the collection, or verifies the prepared one, then recomputes
+   and stores the embeddings of the stale files of `index`. Throws on
+   failure.
 
   SemanticIndex -> CodeIndex -> IO ()"
   [{cfg :config state :state :as semantic-index} index]
-  (try
-    (when-not (:prepared? @state)
-      (prepare! semantic-index))
-    (let [stale (stale-files semantic-index index)
-          units (search-units/file-search-units index stale)
-          vectors (embeddings/embed-units cfg units)
-          by-file (group-by (comp :filename first) (map vector units vectors))]
-      (doseq [file-path stale
-              :let [pairs (get by-file file-path)]]
-        (store-file! semantic-index index file-path (mapv first pairs) (mapv second pairs)))
-      (when (seq stale)
-        (log/info "Embeddings updated for" (count stale) "files"))
-      (swap! state dissoc :failed-at))
-    (catch Exception e
-      (log/warn "Embeddings not updated, semantic search is stale:" (.getMessage e))
-      (forget-lost-collection! semantic-index e)
-      (swap! state assoc :failed-at (System/currentTimeMillis)))))
+  (if (:prepared? @state)
+    (verify-collection! semantic-index)
+    (prepare! semantic-index))
+  (let [stale (stale-files semantic-index index)
+        units (search-units/file-search-units index stale)
+        vectors (embeddings/embed-units cfg units)
+        by-file (group-by (comp :filename first) (map vector units vectors))]
+    (doseq [file-path stale
+            :let [pairs (get by-file file-path)]]
+      (store-file! semantic-index index file-path (mapv first pairs) (mapv second pairs)))
+    (when (seq stale)
+      (log/info "Embeddings updated for" (count stale) "files"))))
+
+(defn sync!
+  "Recomputes and stores the embeddings of the stale files of `index`,
+   synchronously. Failures are logged and leave the files stale. One
+   saying the collection was deleted, emptied or replaced makes every
+   file stale and is retried at once, once: the retry prepares the
+   collection and embeds every file.
+
+  SemanticIndex -> CodeIndex -> IO ()"
+  [{state :state :as semantic-index} index]
+  (loop [attempts-left 2]
+    (let [failure (try
+                    (embed-stale-files! semantic-index index)
+                    nil
+                    (catch Exception e e))]
+      (cond
+        (nil? failure)
+        (swap! state dissoc :failed-at)
+
+        (and (forget-if-collection-lost! semantic-index failure) (> attempts-left 1))
+        (recur (dec attempts-left))
+
+        :else
+        (do (log/warn "Embeddings not updated, semantic search is stale:" (.getMessage ^Exception failure))
+            (swap! state assoc :failed-at (System/currentTimeMillis)))))))
 
 (defn- retry-due?
   "True unless the last sync failed less than `retry-after-ms` ago.

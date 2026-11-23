@@ -9,7 +9,9 @@
             [mcp.search-units :as search-units]
             [mcp.semantic-index :as sut]
             [mcp.test-project :as project])
-  (:import (java.io File)
+  (:import (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
+           (java.io File)
+           (java.net InetSocketAddress)
            (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 
@@ -48,14 +50,16 @@
   (atom {}))
 
 (defmacro ^:private with-services
-  "Runs `body` with Qdrant backed by `points` and Ollama embedding every
-   text as a constant vector.
+  "Runs `body` with Qdrant backed by `points`, of the current
+   CollectionLayout while it holds any, and Ollama embedding every text as
+   a constant vector.
 
   Atom {UUID SearchUnit} -> & Any -> IO a"
   [points & body]
   `(with-redefs [embeddings/generate (fn [texts# _cfg#] (mapv (constantly [0.1 0.2]) texts#))
-                 qdrant/stored-layout (fn [_cfg#] nil)
+                 qdrant/stored-layout (fn [cfg#] (when (seq @~points) (qdrant/current-layout cfg#)))
                  qdrant/create-collection! (fn [_cfg# _vector-size#] nil)
+                 qdrant/delete-collection! (fn [_cfg#] (reset! ~points {}))
                  qdrant/embedded-files (fn [_cfg#] {})
                  qdrant/delete! (fn [_cfg# file-path#]
                                   (swap! ~points #(into {} (remove (comp #{file-path#} :filename val)) %)))
@@ -122,33 +126,138 @@
           (sut/sync! semantic-index @fixture-index)))
       (is (= 6 (count (sut/stale-files semantic-index @fixture-index)))))))
 
-(defn- collection-missing
-  "Throws what the Qdrant adapter throws for a collection that is gone.
+(defn- qdrant-failure
+  "The exception the Qdrant adapter throws for a write that a stand-in
+   Qdrant answers with `status` and the error `message`.
 
-  & Any -> IO a"
-  [& _args]
-  (throw (ex-info "Qdrant delete failed" {:qdrant/status 404 :body nil :url "http://localhost/collections/x"})))
+  Long -> String -> IO Exception"
+  [status message]
+  (let [server (HttpServer/create (InetSocketAddress. "localhost" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_this http-exchange]
+                        (let [^HttpExchange exchange http-exchange
+                              ^bytes body (.getBytes (str "{\"status\":{\"error\":\"" message "\"}}") "UTF-8")]
+                          (.sendResponseHeaders exchange (int status) (long (alength body)))
+                          (with-open [out (.getResponseBody exchange)]
+                            (.write out body))))))
+    (.start server)
+    (try
+      (qdrant/delete! (assoc (services-config) :qdrant/port (.getPort (.getAddress server))) "/proj/a.clj")
+      nil
+      (catch Exception e e)
+      (finally
+        (.stop server 0)))))
+
+(def ^:private collection-gone
+  (delay (qdrant-failure 404 "Not found: Collection `x` doesn't exist!")))
+
+(def ^:private vector-size-mismatch
+  (delay (qdrant-failure 400 "Wrong input: Vector dimension error: expected dim: 1024, got 2")))
+
+(defn- created-during
+  "Runs `f` counting the collections it creates; the count.
+
+  (() -> IO a) -> IO Long"
+  [f]
+  (let [created (atom 0)]
+    (with-redefs [qdrant/create-collection! (fn [_cfg _vector-size] (swap! created inc))]
+      (f))
+    @created))
 
 (deftest sync-after-the-collection-was-deleted-recreates-it-and-re-embeds-every-file
   (let [points (fake-qdrant)
         semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
-        edited (update-in @fixture-index [:files inventory :mtime] inc)
-        created (atom 0)]
+        edited (update-in @fixture-index [:files inventory :mtime] inc)]
     (with-services points
       (sut/sync! semantic-index @fixture-index)
       (reset! points {})
-      (with-redefs [qdrant/delete! collection-missing
-                    qdrant/upsert! collection-missing]
-        (sut/sync! semantic-index edited))
-      (testing "every file is stale once the collection is known to be gone"
-        (is (= 6 (count (sut/stale-files semantic-index edited)))))
-      (with-redefs [qdrant/create-collection! (fn [_cfg _vector-size] (swap! created inc))]
-        (sut/sync! semantic-index edited)))
-    (is (= 1 @created))
+      (is (= 1 (created-during #(sut/sync! semantic-index edited)))))
     (is (= (set (map :id (search-units/search-units edited)))
            (set (keys @points))))
     (is (= [] (sut/stale-files semantic-index edited)))))
+
+(deftest sync-whose-writes-keep-finding-the-collection-gone-retries-once-and-keeps-every-file-stale
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        edited (update-in @fixture-index [:files inventory :mtime] inc)
+        gone @collection-gone]
+    (with-services points
+      (sut/sync! semantic-index @fixture-index)
+      (reset! points {})
+      (is (= 1 (created-during
+                #(with-redefs [qdrant/delete! (fn [_cfg _file-path] (throw gone))]
+                   (sut/sync! semantic-index edited)))))
+      (testing "every file is stale once the collection is known to be gone"
+        (is (= 6 (count (sut/stale-files semantic-index edited))))
+        (is (some? (:failed-at @(:state semantic-index)))))
+      (is (= 1 (created-during #(sut/sync! semantic-index edited)))))
+    (is (= (set (map :id (search-units/search-units edited)))
+           (set (keys @points))))
+    (is (= [] (sut/stale-files semantic-index edited)))))
+
+(deftest sync-into-a-collection-of-another-vector-size-recreates-it-at-once
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        edited (update-in @fixture-index [:files inventory :mtime] inc)
+        mismatch @vector-size-mismatch
+        replaced? (atom false)]
+    (with-services points
+      (sut/sync! semantic-index @fixture-index)
+      (let [upsert! qdrant/upsert!]
+        (testing "replaced by an empty collection of another vector size after the check"
+          (is (= 1 (created-during
+                    #(with-redefs [qdrant/upsert! (fn [cfg units vectors mtime]
+                                                    (when-not (first (reset-vals! replaced? true))
+                                                      (reset! points {})
+                                                      (throw mismatch))
+                                                    (upsert! cfg units vectors mtime))]
+                       (sut/sync! semantic-index edited))))))))
+    (is (= (set (map :id (search-units/search-units edited)))
+           (set (keys @points))))
+    (is (= [] (sut/stale-files semantic-index edited)))
+    (is (nil? (:failed-at @(:state semantic-index))))))
+
+(deftest sync-finding-the-collection-replaced-recreates-it
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        edited (update-in @fixture-index [:files inventory :mtime] inc)
+        replaced? (atom true)
+        stored-layout qdrant/stored-layout]
+    (with-services points
+      (sut/sync! semantic-index @fixture-index)
+      (is (= 1 (created-during
+                #(with-redefs [qdrant/stored-layout (fn [cfg]
+                                                      (if @replaced?
+                                                        {:format qdrant/payload-format :model "another-model"}
+                                                        (stored-layout cfg)))
+                               qdrant/delete-collection! (fn [_cfg] (reset! points {}) (reset! replaced? false))]
+                   (sut/sync! semantic-index edited))))))
+    (is (= (set (map :id (search-units/search-units edited)))
+           (set (keys @points))))
+    (is (= [] (sut/stale-files semantic-index edited)))))
+
+(deftest a-collection-found-lost-during-a-sync-leaves-the-files-it-stores-stale
+  (let [semantic-index (sut/create (services-config))
+        gone @collection-gone]
+    (with-services (fake-qdrant)
+      (with-redefs [embeddings/embed-units (fn [_cfg units]
+                                             (is (true? (sut/forget-if-collection-lost! semantic-index gone)))
+                                             (mapv (constantly [0.1 0.2]) units))]
+        (sut/sync! semantic-index @fixture-index)))
+    (is (= 6 (count (sut/stale-files semantic-index @fixture-index))))
+    (is (false? (:prepared? @(:state semantic-index))))))
+
+(deftest only-a-lost-collection-is-forgotten
+  (let [semantic-index (sut/create (services-config))]
+    (swap! (:state semantic-index) assoc :prepared? true :embedded {"/proj/a.clj" 1})
+    (is (false? (sut/forget-if-collection-lost! semantic-index (ex-info "Connection refused" {}))))
+    (is (= {:prepared? true :embedded {"/proj/a.clj" 1}}
+           (select-keys @(:state semantic-index) [:prepared? :embedded])))))
 
 (defn- prepare-calls
   "The collection operations and embedding requests (`:embed`) `prepare!`
@@ -175,8 +284,8 @@
 (def ^:private current-model
   (:ollama/embedding-model project/config))
 
-(deftest prepare-creates-a-missing-collection-with-the-vector-size-of-the-model
-  (is (= {:calls [:embed [:create 3]] :stale 6} (prepare-calls nil))))
+(deftest prepare-recreates-a-missing-or-empty-collection-with-the-vector-size-of-the-model
+  (is (= {:calls [:embed :delete [:create 3]] :stale 6} (prepare-calls nil))))
 
 (deftest prepare-recreates-an-old-format-collection
   (is (= {:calls [:embed :delete [:create 3]] :stale 6}

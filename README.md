@@ -143,7 +143,7 @@ lein uberjar
 java -jar target/mcp-0.1.0-SNAPSHOT-standalone.jar resources/config.edn
 ```
 
-The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. It analyses the project with clj-kondo at startup (in memory only) and computes embeddings of Search units in the background; on later runs only files changed since their embeddings were stored are re-embedded. A Qdrant collection of the old format is dropped and recreated. If the collection is deleted while the server runs, or replaced by one of another payload format, embedding model or vector size (by hand or by another server instance), the server notices on the next write or semantic search and embeds every file again. Two instances with different embedding models sharing one `:qdrant/collection` keep replacing each other's collection; give them different collection names.
+The server starts in STDIO mode and waits for JSON-RPC 2.0 messages. It analyses the project with clj-kondo at startup (in memory only) and computes embeddings of Search units in the background; on later runs only files changed since their embeddings were stored are re-embedded. A Qdrant collection of the old format is dropped and recreated. If the collection is deleted or emptied while the server runs, or replaced by one of another payload format, embedding model or vector size (by hand or by another server instance), the server notices on the next embedding update or semantic search and embeds every file again. Two instances with different embedding models sharing one `:qdrant/collection` keep replacing each other's collection; give them different collection names.
 
 ## Integration with Kilo Code
 

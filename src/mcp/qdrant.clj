@@ -49,7 +49,9 @@
 
 (def ^:private vector-size-error
   "What Qdrant's error message of a 400 answer contains when the
-   collection takes vectors of another size.
+   collection takes vectors of another size. Qdrant gives no error code
+   for it, so this depends on the wording of its message (\"Wrong input:
+   Vector dimension error: expected dim: 1024, got 768\").
 
   Pattern"
   #"(?i)vector dimension")
@@ -91,19 +93,21 @@
   (let [{:keys [status] :as response} (request method url body-map)]
     (when-not (contains? statuses status)
       (throw (ex-info (str "Qdrant " description " failed")
-                      {:qdrant/status status :body (:body response) :url url})))
+                      {:qdrant/status status :qdrant/body (:body response) :qdrant/url url})))
     response))
 
 (defn collection-lost?
   "True when `e` was thrown by an operation of this namespace because the
-   collection was deleted (404) or replaced by one of another layout: its
-   points were stored with another CollectionLayout, or it takes vectors
-   of another size (400). Failures of other services are never this.
+   collection was deleted (404), emptied or replaced by one of another
+   layout: `verify-layout!` found points of another CollectionLayout, or
+   the collection takes vectors of another size (400). Every key this
+   namespace puts in ex-data is in the `qdrant` namespace, so failures of
+   other services (Ollama's `:status`) are never this.
 
   Exception -> Boolean"
   [e]
-  (let [{:keys [foreign-layout body] status :qdrant/status} (ex-data e)]
-    (boolean (or foreign-layout
+  (let [{status :qdrant/status body :qdrant/body lost? :qdrant/lost?} (ex-data e)]
+    (boolean (or lost?
                  (= 404 status)
                  (and (= 400 status)
                       (re-find vector-size-error (str (get-in body [:status :error]))))))))
@@ -128,15 +132,17 @@
   (request! :delete (collection-url cfg) nil "delete collection" #{200 404}))
 
 (defn- scroll
-  "Reads one page of at most `limit` points, with the payload keys
+  "Reads one page of at most `limit` points matching the Qdrant filter
+   `point-filter` (all points when nil), with the payload keys
    `payload-keys`, starting at `page-offset` (nil for the first page).
 
-  Config -> Maybe String -> Long -> [String] -> IO ScrollPage"
-  [cfg page-offset limit payload-keys]
+  Config -> Maybe Map -> Maybe String -> Long -> [String] -> IO ScrollPage"
+  [cfg point-filter page-offset limit payload-keys]
   (let [{:keys [body]} (request! :post (str (collection-url cfg) "/points/scroll")
                                  (cond-> {:limit limit
                                           :with_payload payload-keys
                                           :with_vector false}
+                                   point-filter (assoc :filter point-filter)
                                    page-offset (assoc :offset page-offset))
                                  "scroll" #{200})]
     {:points (get-in body [:result :points])
@@ -160,16 +166,51 @@
   {:format (:format payload 1)
    :model (:model payload)})
 
+(defn- foreign-points-filter
+  "The Qdrant filter matching the points not stored with the
+   `current-layout`, those of the old chunk format (no \"model\") among
+   them.
+
+  Config -> Map"
+  [cfg]
+  (let [{:keys [format model]} (current-layout cfg)]
+    {:must_not [{:must [{:key "format" :match {:value format}}
+                        {:key "model" :match {:value model}}]}]}))
+
+(defn- first-point
+  "Reads one point matching `point-filter` (any point when nil), with its
+   format and model; nil when there is none.
+
+  Config -> Maybe Map -> IO (Maybe Point)"
+  [cfg point-filter]
+  (first (:points (scroll cfg point-filter nil 1 ["format" "model"]))))
+
 (defn stored-layout
-  "Reads the payload format and embedding model of the points in the
-   collection: nil when it is missing or empty, format 1 for points of the
-   old chunk format.
+  "Reads the CollectionLayout of the points in the collection: that of a
+   point stored with another layout than the `current-layout` when there
+   is one, so a collection mixing layouts is never taken for current; nil
+   when the collection is missing or empty.
 
   Config -> IO (Maybe CollectionLayout)"
   [cfg]
   (let [{:keys [status]} (request :get (collection-url cfg) nil)]
     (when-not (= 404 status)
-      (some-> (first (:points (scroll cfg nil 1 ["format" "model"]))) point-layout))))
+      (some-> (or (first-point cfg (foreign-points-filter cfg))
+                  (first-point cfg nil))
+              point-layout))))
+
+(defn verify-layout!
+  "Throws, as `collection-lost?` recognises, unless the collection holds
+   only points of the `current-layout`. A missing or empty collection
+   passes unless `holds-points?` says this server stored points in it.
+
+  Config -> Boolean -> IO ()"
+  [cfg holds-points?]
+  (let [layout (stored-layout cfg)]
+    (when-not (or (= (current-layout cfg) layout)
+                  (and (nil? layout) (not holds-points?)))
+      (throw (ex-info "Qdrant collection was deleted, emptied or replaced"
+                      {:qdrant/lost? true :qdrant/layout layout :qdrant/url (collection-url cfg)})))))
 
 (defn embedded-files
   "Reads the mtime of each file whose points the collection holds; a file
@@ -179,7 +220,7 @@
   [cfg]
   (loop [page-offset nil
          mtimes-by-file {}]
-    (let [{:keys [points next]} (scroll cfg page-offset scroll-batch-size ["filename" "mtime"])
+    (let [{:keys [points next]} (scroll cfg nil page-offset scroll-batch-size ["filename" "mtime"])
           mtimes-by-file (reduce (fn [acc {{:keys [filename mtime]} :payload}]
                                    (update acc filename (fnil conj #{}) mtime))
                                  mtimes-by-file
@@ -243,19 +284,15 @@
 (defn search
   "Finds the `top-k` points nearest to `query-vector`, leaving out in
    Qdrant the points of `excluded-files` (absolute paths), so they take
-   none of the `top-k` places. Throws, as `collection-lost?` recognises,
-   when a point found was stored with another CollectionLayout.
+   none of the `top-k` places.
 
   Config -> Embedding -> Long -> #{String} -> IO [ScoredUnit]"
   [cfg query-vector top-k excluded-files]
-  (let [points (-> (request! :post (str (collection-url cfg) "/points/search")
-                             (cond-> {:vector query-vector :limit top-k :with_payload true :with_vector false}
-                               (seq excluded-files)
-                               (assoc :filter {:must_not [{:key "filename" :match {:any (vec (sort excluded-files))}}]}))
-                             "search" #{200})
-                   (get-in [:body :result]))
-        layout (current-layout cfg)]
-    (when-let [foreign (->> points (map point-layout) (remove #{layout}) first)]
-      (throw (ex-info "Qdrant collection holds points of another layout"
-                      {:foreign-layout foreign :url (collection-url cfg)})))
-    (mapv (fn [point] {:unit (point->unit point) :score (:score point 0.0)}) points)))
+  (->> (request! :post (str (collection-url cfg) "/points/search")
+                 (cond-> {:vector query-vector :limit top-k :with_payload true :with_vector false}
+                   (seq excluded-files)
+                   (assoc :filter {:must_not [{:key "filename" :match {:any (vec (sort excluded-files))}}]}))
+                 "search" #{200})
+       :body
+       :result
+       (mapv (fn [point] {:unit (point->unit point) :score (:score point 0.0)}))))

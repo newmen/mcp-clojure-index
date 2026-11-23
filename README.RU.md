@@ -261,15 +261,19 @@ src/mcp/output.clj:25  defn  mcp.output/relative-path  [root-path file-path]  Re
       По умолчанию: все типы.
   include_tests (boolean, по умолчанию true)
   context (boolean, по умолчанию true) — добавлять к строке контекст (Usage context)
+  warnings_only (boolean, по умолчанию false) — только использования с предупреждением
+                                                (Usage warning)
   limit, offset
 
 Ответ:
   Для каждой цели — заголовок `target: N usages`,
   затем одна строка на каждое использование (Usage):
-  path:line:col  usage-kind  ns/enclosing-definition  context
+  path:line:col  usage-kind  ns/enclosing-definition  context  warning
 ```
 
 Контекст (Usage context) — до 80 символов строки исходника вокруг использования, серии пробелов схлопнуты; `…` отмечает обрезанный конец.
+
+Предупреждение (Usage warning) завершает строку, если оно есть: `wrong arity: 3 args, takes 1|2` (`takes 2+` для varargs) — у вызова число аргументов не совпадает ни с одной арностью цели.
 
 Если ничего не найдено, сервер сообщает, что именно было проверено. Например:
 

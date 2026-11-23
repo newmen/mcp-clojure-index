@@ -4,8 +4,8 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Wrong arity is marked for fixed and varargs targets; correct calls, `value` and `var-ref` Usages are not.
-- [ ] `warnings_only` returns only marked Usages and reports an empty result as usual.
-- [ ] Acceptance case 9.
+- [x] Wrong arity is marked for fixed and varargs targets; correct calls, `value` and `var-ref` Usages are not.
+- [x] `warnings_only` returns only marked Usages and reports an empty result as usual.
+- [x] Acceptance case 9.

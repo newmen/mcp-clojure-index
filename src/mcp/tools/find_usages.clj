@@ -33,8 +33,11 @@
        "`comment` (kind in-comment). "
        "Answer: grouped by target, one line per Usage (path:line:col  usage-kind  "
        "ns/enclosing-definition  context), where context is up to 80 characters of the source "
-       "line around the Usage, whitespace collapsed (`context: false` leaves it out); at most :output/limit lines and :output/max-chars characters; "
-       "`kinds` and `include_tests` narrow it. "
+       "line around the Usage, whitespace collapsed (`context: false` leaves it out), then a Usage "
+       "warning if one holds: `wrong arity: 3 args, takes 1|2` (`takes 2+` for varargs) on a call "
+       "whose argument count matches no arity of the target; at most :output/limit lines and "
+       ":output/max-chars characters; `kinds`, `include_tests` and `warnings_only` (only Usages "
+       "with a Usage warning) narrow it. "
        tool/freshness-note))
 
 (defmethod tool/spec :find_usages
@@ -51,7 +54,9 @@
                                      :include_tests {:type "boolean"
                                                      :description "Include Usages in test files (default true)"}
                                      :context {:type "boolean"
-                                               :description "End each Usage line with its Usage context (default true)"}}
+                                               :description "End each Usage line with its Usage context (default true)"}
+                                     :warnings_only {:type "boolean"
+                                                     :description "Only Usages that carry a Usage warning (default false)"}}
                                     tool/paging-properties)
                  :required ["targets"]}})
 
@@ -70,9 +75,10 @@
 ;;
 ;; {:kinds          #{"call" ...}   ; only these Usage kinds; empty for all
 ;;  :include-tests? true            ; false drops Usages under Test paths
-;;  :context?       true}           ; false leaves Usage context out
+;;  :context?       true            ; false leaves Usage context out
+;;  :warnings-only? false}          ; true keeps only Usages with a Usage warning
 
-(s/def ::usage-filter (s/keys :req-un [::kinds ::include-tests? ::context?]))
+(s/def ::usage-filter (s/keys :req-un [::kinds ::include-tests? ::context? ::warnings-only?]))
 
 ;; A LineReader gives the source lines of a file by its absolute path,
 ;; reading each file at most once per call.
@@ -107,23 +113,27 @@
 
 (defn- usage->line
   "The Compact answer line of a Usage: `path:line:col  kind  enclosing`,
-   followed by its Usage context when `read-lines` is given.
+   followed by its Usage context when `read-lines` is given and by its
+   Usage warning, if any.
 
   String -> Maybe LineReader -> Usage -> IO String"
-  [root read-lines {:keys [filename row col kind enclosing]}]
+  [root read-lines {:keys [filename row col kind enclosing warning]}]
   (let [line (when read-lines (get (read-lines filename) (dec row)))]
     (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
       (not (st/blank? enclosing)) (str "  " enclosing)
-      (not (st/blank? line)) (str "  " (usage-context line col)))))
+      (not (st/blank? line)) (str "  " (usage-context line col))
+      warning (str "  " warning))))
 
 (defn- wanted?
-  "True when `usage` is of one of the asked `kinds` (all when empty) and,
-   unless tests are included, outside the Test paths.
+  "True when `usage` is of one of the asked `kinds` (all when empty),
+   outside the Test paths unless tests are included, and, when only
+   warnings are asked for, carries a Usage warning.
 
   CodeIndex -> UsageFilter -> Usage -> Boolean"
-  [index {:keys [kinds include-tests?]} {:keys [filename kind]}]
+  [index {:keys [kinds include-tests? warnings-only?]} {:keys [filename kind warning]}]
   (and (or (empty? kinds) (contains? kinds kind))
-       (or include-tests? (not (code-index/test-file? index filename)))))
+       (or include-tests? (not (code-index/test-file? index filename)))
+       (or (not warnings-only?) (some? warning))))
 
 (defn- target-group
   "The TargetAnswer for one target as written by the agent.
@@ -184,7 +194,8 @@
   [_tool-key params {:keys [config code-index]}]
   (let [opts {:kinds (set (as-strings (:kinds params)))
               :include-tests? (not (false? (:include_tests params)))
-              :context? (not (false? (:context params)))}
+              :context? (not (false? (:context params)))
+              :warnings-only? (true? (:warnings_only params))}
         read-lines (when (:context? opts) (memoize code-index/file-lines))
         groups (map (partial target-group code-index read-lines opts)
                     (distinct (as-strings (:targets params))))

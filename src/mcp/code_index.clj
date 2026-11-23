@@ -427,6 +427,9 @@
 ;;  :filename "/abs/src/mcp/output.clj"
 ;;  :row 25 :col 1 :end-row 33 :end-col 20   ; whole form, :end-col exclusive
 ;;  :arglists ["[root-path file-path]"]
+;;  :fixed-arities #{2}             ; only for a function or macro: its fixed
+;;  :varargs-min-arity 1            ;  arities and the least argument count of
+;;                                  ;  its varargs arity (clj-kondo)
 ;;  :doc      "Return ..."
 ;;  :private  true}                 ; only when private
 ;;
@@ -436,7 +439,8 @@
 
 (s/def ::definition
   (s/keys :req-un [::name ::kind ::filename ::row ::col ::end-row ::end-col]
-          :opt-un [::ns ::dispatch ::multimethod-ns ::arglists ::doc ::private]))
+          :opt-un [::ns ::dispatch ::multimethod-ns ::arglists ::doc ::private
+                   ::fixed-arities ::varargs-min-arity]))
 
 (def ^:private range-keys [:row :col :end-row :end-col])
 
@@ -445,7 +449,8 @@
 
   AnalysisEntry -> Definition"
   [{:keys [defined-by protocol-name arglist-strs] :as var-def}]
-  (cond-> (select-keys var-def [:ns :name :filename :row :col :end-row :end-col :doc :private])
+  (cond-> (select-keys var-def [:ns :name :filename :row :col :end-row :end-col :doc :private
+                                :fixed-arities :varargs-min-arity])
     true (assoc :kind (cond protocol-name "protocol-method"
                             defined-by (name defined-by)
                             :else "def"))

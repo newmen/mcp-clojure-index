@@ -26,6 +26,7 @@
 (def ^:private plain-project (delay (fixture-index "plain_project")))
 (def ^:private keyword-project (delay (fixture-index "keyword_project")))
 (def ^:private context-project (delay (fixture-index "context_project")))
+(def ^:private arity-project (delay (fixture-index "arity_project")))
 
 (defn- context-answer
   "The answer text of `find_usages` on `code-index`, with Usage context
@@ -231,6 +232,33 @@
             "src/ctx/core.clj:14:88  call  ctx.core/long-caller"]
            (st/split-lines (context-answer @context-project {:targets ["target"] :context false}))))))
 
+(deftest calls-with-wrong-arity-carry-a-usage-warning
+  (testing "a call matching no fixed arity, or below the varargs arity, ends with the warning"
+    (is (= ["ar.core/two: 4 usages"
+            "src/ar/core.clj:17:4  call  ar.core/callers"
+            "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
+            "src/ar/core.clj:23:8  value  ar.core/callers"
+            "src/ar/core.clj:24:5  var-ref  ar.core/callers"
+            "ar.core/many: 2 usages"
+            "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"
+            "src/ar/core.clj:20:4  call  ar.core/callers"
+            "ar.core/mixed: 2 usages"
+            "src/ar/core.clj:21:4  call  ar.core/callers"
+            "src/ar/core.clj:22:4  call  ar.core/callers  wrong arity: 2 args, takes 1|3+"]
+           (answer-lines @arity-project {:targets ["two" "many" "mixed"]}))))
+  (testing "the warning follows the Usage context"
+    (is (st/includes? (context-answer @arity-project {:targets ["two"]})
+                      "src/ar/core.clj:18:4  call  ar.core/callers  (two 1 2 3)  wrong arity: 3 args, takes 1|2"))))
+
+(deftest warnings-only-keeps-the-usages-with-a-usage-warning
+  (is (= ["ar.core/two: 1 usage"
+          "src/ar/core.clj:18:4  call  ar.core/callers  wrong arity: 3 args, takes 1|2"
+          "ar.core/many: 1 usage"
+          "src/ar/core.clj:19:4  call  ar.core/callers  wrong arity: 1 arg, takes 2+"]
+         (answer-lines @arity-project {:targets ["two" "many"] :warnings_only true})))
+  (is (= "no usages of ar.core/one (checked 1 files, including tests)"
+         (answer @arity-project {:targets ["one"] :warnings_only true}))))
+
 (deftest answer-with-context-respects-output-budget
   (let [cfg (assoc project/config :output/limit 4 :output/max-chars 300)
         text (context-answer cfg @lein-project {:targets ["get-uuid"]})
@@ -247,7 +275,9 @@
     (is (re-find #"grep" (:description spec)))
     (is (re-find #"max-chars" (:description spec)))
     (is (re-find #"context" (:description spec)))
-    (is (= #{:targets :kinds :include_tests :context :limit :offset}
+    (is (re-find #"wrong arity" (:description spec)))
+    (is (re-find #"warnings_only" (:description spec)))
+    (is (= #{:targets :kinds :include_tests :context :warnings_only :limit :offset}
            (set (keys (get-in spec [:inputSchema :properties])))))))
 
 (deftest old-caller-tools-are-gone

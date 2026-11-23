@@ -4,11 +4,11 @@
 
 **Blocked by:** 04, 05 (reuses the file-set reconciliation of the semantic index)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `:search/exclude` is a known key with default `[]` and is validated like `:index/exclude`.
-- [ ] Excluded files are not embedded at sync and never appear in `semantic_search` answers.
-- [ ] `find_definition`, `find_usages`, `get_source`, `namespace_summary` and `find_implementations` still answer about excluded files.
-- [ ] Adding an exclusion removes its files' points; removing it makes them stale and the next sync embeds them.
-- [ ] The `semantic_search` description mentions `:search/exclude` in `.clojure-index.edn`.
-- [ ] Tool-seam tests (fake search services) and semantic-index-seam tests (fake Qdrant) cover the above.
+- [x] `:search/exclude` is a known key with default `[]` and is validated like `:index/exclude`.
+- [x] Excluded files are not embedded at sync and never appear in `semantic_search` answers.
+- [x] `find_definition`, `find_usages`, `get_source`, `namespace_summary` and `find_implementations` still answer about excluded files.
+- [x] Adding an exclusion removes its files' points; removing it makes them stale and the next sync embeds them.
+- [x] The `semantic_search` description mentions `:search/exclude` in `.clojure-index.edn`.
+- [x] Tool-seam tests (fake search services) and semantic-index-seam tests (fake Qdrant) cover the above.

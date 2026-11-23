@@ -86,14 +86,22 @@
   [root file-path]
   (subs file-path (min (count file-path) (inc (count root)))))
 
+(defn- matches-pattern?
+  "True when the path of `file-path` relative to `root` matches one of
+   the exclude `patterns`.
+
+  [Pattern] -> String -> String -> Boolean"
+  [patterns root file-path]
+  (let [relative (relative-to root file-path)]
+    (boolean (some #(re-find % relative) patterns))))
+
 (defn- excluded?
   "True when the path of `file` relative to `root` matches a configured
    exclude pattern.
 
   Config -> String -> File -> Boolean"
   [cfg root ^File file]
-  (let [relative (relative-to root (.getPath file))]
-    (some #(re-find % relative) (:index/exclude cfg))))
+  (matches-pattern? (:index/exclude cfg) root (.getPath file)))
 
 (defn- project-file?
   "True when `file` is a regular file with an indexed extension that is not
@@ -464,6 +472,19 @@
   CodeIndex -> [String] -> CodeIndex"
   [index file-paths]
   (update index :files select-keys file-paths))
+
+(defn without-search-exclusions
+  "Restricts `index` to the files semantic search covers: those whose path
+   relative to the project root matches no Search exclusion
+   (`:search/exclude`) of `cfg`.
+
+  Config -> CodeIndex -> CodeIndex"
+  [cfg index]
+  (let [search-exclusions (:search/exclude cfg)]
+    (if (seq search-exclusions)
+      (select-files index (remove (partial matches-pattern? search-exclusions (:root index))
+                                  (files index)))
+      index)))
 
 (defn file-lines
   "Reads the source lines of the file `file-path` (absolute).

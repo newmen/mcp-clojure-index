@@ -32,6 +32,27 @@
   (is (= [] (:index/exclude sut/defaults)))
   (is (every? string? (:index/exclude sut/defaults))))
 
+(deftest search-exclusions-default-to-none
+  (is (= [] (:search/exclude sut/defaults)))
+  (is (= [] (:search/exclude (sut/load-config "resources/config.edn"))))
+  (is (= [] (:search/exclude (edn/read-string (slurp "resources/config.edn"))))))
+
+(deftest search-exclusions-compile-like-index-exclude-without-the-always-excluded
+  (let [excludes (:search/exclude (sut/settings->config {:search/exclude ["gen/com.google"]}))]
+    (is (= ["gen/com\\.google"] (map str excludes)))
+    (is (re-find (first excludes) "gen/com.google/protobuf/any.clj"))))
+
+(deftest a-search-exclusion-that-does-not-compile-is-rejected
+  (let [file (java.io.File/createTempFile "config" ".edn")]
+    (spit file "{:search/exclude [\"gen(\"]}")
+    (is (= (str "invalid server config " (.getAbsolutePath file)
+                ": :search/exclude pattern does not compile: gen( (Unclosed group)")
+           (try (sut/load-config (.getPath file)) nil
+                (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
+
+(deftest search-exclusions-apply-from-the-next-answer
+  (is (contains? sut/hot-keys :search/exclude)))
+
 ;; ---------------------------------------------------------------------------
 ;; pattern->regex
 ;; ---------------------------------------------------------------------------

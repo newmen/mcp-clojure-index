@@ -10,7 +10,8 @@
    the points of embedded files outside it and embeds its files that are
    not embedded yet, without recreating the collection. A change of the
    file set (an exclusion in the Project config) is followed by handing
-   the index of the new set, e.g. narrowed with `code-index/select-files`."
+   the index of the new set, e.g. narrowed with `code-index/select-files`
+   or, for the Search exclusions, `code-index/without-search-exclusions`."
   (:require [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]

@@ -25,6 +25,8 @@
        "starts with `no confident matches` when even the best hit scores low; "
        "ends with `embeddings stale for N files` while recent edits are being embedded. "
        "Definitions in Test paths are left out unless `include_tests` is true. "
+       "Generated code can be left out for good with `:search/exclude` (path regexes) "
+       "in the Project config `.clojure-index.edn` at the project root. "
        "Use find_definition for known names and get_source for bodies."))
 
 (defmethod tool/spec :semantic_search
@@ -90,6 +92,19 @@
   [index]
   (into #{} (filter (partial code-index/test-file? index)) (code-index/files index)))
 
+(defn- left-out-files
+  "The absolute paths of the files of `index` whose Search units are no
+   hits: those missing from `searched-index` (under a Search exclusion)
+   and, unless `include-tests?`, those under the Test paths. Qdrant leaves
+   their points out itself, so points of a newly excluded file that a
+   sync has not deleted yet never show.
+
+  CodeIndex -> CodeIndex -> Boolean -> #{String}"
+  [index searched-index include-tests?]
+  (let [searched (set (code-index/files searched-index))]
+    (cond-> (into #{} (remove searched) (code-index/files index))
+      (not include-tests?) (into (test-files searched-index)))))
+
 (defn- stale-note
   "The footer saying how many files have stale embeddings; nil when none.
 
@@ -120,10 +135,13 @@
 ;; Besides answering, `semantic_search` checks the collection of the
 ;; SemanticIndex before searching it and, when it was deleted, emptied or
 ;; replaced, makes the SemanticIndex forget it, so the next sync rebuilds it.
+;; It searches, counts and checks for stale embeddings only the files outside
+;; the Search exclusions; the precise tools keep seeing them.
 (defmethod tool/call :semantic_search
-  [_tool-key params {:keys [config code-index semantic-index]}]
+  [_tool-key params {:keys [config semantic-index] full-index :code-index}]
   (let [query (st/trim (str (:query params)))
-        include-tests? (tool/flag params :include_tests false)]
+        include-tests? (tool/flag params :include_tests false)
+        code-index (code-index/without-search-exclusions config full-index)]
     (tool/text-result
      (if (st/blank? query)
        "query is empty"
@@ -131,7 +149,7 @@
          (some-> semantic-index semantic-index/verify-collection!)
          (let [hits (search/search config query
                                    (search-units/search-units code-index)
-                                   (if include-tests? #{} (test-files code-index))
+                                   (left-out-files full-index code-index include-tests?)
                                    (hit-count config params))
                ctx (output/answer-context config params code-index)
                note (some-> semantic-index (stale-note code-index))

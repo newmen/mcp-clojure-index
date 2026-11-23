@@ -1,9 +1,9 @@
 (ns mcp.tools.namespace-summary
   "`namespace_summary`: what a namespace contains, without reading the file,
    as Compact answer lines (ADR-0006): one line per Definition, then the
-   namespaces that require it. Type signatures and Docstring summaries only
-   on request (`detail`), so the default answer stays near the size of
-   grepping the `(def` lines (ADR-0009)."
+   namespaces that require it. Each line carries the Definition's Type
+   signature, the one thing grep cannot give in a line; Docstring summaries
+   only on request (`detail`), so the default answer stays small (ADR-0006)."
   (:require [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.docstring :as docstring]
@@ -17,10 +17,11 @@
        "Unlike grep, lists every Definition (public and private, including tests, protocols, "
        "records and specs) with its arglists, and which namespaces require it. "
        "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
-       "(line  kind  name  [arglists]; a private Definition whose kind is not `defn-` is named "
+       "(line  kind  name  [arglists]  Type signature, the signature when the project's "
+       "docstrings state one; a private Definition whose kind is not `defn-` is named "
        "`^:private name`; every spec written in the namespace's files is listed, "
        "a spec of the namespace's own keyword as `::name`, of another keyword in full; "
-       "`detail: true` adds  Type signature  Docstring summary), "
+       "`detail: true` adds  Docstring summary), "
        "then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
        "Use get_source for a body. "
@@ -38,7 +39,7 @@
                  :properties (merge {:ns {:type "string"
                                           :description "Fully qualified namespace name, e.g. my.app.core"}
                                      :detail {:type "boolean"
-                                              :description "Add each Definition's Type signature and Docstring summary (default false)"}}
+                                              :description "Add each Definition's Docstring summary after its Type signature; Type signatures are shown without it (default false)"}}
                                     tool/paging-properties)
                  :required ["ns"]}})
 
@@ -80,20 +81,19 @@
     (and private (not (self-private-kinds kind))) (str "^:private ")))
 
 (defn- summary-line
-  "The answer line of one Definition of the namespace; with `:detail?`,
-   also its Type signature, found by `signature-strategy`, and Docstring
-   summary.
+  "The answer line of one Definition of the namespace with its Type
+   signature, found by `signature-strategy`; with `:detail?`, also its
+   Docstring summary.
 
   SignatureStrategy -> {:detail? Boolean} -> Definition -> String"
   [signature-strategy {:keys [detail?]} {:keys [row kind arglists] :as definition}]
-  (let [{:keys [summary signature]} (when detail?
-                                      (docstring/definition-doc signature-strategy definition))]
+  (let [{:keys [summary signature]} (docstring/definition-doc signature-strategy definition)]
     (join-fields [(str row)
                   kind
                   (name-as-written definition)
                   (st/join " " arglists)
                   signature
-                  summary])))
+                  (when detail? summary)])))
 
 (defn- required-by-line
   "The closing line naming the namespaces that require `ns-sym`.
@@ -106,7 +106,7 @@
 
 (defn- summary
   "The answer for the namespace `ns-def`: header, Definitions, requirers;
-   with `:detail?`, the Definition lines carry Type signatures and
+   the Definition lines carry Type signatures, and with `:detail?` also
    Docstring summaries.
 
   AnswerContext -> {:detail? Boolean} -> AnalysisEntry -> String"

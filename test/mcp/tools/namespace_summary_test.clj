@@ -28,8 +28,52 @@
   "ns mcp.output  src/mcp/output.clj  Output budget (ADR-0004) and Compact answer helpers (ADR-0006).")
 
 (def ^:private output-definitions
-  "Hand-checked Definitions of `src/mcp/output.clj` in the default answer,
-   without Type signatures and Docstring summaries.
+  "Hand-checked Definitions of `src/mcp/output.clj` in the default answer:
+   Type signatures, no Docstring summaries.
+
+  [String]"
+  ["15  s/def  ::header"
+   "17  s/def  ::footer"
+   "19  s/def  ::answer-frame"
+   "25  s/def  ::output-budget"
+   "27  defrecord  ->OutputBudget  [limit max-chars offset]"
+   "27  defrecord  OutputBudget"
+   "27  defrecord  map->OutputBudget  [m]"
+   "33  defn  budget  [cfg {:keys [limit offset]}]  Config -> ToolArgs -> OutputBudget"
+   "46  defn-  truncation-note  [shown-until total]  Long -> Long -> String"
+   "60  defn  relative-path  [root-path file-path]  Maybe String -> String -> String"
+   "75  defn-  answer-text  [shown offset total]  [String] -> Long -> Long -> String"
+   "86  defn-  oversized-first-finding  [cut max-chars page offset total]  (Long -> a -> String) -> Long -> [a] -> Long -> Long -> String"
+   "104  s/def  ::text-of"
+   "106  s/def  ::cut"
+   "108  s/def  ::render-options"
+   "110  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [String] -> String OutputBudget -> [a] -> RenderOptions -> String"
+   "126  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]  OutputBudget -> AnswerFrame -> [String] -> String OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String"
+   "148  s/def  ::what"
+   "150  s/def  ::text"
+   "152  s/def  ::finding-of"
+   "154  s/def  ::finding-cut"
+   "156  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String"
+   "164  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String"
+   "195  s/def  ::budget"
+   "197  s/def  ::index"
+   "199  s/def  ::signature-strategy"
+   "201  s/def  ::answer-context"
+   "203  defrecord  ->AnswerContext  [budget index signature-strategy]"
+   "203  defrecord  AnswerContext"
+   "203  defrecord  map->AnswerContext  [m]"
+   "205  defn  answer-context  [cfg args index]  Config -> ToolArgs -> CodeIndex -> AnswerContext"
+   "212  defn  checked  [index] [index include-tests?]  CodeIndex -> String CodeIndex -> Boolean -> String"
+   "226  defn  not-found  [index name-str]  CodeIndex -> String -> String"
+   "235  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]  CodeIndex -> Definition -> String"
+   "248  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]  AnswerContext -> Definition -> String AnswerContext -> Definition -> {:signature? Boolean} -> String"
+   "268  defn  ambiguous-header  [what name-str candidate-count]  String -> String -> Long -> String"
+   "276  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]  AnswerContext -> String -> String -> [Definition] -> String"
+   "287  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String"])
+
+(def ^:private output-unsigned-definitions
+  "Hand-checked Definitions of `src/mcp/output.clj` in the default answer
+   of a project without a Type signature strategy.
 
   [String]"
   ["15  s/def  ::header"
@@ -146,15 +190,31 @@
   Config"
   (assoc project/config :output/max-chars 10000 :output/limit 100))
 
-(deftest summarises-every-definition-of-a-namespace
+(def ^:private unsigned-config
+  "The roomy config of this project without a Type signature strategy.
+
+  Config"
+  (dissoc roomy-config :doc/signature))
+
+(deftest summarises-every-definition-of-a-namespace-with-its-type-signature
   (let [[header & lines] (st/split-lines (answer roomy-config {:ns "mcp.output"}))]
     (is (= output-header header))
     (is (= output-definitions (butlast lines)))))
 
-(deftest detail-adds-type-signatures-and-docstring-summaries
+(deftest detail-adds-docstring-summaries
   (let [[header & lines] (st/split-lines (answer roomy-config {:ns "mcp.output" :detail true}))]
     (is (= output-header header))
     (is (= output-detailed-definitions (butlast lines)))))
+
+(deftest project-without-a-signature-strategy-shows-no-signatures
+  (testing "default"
+    (let [[header & lines] (st/split-lines (answer unsigned-config {:ns "mcp.output"}))]
+      (is (= output-header header))
+      (is (= output-unsigned-definitions (butlast lines)))))
+  (testing "detail adds only the Docstring summary"
+    (let [lines (set (st/split-lines (answer unsigned-config {:ns "mcp.output" :detail true})))]
+      (is (contains? lines "205  defn  answer-context  [cfg args index]  The AnswerContext of a call with the tool's `args` on `index`. (+48 chars)"))
+      (is (contains? lines "27  defrecord  OutputBudget")))))
 
 (deftest lists-namespaces-that-require-it
   (let [text (answer roomy-config {:ns "mcp.output"})
@@ -260,7 +320,7 @@
   (testing "this project's own code"
     (let [lines (st/split-lines (answer {:ns "mcp.tools.namespace-summary" :limit 100}))]
       (is (some (partial re-matches #"\d+  def  \^:private description") lines))
-      (is (some (partial re-matches #"\d+  defn-  header  \[.*\]") lines)))))
+      (is (some (partial re-matches #"\d+  defn-  header  \[.*\]  String -> AnalysisEntry -> String") lines)))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

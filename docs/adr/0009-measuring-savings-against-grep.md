@@ -52,6 +52,8 @@ Precision:
 
 `namespace_summary` is the one answer often bigger than the careful baseline (8 of 22 and 117 of 201 namespaces). The first measurement gave Type signatures and Docstring summaries on every line and was bigger by 67% and 36% (17 of 20 and 122 of 181 namespaces); they are now opt-in (`detail: true`), the namespace's own specs are written `::name`, the `public`/`private` column is gone (a private Definition shows it as its source does: `defn-`, `def  ^:private name`), and the default answer was remeasured on the same day, when the projects had grown to 22 and 201 namespaces. With `detail: true` the same code gives −62% (−109%) and −24% (−20%) against careful (18 of 22 and 122 of 201 namespaces bigger), 75% and 84% against typical. What remains of the excess is information `rg '^\s*\(def'` does not give: specs (`(s/def` does not match `\(def`), protocol methods, the constructors a `defrecord` generates, arglists that start on the next line, and the requiring namespaces. Following ADR-0001, the baseline that answers the question is reading the file, against which it saves 86–90%.
 
+These `namespace_summary` numbers predate Type signatures on every line by default (ADR-0006, agent feedback round 3); the default answer now carries them, and the numbers need remeasuring.
+
 ## Consequences
 
 - A tool whose answer is bigger than the careful baseline is reported (`:mcp-bigger`), as ADR-0001 asks.

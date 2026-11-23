@@ -26,7 +26,7 @@ LLM-агенты тратят большую часть своих токено�
 | где код, который делает Y (`semantic_search`) | 87–98% | 97–99% |
 | что в namespace (`namespace_summary`) | −2…+36% (медиана −8…+10%) | 86–90% |
 
-`namespace_summary` бывает больше, чем `grep` строк `(def`, потому что даёт ещё arglists, спеки, методы протоколов и список namespace, которые его требуют, а этот grep их пропускает; по сравнению с чтением файла, которое и отвечает на вопрос, экономия 86–90%. Type signature и Docstring summary для Definition — только с `detail: true`. Кроме размера: на каждый вопрос `find_usages` grep приносил 3–7 строк, которые не являются использованиями, но агенту всё равно приходится их читать.
+`namespace_summary` бывает больше, чем `grep` строк `(def`, потому что даёт ещё arglists, спеки, методы протоколов и список namespace, которые его требуют, а этот grep их пропускает; по сравнению с чтением файла, которое и отвечает на вопрос, экономия 86–90%. Каждая строка Definition несёт её Type signature; Docstring summary — только с `detail: true`. Кроме размера: на каждый вопрос `find_usages` grep приносил 3–7 строк, которые не являются использованиями, но агенту всё равно приходится их читать.
 
 **Эти цифры меняются от проекта к проекту**: они растут с размером файлов и с тем, насколько часто повторяются имена, и относятся к отдельным вопросам. Сессия в целом экономит меньше: системный промпт, рассуждения, правки и запуск тестов стоят столько же с сервером и без него. Методика, цифры по каждому проекту и команда для замера своего проекта — в [ADR-0009](docs/adr/0009-measuring-savings-against-grep.md).
 
@@ -338,7 +338,7 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
 ```text
 Входные параметры:
   ns (string, обязательный) — полностью квалифицированное имя namespace
-  detail (boolean, по умолчанию false) — добавить Type signature и Docstring summary
+  detail (boolean, по умолчанию false) — добавить Docstring summary
   limit, offset
 
 Ответ:
@@ -347,7 +347,8 @@ src/mcp/output.clj:110  defn  mcp.output/render  ...
 
   Для каждого Definition (приватность — как в исходнике: `defn-  name`, `def  ^:private name`;
   собственные спеки namespace — как ::name):
-      line  kind  name  [arglists]
+      line  kind  name  [arglists]  Type signature
+      (без Type signature, если её нет у Definition или в проекте)
       с detail: line  kind  name  [arglists]  Type signature  Docstring summary
 
   Последняя строка:

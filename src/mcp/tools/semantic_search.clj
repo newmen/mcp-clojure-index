@@ -42,9 +42,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- hit->line
-  "`score  path:line  kind  ns/name  first docstring line`. The score is
-   the reranker's relevance score (ADR-0006); without the reranker there
-   is none, never a raw vector score."
+  "The Compact answer line of a Hit:
+   `score  path:line  kind  ns/name  first docstring line`.
+
+  The score is the reranker's relevance score (ADR-0006); without the
+  reranker there is none, never a raw vector score.
+
+  String -> Hit -> String"
   [root {:keys [unit re-rank]}]
   (->> [(some->> re-rank double (format "%.2f"))
         (str (output/relative-path root (:filename unit)) ":" (:row unit))
@@ -57,7 +61,9 @@
 (defn- hit-count
   "How many hits to ask the search for: `:search/re-rank-top`, or more
    when the requested page (the hits before `offset` and a page of `limit`
-   within the Output budget) reaches beyond them."
+   within the Output budget) reaches beyond them.
+
+  Config -> ToolArgs -> Long"
   [config params]
   (let [page-size (min (:output/limit config)
                        (or (:limit params) (:search/re-rank-top config)))]
@@ -65,6 +71,9 @@
          (+ (max 0 (or (:offset params) 0)) page-size))))
 
 (defn- stale-note
+  "The footer saying how many files have stale embeddings; nil when none.
+
+  Atom SemanticState -> CodeIndex -> IO (Maybe String)"
   [semantic-state code-index]
   (let [stale-count (count (semantic-index/stale-files semantic-state code-index))]
     (when (pos? stale-count)

@@ -7,7 +7,8 @@
    type, so the type is derived: from the enclosing `defrecord`/`deftype`
    Definition, from the source of the enclosing `extend-*` form, or, for
    `reify`, from the enclosing Definition."
-  (:require [clojure.string :as st]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]
@@ -47,13 +48,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- contains-start?
-  "True when the form range of `entry` contains the start of `inner`."
+  "True when the form range of `entry` contains the start of `inner`.
+
+  AnalysisEntry -> AnalysisEntry -> Boolean"
   [entry inner]
   (and (= (:filename entry) (:filename inner))
        (code-index/contains-position? entry [(:row inner) (:col inner)])))
 
 (defn- innermost
-  "The entry with the smallest range among `ranged` that contains `inner`."
+  "The entry with the smallest range among `ranged` that contains `inner`.
+
+  [AnalysisEntry] -> AnalysisEntry -> Maybe AnalysisEntry"
   [ranged inner]
   (->> ranged
        (filter #(contains-start? % inner))
@@ -65,7 +70,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- type-definition
-  "`ns/Type` of the defrecord/deftype that contains `impl`."
+  "The `ns/Type` of the defrecord/deftype that contains `impl`.
+
+  CodeIndex -> AnalysisEntry -> Maybe String"
   [index impl]
   (some->> (code-index/entries index :var-definitions)
            (filter (comp #{(:defined-by impl)} :defined-by))
@@ -74,8 +81,10 @@
            code-index/qualified-name))
 
 (defn- form-children
-  "Zipper locations of the children of the list form starting at `row`/`col`
-   in `source`."
+  "The zipper locations of the children of the list form starting at
+   `row`/`col` in `source`.
+
+  String -> AnalysisEntry -> [ZLoc]"
   [source {:keys [row col]}]
   (let [form (z/find-last-by-pos (z/of-string source {:track-position? true}) [row col])
         form (if (= :list (z/tag form)) form (z/up form))]
@@ -83,7 +92,9 @@
 
 (defn- extended-type
   "The type as written in the `extend-type`/`extend-protocol` form
-   `extend-usage` that contains `impl`."
+   `extend-usage` that contains `impl`, read from the source.
+
+  AnalysisEntry -> AnalysisEntry -> IO String"
   [extend-usage impl]
   (let [children (form-children (slurp (:filename impl)) extend-usage)]
     (if (= 'extend-type (:name extend-usage))
@@ -96,7 +107,9 @@
 
 (defn- qualify-local-type
   "`ns/Type` when `type-str` names a record or type defined in the
-   namespace of `impl`, else `type-str` as written."
+   namespace of `impl`, else `type-str` as written.
+
+  CodeIndex -> AnalysisEntry -> String -> String"
   [index impl type-str]
   (or (some->> (code-index/entries index :var-definitions)
                (filter #(and (record-or-type-forms (:defined-by %))
@@ -107,6 +120,10 @@
       type-str))
 
 (defn- extend-type-name
+  "The type that the enclosing `extend-type`/`extend-protocol` form of
+   `impl` extends, or nil.
+
+  CodeIndex -> AnalysisEntry -> IO (Maybe String)"
   [index impl]
   (when-let [extend-usage (->> (code-index/entries index :var-usages)
                                (filter (comp extend-forms #(symbol (str (:to %)) (str (:name %)))))
@@ -114,6 +131,10 @@
     (qualify-local-type index impl (extended-type extend-usage impl))))
 
 (defn- reify-name
+  "The label of a `reify` Implementation: `reify`, followed by the
+   Definition it lies in.
+
+  CodeIndex -> AnalysisEntry -> String"
   [index impl]
   (str "reify"
        (some->> (innermost (code-index/entries index :var-definitions) impl)
@@ -121,6 +142,9 @@
                 (str " in "))))
 
 (defn- implementing-type
+  "The label of the type that implements the protocol method `impl`.
+
+  CodeIndex -> AnalysisEntry -> IO (Maybe String)"
   [index {:keys [defined-by] :as impl}]
   (cond (record-or-type-forms defined-by) (type-definition index impl)
         (extend-forms defined-by) (extend-type-name index impl)
@@ -132,7 +156,12 @@
 
 ;; Implementation shape: {:filename "/abs/x.clj" :row 10 :label "impl.shapes/Circle" :method "area"}
 
+(s/def ::implementation (s/keys :req-un [::filename ::row ::label ::method]))
+
 (defn- protocol-implementations
+  "The Implementations of the protocol `definition`.
+
+  CodeIndex -> Definition -> IO [Implementation]"
   [index {protocol-ns :ns protocol-name :name}]
   (->> (code-index/protocol-impls index protocol-ns protocol-name)
        (map (fn [impl]
@@ -142,6 +171,9 @@
                :method (str (:method-name impl))}))))
 
 (defn- multimethod-implementations
+  "The Implementations (defmethods) of the multimethod `definition`.
+
+  CodeIndex -> Definition -> [Implementation]"
   [index {multi-ns :ns multi-name :name}]
   (->> (code-index/method-heads index multi-ns multi-name)
        (map (fn [usage]
@@ -151,6 +183,9 @@
                :method (str multi-name)}))))
 
 (defn- implementations
+  "The Implementations of a protocol or multimethod, sorted by file and row.
+
+  CodeIndex -> Definition -> IO [Implementation]"
   [index {:keys [kind] :as definition}]
   (->> (if (= "defprotocol" kind)
          (protocol-implementations index definition)
@@ -163,16 +198,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- implementation->line
+  "The Compact answer line of an Implementation: `path:line  label  method`.
+
+  String -> Implementation -> String"
   [root {:keys [filename row label method]}]
   (str (output/relative-path root filename) ":" row "  " label "  " method))
 
 (defn- not-implementable
+  "The answer for a name whose Definitions are neither protocols nor
+   multimethods.
+
+  String -> [Definition] -> String"
   [name-str definitions]
   (str "not a protocol or multimethod: " name-str " ("
        (st/join ", " (map #(str (code-index/qualified-name %) " " (:kind %)) definitions))
        ")"))
 
 (defn- no-implementations
+  "The answer for a protocol or multimethod without Implementations.
+
+  CodeIndex -> Definition -> String"
   [index definition]
   (str "no implementations of " (code-index/qualified-name definition) " "
        (output/checked index)))

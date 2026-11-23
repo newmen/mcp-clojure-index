@@ -5,6 +5,10 @@
 (set! *warn-on-reflection* true)
 
 (defn- unit
+  "A Search unit with only an id, a name and an optional docstring.
+
+  String -> SearchUnit
+  String -> Maybe String -> SearchUnit"
   ([unit-name] (unit unit-name nil))
   ([unit-name doc]
    (cond-> {:id unit-name :name unit-name}
@@ -19,6 +23,9 @@
    (unit "shop.orders/cancel" "Cancel an order.\n  Refunds the payment.")])
 
 (defn- ranked-names
+  "The names of the test units that `rank` returns for `query`, in order.
+
+  String -> [String]"
   [query]
   (mapv :name (sut/rank query units)))
 

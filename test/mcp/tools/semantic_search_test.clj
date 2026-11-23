@@ -29,7 +29,10 @@
          :ollama/url "http://localhost:19999/v1"))
 
 (defn- fresh-semantic-state
-  "Semantic index state in which every file of the fixture is embedded."
+  "Creates a semantic index state in which every file of the fixture is
+   embedded.
+
+  () -> IO (Atom SemanticState)"
   []
   (let [state (semantic-index/make-state)]
     (swap! state assoc
@@ -38,6 +41,9 @@
     state))
 
 (defn- hit
+  "A ScoredUnit as Qdrant returns it, for a unit of the fixture.
+
+  String -> Long -> String -> String -> Maybe String -> Double -> IO ScoredUnit"
   [relative-path row kind unit-name doc score]
   {:unit (cond-> {:id (str (random-uuid))
                   :filename (str fixture-root "/" relative-path)
@@ -52,6 +58,11 @@
    (hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil 0.5)])
 
 (defn- answer
+  "The answer text of `semantic_search` on the fixture, with stubbed Ollama
+   and Qdrant and a reranker that keeps the vector scores.
+
+  ToolArgs -> IO String
+  ToolArgs -> Atom SemanticState -> [ScoredUnit] -> IO String"
   ([args] (answer args (fresh-semantic-state) hits))
   ([args semantic-state stub-hits]
    (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
@@ -153,6 +164,9 @@
    "spec validating an email address" ":shop.orders/email"})
 
 (defn- top-names
+  "The names of the first three hits of an answer.
+
+  String -> [Maybe String]"
   [text]
   (->> (st/split-lines text)
        (take 3)
@@ -160,6 +174,9 @@
        (map #(nth (drop-while (partial re-matches #"\d+\.\d+") (st/split % #"  ")) 2 nil))))
 
 (defn- temp-cache-dir
+  "Creates a fresh temporary embedding cache directory and returns its path.
+
+  () -> IO String"
   []
   (str (Files/createTempDirectory "semantic-search-it" (make-array FileAttribute 0))))
 

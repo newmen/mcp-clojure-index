@@ -62,7 +62,7 @@
         state {:config project/config :code-index-ref (atom (project/code-index))}
         [response _new-state] (#'sut/handle-method msg state)]
     (is (= [{:type "text"
-             :text "src/mcp/output.clj:39  defn  mcp.output/first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."}]
+             :text "src/mcp/output.clj:52  defn  mcp.output/first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."}]
            (get-in response [:result :content])))))
 
 (def ^:private services-down-config
@@ -71,14 +71,18 @@
          :ollama/url "http://localhost:19999/v1"))
 
 (defn- tool-call
+  "The answer text of a `tools/call` of `tool-name` with `arguments`,
+   asserting that it fits the Output budget.
+
+  ToolState -> String -> ToolArgs -> IO String"
   [state tool-name arguments]
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
              :params {:name tool-name :arguments arguments}}]
     (project/answer-text (:config state) (-> (#'sut/handle-method msg state) first :result))))
 
 (def ^:private first-line-definition
-  (str "src/mcp/output.clj:39  defn  mcp.output/first-line  [text]  "
-       "First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."))
+  (str "src/mcp/output.clj:52  defn  mcp.output/first-line  [text]  "
+       "The first non-blank line of `text`, trimmed; nil if none."))
 
 (deftest with-qdrant-and-ollama-down-precise-tools-answer-and-semantic-search-says-unavailable
   (let [state {:config services-down-config
@@ -102,6 +106,9 @@
     (is (= [semantic-state @(:code-index-ref state)] @synced))))
 
 (defn- find-definition-call
+  "The answer text of `find_definition` for `name-str`.
+
+  ToolState -> String -> IO String"
   [state name-str]
   (tool-call state "find_definition" {:name name-str}))
 

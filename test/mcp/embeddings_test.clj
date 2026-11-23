@@ -90,9 +90,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-rerank-server
-  "Call `f` with the base URL of a local HTTP server whose `/rerank`
+  "Calls `f` with the base URL of a local HTTP server whose `/rerank`
    answers `status` and `response-body`, recording the request bodies in
-   `requests`."
+   `requests`.
+
+  Atom [Map] -> Long -> Map -> (String -> IO a) -> IO a"
   [requests status response-body f]
   (let [server (HttpServer/create (InetSocketAddress. "localhost" 0) 0)]
     (.createContext server "/v1/rerank"
@@ -138,6 +140,9 @@
     (is (= [(subs long-text 0 993)] (:documents (first @requests))))))
 
 (defn- rounded
+  "The `reranked` Candidates with `:re-rank` rounded to three decimals.
+
+  [Candidate] -> [Candidate]"
   [reranked]
   (mapv #(update % :re-rank (fn [score] (/ (Math/round (* 1000.0 score)) 1000.0))) reranked))
 
@@ -215,6 +220,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- temp-cache-config
+  "The default config with a fresh temporary embedding cache directory.
+
+  () -> IO Config"
   []
   (assoc config/defaults
          :embedding/cache-dir (str (java.nio.file.Files/createTempDirectory

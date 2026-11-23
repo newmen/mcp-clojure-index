@@ -16,10 +16,16 @@
   (delay (code-index/build (assoc project/config :index/root-path fixture-root))))
 
 (defn- relative
+  "The path of `file-path` relative to the fixture root.
+
+  String -> String"
   [file-path]
   (subs file-path (inc (count fixture-root))))
 
 (defn- located
+  "The relative path, row, kind and name of each of `units`.
+
+  [SearchUnit] -> #{[String Long String String]}"
   [units]
   (set (map (juxt (comp relative :filename) :row :kind :name) units)))
 
@@ -42,6 +48,9 @@
          (located (sut/search-units @fixture-index)))))
 
 (defn- unit-named
+  "The fixture's Search unit named `unit-name`, or nil.
+
+  String -> IO (Maybe SearchUnit)"
   [unit-name]
   (first (filter (comp #{unit-name} :name) (sut/search-units @fixture-index))))
 

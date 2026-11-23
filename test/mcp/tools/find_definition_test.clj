@@ -11,6 +11,10 @@
 (set! *warn-on-reflection* true)
 
 (defn- answer
+  "The answer text of `find_definition` on this project's code base.
+
+  ToolArgs -> IO String
+  Config -> ToolArgs -> IO String"
   ([args] (answer project/config args))
   ([cfg args]
    (project/answer-text cfg
@@ -18,8 +22,8 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private relative-path-line
-  (str "src/mcp/output.clj:26  defn  mcp.output/relative-path  [root-path file-path]  "
-       "Return `file-path` relative to the project root `root-path`; paths"))
+  (str "src/mcp/output.clj:37  defn  mcp.output/relative-path  [root-path file-path]  "
+       "Returns `file-path` relative to the project root `root-path`; paths"))
 
 (deftest finds-definition-by-simple-alias-qualified-and-fully-qualified-name
   (testing "simple"
@@ -61,6 +65,9 @@
                  (.getCanonicalPath (File. "test-resources/fixtures/definitions_project"))))))
 
 (defn- fixture-answer
+  "The answer text of `find_definition` on the definitions fixture.
+
+  ToolArgs -> IO String"
   [args]
   (project/answer-text project/config
                        (tool/call :find_definition args

@@ -12,12 +12,15 @@
 (set! *warn-on-reflection* true)
 
 (defn- located
+  "The qualified name and row of each of `defs`.
+
+  [Definition] -> #{[String Long]}"
   [defs]
   (set (map (juxt sut/qualified-name :row) defs)))
 
 (deftest resolves-simple-alias-qualified-and-fully-qualified-names
   (let [idx (project/code-index)
-        expected #{["mcp.output/relative-path" 26]}]
+        expected #{["mcp.output/relative-path" 37]}]
     (testing "simple name"
       (is (= expected (located (sut/resolve-name idx "relative-path")))))
     (testing "alias-qualified name, as written in mcp.tools"
@@ -54,6 +57,9 @@
   (delay (sut/build (assoc project/config :index/root-path fixture-root))))
 
 (defn- described
+  "The qualified name, kind and row of each of `defs`.
+
+  [Definition] -> #{[String String Long]}"
   [defs]
   (set (map (juxt sut/qualified-name :kind :row) defs)))
 
@@ -154,7 +160,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- temp-project
-  "A fresh project directory with `files` ({relative-path content})."
+  "Creates a fresh project directory with `files` ({relative-path content})
+   and returns its canonical path.
+
+  {String String} -> IO String"
   [files]
   (let [root (.toFile (Files/createTempDirectory "code-index-test" (make-array FileAttribute 0)))]
     (doseq [[relative-path content] files]
@@ -173,11 +182,16 @@
     (is (not (sut/test-file? idx (str root "/src/app/core.clj"))))))
 
 (defn- temp-config
+  "The default config for the project at `root`.
+
+  String -> Config"
   [root]
   (assoc config/defaults :index/root-path root))
 
 (defn- write-later!
-  "Write `content` to `file-path` with an mtime visibly later than before."
+  "Writes `content` to `file-path` with an mtime visibly later than before.
+
+  String -> String -> IO Boolean"
   [^String file-path content]
   (let [file (io/file file-path)
         before (.lastModified file)]

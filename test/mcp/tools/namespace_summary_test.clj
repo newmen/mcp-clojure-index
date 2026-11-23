@@ -11,6 +11,10 @@
 (set! *warn-on-reflection* true)
 
 (defn- answer
+  "The answer text of `namespace_summary` on this project's code base.
+
+  ToolArgs -> IO String
+  Config -> ToolArgs -> IO String"
   ([args] (answer project/config args))
   ([cfg args]
    (project/answer-text cfg
@@ -18,27 +22,34 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private output-definitions
-  "Hand-checked Definitions of `src/mcp/output.clj`."
-  ["12  private  defn-  effective-limit  [cfg args]"
-   "17  private  defn-  truncation-note  [shown-until total]"
-   "26  public  defn  relative-path  [root-path file-path]  Return `file-path` relative to the project root `root-path`; paths"
-   "39  public  defn  first-line  [text]  First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
-   "51  private  defn-  answer-text  [shown offset total]  Join the `shown` findings of a page starting at `offset`, adding a"
-   "60  private  defn-  oversized-first-finding  [cfg page offset total]  Answer for a page whose first finding alone exceeds `:output/max-chars`:"
-   "71  public  defn  render  [cfg args findings]  Render `findings` (one string per finding) as an answer within the Output"
-   "84  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  `render` `findings` between an optional `header` line and an optional"
-   "99  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
-   "110  public  defn  not-found  [index name-str]  Answer for `name-str` that resolves to nothing, saying what was searched."
-   "115  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  Compact answer line of a Definition:"
-   "127  public  defn  ambiguous-header  [what name-str candidate-count]  Header line for `name-str` that denotes `candidate-count` candidates,"
-   "133  public  defn  ambiguous  [cfg args index what name-str definitions]  Answer for `name-str` that denotes several `definitions`: an"
-   "141  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  Answer for `name-str` that resolved to `definitions`: `not-found` for"])
+  "Hand-checked Definitions of `src/mcp/output.clj`.
+
+  [String]"
+  ["12  private  defn-  effective-limit  [cfg args]  How many findings a page shows."
+   "23  private  defn-  truncation-note  [shown-until total]  The Truncation note of a page."
+   "37  public  defn  relative-path  [root-path file-path]  Returns `file-path` relative to the project root `root-path`; paths"
+   "52  public  defn  first-line  [text]  The first non-blank line of `text`, trimmed; nil if none."
+   "66  private  defn-  answer-text  [shown offset total]  Joins the `shown` findings of a page starting at `offset`, adding a"
+   "77  private  defn-  oversized-first-finding  [cfg page offset total]  The answer for an oversized first finding."
+   "92  public  defn  render  [cfg args findings]  Renders `findings` (one string per finding) as an answer within the"
+   "107  public  defn  render-framed  [cfg args {:keys [header footer]} findings]  Renders `findings` between an optional `header` line and an optional"
+   "124  public  defn  checked  [index] [index include-tests?]  What an answer searched: `(checked N files, including tests)`, or"
+   "138  public  defn  not-found  [index name-str]  The answer for `name-str` that resolves to nothing, saying what was"
+   "146  public  defn  definition->line  [index {:keys [filename row kind arglists doc] :as definition}]  The Compact answer line of a Definition."
+   "161  public  defn  ambiguous-header  [what name-str candidate-count]  The header line for `name-str` that denotes `candidate-count`"
+   "169  public  defn  ambiguous  [cfg args index what name-str definitions]  The answer for `name-str` that denotes several `definitions`: an"
+   "179  public  defn  one-definition  [cfg args index name-str definitions answer-fn]  The answer for `name-str` that resolved to `definitions`: `not-found`"])
 
 (def ^:private output-requirers
-  "Hand-checked namespaces that require `mcp.output` (more may be added)."
+  "Hand-checked namespaces that require `mcp.output` (more may be added).
+
+  #{String}"
   #{"mcp.output-test" "mcp.tools.semantic-search" "mcp.tools.find-definition"})
 
 (defn- required-by
+  "The namespace names of the `required by:` line of an answer, or nil.
+
+  String -> Maybe #{String}"
   [text]
   (some->> (st/split-lines text)
            (some #(second (re-matches #"required by: (.*)" %)))

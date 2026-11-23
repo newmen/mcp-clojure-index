@@ -10,11 +10,15 @@
 (set! *warn-on-reflection* true)
 
 (def root
-  "Absolute path of this project's root directory."
+  "Absolute path of this project's root directory.
+
+  String"
   (.getCanonicalPath (File. ".")))
 
 (def config
-  "Resolved config for indexing this project."
+  "Resolved config for indexing this project.
+
+  Config"
   (-> (config/load-config "resources/config.edn")
       (assoc :index/root-path root)
       config/resolve-config))
@@ -23,13 +27,17 @@
   (delay (code-index/build config)))
 
 (defn code-index
-  "The code index of this project, built on first use."
+  "The code index of this project, built on first use.
+
+  () -> IO CodeIndex"
   []
   @code-index-delay)
 
 (defn answer-text
   "The text of the `tools/call` result `tool-result`, asserting that it
-   fits the Output budget of `cfg` (every acceptance case checks this)."
+   fits the Output budget of `cfg` (every acceptance case checks this).
+
+  Config -> ToolResult -> IO String"
   [cfg tool-result]
   (let [text (-> tool-result :content first :text)]
     (is (<= (count text) (:output/max-chars cfg))

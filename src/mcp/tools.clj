@@ -13,7 +13,9 @@
 (set! *warn-on-reflection* true)
 
 (defn tool-definitions
-  "The `tools/list` entries of all registered tools, sorted by name."
+  "The `tools/list` entries of all registered tools, sorted by name.
+
+  () -> [ToolSpec]"
   []
   (->> (keys (methods tool/spec))
        (remove #{:default})

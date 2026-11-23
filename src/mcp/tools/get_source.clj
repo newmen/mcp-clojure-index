@@ -27,7 +27,9 @@
 
 (defn- source-answer
   "Header and source lines of `definition`, paged by line within the
-   Output budget."
+   Output budget.
+
+  Config -> ToolArgs -> CodeIndex -> Definition -> IO String"
   [config params index {:keys [filename row end-row] :as definition}]
   (output/render-framed config params
                         {:header (str (output/relative-path (code-index/root index) filename)

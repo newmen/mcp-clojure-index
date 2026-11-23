@@ -1,7 +1,8 @@
 (ns mcp.tools.find-usages
   "`find_usages`: every Usage of one or more targets, grouped by target, as
    Compact answer lines (ADR-0006) within the Output budget (ADR-0004)."
-  (:require [clojure.string :as st]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [mcp.code-index :as code-index]
             [mcp.output :as output]
             [mcp.tool :as tool]
@@ -47,17 +48,29 @@
 ;; {:header "app.core/get-uuid: 11 usages"   ; or a not-found/ambiguous line
 ;;  :lines  ["src/app/other.clj:6:5  call  app.other/caller" ...]}
 
+(s/def ::group (s/keys :req-un [::header] :opt-un [::lines]))
+
 (defn- usage->line
+  "The Compact answer line of a Usage: `path:line:col  kind  enclosing`.
+
+  String -> Usage -> String"
   [root {:keys [filename row col kind enclosing]}]
   (cond-> (str (output/relative-path root filename) ":" row ":" col "  " kind)
     (not (st/blank? enclosing)) (str "  " enclosing)))
 
 (defn- wanted?
+  "True when `usage` is of one of the asked `kinds` (all when empty) and,
+   unless tests are included, outside the Test paths.
+
+  CodeIndex -> {:kinds #{UsageKind} :include-tests? Boolean} -> Usage -> Boolean"
   [index {:keys [kinds include-tests?]} {:keys [filename kind]}]
   (and (or (empty? kinds) (contains? kinds kind))
        (or include-tests? (not (code-index/test-file? index filename)))))
 
 (defn- target-group
+  "The group that answers for one target as written by the agent.
+
+  CodeIndex -> {:kinds #{UsageKind} :include-tests? Boolean} -> String -> IO Group"
   [index opts target-str]
   (let [{:keys [target candidates]} (usages/resolve-target index target-str)
         found (when (usages/has-usages? target)
@@ -78,7 +91,9 @@
 (defn- findings
   "One finding per Usage line; a group's header is joined to its first line
    and to the line a page starts at, so every page names its targets. A
-   group without lines is a finding of its own."
+   group without lines is a finding of its own.
+
+  [Group] -> Long -> [String]"
   [groups offset]
   (->> groups
        (mapcat (fn [{:keys [header lines]}]
@@ -96,6 +111,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- as-strings
+  "The non-blank strings of a tool argument that is one value or a list.
+
+  Any -> [String]"
   [value]
   (->> (if (sequential? value) value [value])
        (remove nil?)

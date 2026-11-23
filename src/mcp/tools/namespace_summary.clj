@@ -37,16 +37,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- join-fields
+  "Joins the non-blank `fields` of an answer line with two spaces.
+
+  [Maybe String] -> String"
   [fields]
   (->> fields (remove st/blank?) (st/join "  ")))
 
 (defn- header
+  "The header line of the namespace `ns-def`, a clj-kondo namespace
+   definition entry: `ns name  path  first docstring line`.
+
+  String -> AnalysisEntry -> String"
   [root {:keys [filename doc] ns-name :name}]
   (join-fields [(str "ns " ns-name)
                 (output/relative-path root filename)
                 (output/first-line doc)]))
 
 (defn- summary-line
+  "The answer line of one Definition of the namespace.
+
+  Definition -> String"
   [{:keys [row kind arglists doc private] :as definition}]
   (join-fields [(str row)
                 (if private "private" "public")
@@ -56,12 +66,18 @@
                 (output/first-line doc)]))
 
 (defn- required-by-line
+  "The closing line naming the namespaces that require `ns-sym`.
+
+  CodeIndex -> Symbol -> String"
   [index ns-sym]
   (str "required by: "
        (or (some->> (code-index/requiring-namespaces index ns-sym) (st/join ", "))
            "none")))
 
 (defn- summary
+  "The answer for the namespace `ns-def`: header, Definitions, requirers.
+
+  Config -> ToolArgs -> CodeIndex -> AnalysisEntry -> String"
   [config params index ns-def]
   (let [ns-sym (:name ns-def)
         lines (->> (code-index/definitions index)
@@ -77,7 +93,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- edit-distance
-  "Levenshtein distance between strings `a` and `b`."
+  "The Levenshtein distance between strings `a` and `b`.
+
+  String -> String -> Long"
   [^String a ^String b]
   (peek
    (reduce (fn [previous-row a-char]
@@ -93,13 +111,18 @@
 
 (defn- candidate-distance
   "How far namespace name `ns-str` is from the asked `asked-str`; nil when
-   it is not a close candidate."
+   it is not a close candidate.
+
+  String -> String -> Maybe Long"
   [asked-str ns-str]
   (let [distance (edit-distance asked-str ns-str)]
     (cond (st/includes? ns-str asked-str) 0
           (<= distance max-candidate-distance) distance)))
 
 (defn- candidates
+  "The namespace names closest to `asked-str`, closest first.
+
+  CodeIndex -> String -> [String]"
   [index asked-str]
   (->> (code-index/namespace-names index)
        (keep #(some-> (candidate-distance asked-str %) (vector %)))
@@ -109,7 +132,9 @@
 
 (defn- unknown-namespace-answer
   "`output/not-found` for the namespace `asked-str`, followed by the
-   close namespace names when there are any."
+   close namespace names when there are any.
+
+  CodeIndex -> String -> String"
   [index asked-str]
   (let [close (candidates index asked-str)]
     (cond-> (output/not-found index (str "namespace " asked-str))

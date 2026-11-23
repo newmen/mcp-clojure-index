@@ -13,6 +13,9 @@
 (set! *warn-on-reflection* true)
 
 (defn- fixture-index
+  "Builds the code index of the usages fixture project `project-dir`.
+
+  String -> IO CodeIndex"
   [project-dir]
   (code-index/build
    (assoc project/config :index/root-path
@@ -24,11 +27,18 @@
 (def ^:private keyword-project (delay (fixture-index "keyword_project")))
 
 (defn- answer
+  "The answer text of `find_usages` on `code-index`.
+
+  CodeIndex -> ToolArgs -> IO String
+  Config -> CodeIndex -> ToolArgs -> IO String"
   ([code-index args] (answer project/config code-index args))
   ([cfg code-index args]
    (project/answer-text cfg (tool/call :find_usages args {:config cfg :code-index code-index}))))
 
 (defn- answer-lines
+  "The lines of the answer of `find_usages` on `code-index`.
+
+  CodeIndex -> ToolArgs -> IO [String]"
   [code-index args]
   (st/split-lines (answer code-index args)))
 

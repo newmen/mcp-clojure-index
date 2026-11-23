@@ -10,11 +10,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- effective-limit
+  "How many findings a page shows.
+
+  It is `:limit` of the tool's args, never above `:output/limit` of the
+  config.
+
+  Config -> ToolArgs -> Long"
   [cfg args]
   (let [ceiling (:output/limit cfg)]
     (min ceiling (or (:limit args) ceiling))))
 
 (defn- truncation-note
+  "The Truncation note of a page.
+
+  The page ends at finding `shown-until` of `total`.
+
+  Long -> Long -> String"
   [shown-until total]
   (str "truncated: shown " shown-until " of " total
        ", pass offset=" shown-until " or narrow the query"))
@@ -24,8 +35,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn relative-path
-  "Return `file-path` relative to the project root `root-path`; paths
-   outside the root are returned unchanged."
+  "Returns `file-path` relative to the project root `root-path`; paths
+   outside the root are returned unchanged.
+
+  Maybe String -> String -> String"
   [root-path file-path]
   (let [prefix (str (st/replace (or root-path "") #"/+$" "") "/")]
     (if (st/starts-with? (str file-path) prefix)
@@ -37,7 +50,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn first-line
-  "First non-blank line of `text` (e.g. a docstring), trimmed; nil if none."
+  "The first non-blank line of `text`, trimmed; nil if none.
+
+  Maybe String -> Maybe String"
   [text]
   (some->> (some-> text st/split-lines)
            (map st/trim)
@@ -49,8 +64,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- answer-text
-  "Join the `shown` findings of a page starting at `offset`, adding a
-   Truncation note when findings remain after them."
+  "Joins the `shown` findings of a page starting at `offset`, adding a
+   Truncation note when findings remain after them.
+
+  [String] -> Long -> Long -> String"
   [shown offset total]
   (let [shown-until (+ offset (count shown))]
     (cond-> (vec shown)
@@ -58,8 +75,12 @@
       true (->> (st/join "\n")))))
 
 (defn- oversized-first-finding
-  "Answer for a page whose first finding alone exceeds `:output/max-chars`:
-   the finding is cut so that paging still advances by one."
+  "The answer for an oversized first finding.
+
+  The first finding of the page alone exceeds `:output/max-chars`, so it is
+  cut so that paging still advances by one.
+
+  Config -> [String] -> Long -> Long -> String"
   [cfg page offset total]
   (if-let [finding (first page)]
     (let [note-chars (count (answer-text [] (inc offset) total))
@@ -69,9 +90,11 @@
     ""))
 
 (defn render
-  "Render `findings` (one string per finding) as an answer within the Output
-   budget from `cfg`. `args` may carry the tool's `:limit` (lowers the
-   ceiling only) and `:offset`."
+  "Renders `findings` (one string per finding) as an answer within the
+   Output budget from `cfg`. `args` may carry the tool's `:limit` (lowers
+   the ceiling only) and `:offset`.
+
+  Config -> ToolArgs -> [String] -> String"
   [cfg args findings]
   (let [total (count findings)
         offset (max 0 (or (:offset args) 0))
@@ -82,8 +105,10 @@
         (oversized-first-finding cfg page offset total))))
 
 (defn render-framed
-  "`render` `findings` between an optional `header` line and an optional
-   `footer` line, the whole answer still within `:output/max-chars`."
+  "Renders `findings` between an optional `header` line and an optional
+   `footer` line, the whole answer still within `:output/max-chars`.
+
+  Config -> ToolArgs -> {:header Maybe String, :footer Maybe String} -> [String] -> String"
   [cfg args {:keys [header footer]} findings]
   (let [frame-chars (+ (if header (inc (count header)) 0)
                        (if footer (inc (count footer)) 0))
@@ -99,7 +124,10 @@
 (defn checked
   "What an answer searched: `(checked N files, including tests)`, or
    excluding tests (which are then not counted) when `include-tests?` is
-   false."
+   false.
+
+  CodeIndex -> String
+  CodeIndex -> Boolean -> String"
   ([index] (checked index true))
   ([index include-tests?]
    (let [searched (cond->> (code-index/files index)
@@ -108,13 +136,19 @@
           (if include-tests? "including" "excluding") " tests)"))))
 
 (defn not-found
-  "Answer for `name-str` that resolves to nothing, saying what was searched."
+  "The answer for `name-str` that resolves to nothing, saying what was
+   searched.
+
+  CodeIndex -> String -> String"
   [index name-str]
   (str "not found: " name-str " " (checked index)))
 
 (defn definition->line
-  "Compact answer line of a Definition:
-   `path:line  kind  ns/name  [arglists]  first docstring line`."
+  "The Compact answer line of a Definition.
+
+  The line is `path:line  kind  ns/name  [arglists]  first docstring line`.
+
+  CodeIndex -> Definition -> String"
   [index {:keys [filename row kind arglists doc] :as definition}]
   (->> [(str (relative-path (code-index/root index) filename) ":" row)
         kind
@@ -125,23 +159,29 @@
        (st/join "  ")))
 
 (defn ambiguous-header
-  "Header line for `name-str` that denotes `candidate-count` candidates,
-   naming what they are (`what`, e.g. \"definitions\")."
+  "The header line for `name-str` that denotes `candidate-count`
+   candidates, naming what they are (`what`, such as \"definitions\").
+
+  String -> String -> Long -> String"
   [what name-str candidate-count]
   (str "ambiguous: " candidate-count " " what " named " name-str ", pass a qualified name"))
 
 (defn ambiguous
-  "Answer for `name-str` that denotes several `definitions`: an
-   `ambiguous-header`, then one line per candidate within the Output budget."
+  "The answer for `name-str` that denotes several `definitions`: an
+   `ambiguous-header`, then one line per candidate within the Output budget.
+
+  Config -> ToolArgs -> CodeIndex -> String -> String -> [Definition] -> String"
   [cfg args index what name-str definitions]
   (render-framed cfg args
                  {:header (ambiguous-header what name-str (count definitions))}
                  (mapv (partial definition->line index) definitions)))
 
 (defn one-definition
-  "Answer for `name-str` that resolved to `definitions`: `not-found` for
-   none, `(answer-fn definition)` for exactly one, the `ambiguous`
-   candidates otherwise."
+  "The answer for `name-str` that resolved to `definitions`: `not-found`
+   for none, `(answer-fn definition)` for exactly one, the `ambiguous`
+   candidates otherwise.
+
+  Config -> ToolArgs -> CodeIndex -> String -> [Definition] -> (Definition -> IO String) -> IO String"
   [cfg args index name-str definitions answer-fn]
   (case (count definitions)
     0 (not-found index name-str)

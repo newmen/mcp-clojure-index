@@ -5,6 +5,9 @@
 (def fixtures-dir "test-resources/fixtures")
 
 (defn fixture-path
+  "The path of the config fixture file `name`.
+
+  String -> String"
   [name]
   (str fixtures-dir "/" name))
 

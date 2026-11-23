@@ -22,10 +22,17 @@
   (delay (code-index/build (assoc project/config :index/root-path fixture-root))))
 
 (defn- temp-dir
+  "Creates a fresh temporary directory and returns its path.
+
+  () -> IO String"
   []
   (str (Files/createTempDirectory "semantic-index-test" (make-array FileAttribute 0))))
 
 (defn- services-config
+  "The config of the fixture project, with unreachable Qdrant and Ollama
+   and a fresh embedding cache.
+
+  () -> IO Config"
   []
   (assoc project/config
          :index/root-path fixture-root
@@ -34,13 +41,17 @@
          :embedding/cache-dir (temp-dir)))
 
 (defn- fake-qdrant
-  "In-memory Qdrant collection: {point-id unit}."
+  "Creates an in-memory Qdrant collection: {point-id unit}.
+
+  () -> IO (Atom {UUID SearchUnit})"
   []
   (atom {}))
 
 (defmacro ^:private with-services
-  "Run `body` with Qdrant backed by `points` and Ollama embedding every
-   text as a constant vector."
+  "Runs `body` with Qdrant backed by `points` and Ollama embedding every
+   text as a constant vector.
+
+  Atom {UUID SearchUnit} -> & Any -> IO a"
   [points & body]
   `(with-redefs [embeddings/generate (fn [texts# _cfg#] (mapv (constantly [0.1 0.2]) texts#))
                  qdrant/stored-format (fn [_cfg#] nil)
@@ -53,6 +64,9 @@
      ~@body))
 
 (defn- fixture-file
+  "The canonical path of the fixture file `relative-path`.
+
+  String -> IO String"
   [relative-path]
   (.getCanonicalPath (io/file fixture-root relative-path)))
 

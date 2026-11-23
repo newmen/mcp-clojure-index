@@ -1,5 +1,6 @@
 (ns mcp.config
   (:require [clojure.java.io :as io]
+            [clojure.spec.alpha :as s]
             [clojure.string :as st]
             [clojure.edn :as edn])
   (:import (java.io PushbackReader)
@@ -8,19 +9,41 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private ^:dynamic *getenv*
-  "Dynamic var wrapping System/getenv for testability.
-   In tests, can be rebound via binding or with-redefs."
+  "Reads an environment variable; a dynamic var wrapping System/getenv for
+   testability. In tests, can be rebound via binding or with-redefs.
+
+  String -> IO (Maybe String)"
   (fn [^String env] (System/getenv env)))
 
 (def ^:private ^:dynamic *user-dir-fn*
-  "Dynamic var wrapping System/getProperty \"user.dir\" for testability.
-   In tests, can be rebound via binding or with-redefs."
+  "Reads the working directory; a dynamic var wrapping
+   System/getProperty \"user.dir\" for testability. In tests, can be
+   rebound via binding or with-redefs.
+
+  () -> IO String"
   (fn [] (System/getProperty "user.dir")))
 
 (defn- pattern->regex
+  "Compiles an exclude pattern into a regex in which `.` matches only a dot.
+
+  String -> Pattern"
   [pattern]
   (let [escaped (st/replace pattern "." "\\.")]
     (re-pattern escaped)))
+
+;; Config: the defaults below, the file's keys and the fields computed by
+;; `resolve-config` (:index/root-path, :qdrant/collection,
+;; :embedding/cache-dir); :index/exclude holds compiled regexes.
+
+(s/def ::config
+  (s/keys :opt [:qdrant/host :qdrant/port :qdrant/recreate? :qdrant/collection
+                :ollama/url :ollama/embedding-model
+                :reranker/url :reranker/model
+                :server/transport
+                :index/root-path :index/include-extensions :index/exclude
+                :embedding/cache-dir
+                :search/top-k :search/re-rank-top
+                :output/limit :output/max-chars]))
 
 (def defaults
   {:qdrant/host       "localhost"
@@ -39,11 +62,17 @@
    :output/max-chars  2000})
 
 (defn compile-exclude-patterns
-  "Convert string exclude patterns to compiled regex patterns."
+  "Compiles string exclude patterns into regexes.
+
+  [String] -> [Pattern]"
   [exclude-strings]
   (mapv pattern->regex exclude-strings))
 
 (defn load-config
+  "Reads the config file at `config-path` over `defaults`, adds the
+   directories that are always excluded and compiles the exclude patterns.
+
+  String -> IO Config"
   [config-path]
   (with-open [r (io/reader config-path)]
     (let [file-config (edn/read (PushbackReader. r))]
@@ -55,11 +84,16 @@
           (update :index/exclude compile-exclude-patterns)))))
 
 (defn- not-blank
+  "The string itself unless it is nil or blank.
+
+  Maybe String -> Maybe String"
   [^String s]
   (when (and s (not (st/blank? s))) s))
 
 (defn- non-root-path
-  "Return the path if it is a non-blank string and not the root directory."
+  "The path itself if it is a non-blank string and not the root directory.
+
+  Maybe String -> Maybe String"
   [^String path]
   (when (and path
              (not (st/blank? path))
@@ -67,8 +101,8 @@
     path))
 
 (defn resolve-config
-  "Resolve computed config fields by applying the priority chain.
-   Must be called after load-config.
+  "Fills in the computed config fields by applying the priority chains
+   below. Must be called after `load-config`.
 
    Priority for :index/root-path:
      1. Explicit value from config.edn
@@ -86,7 +120,9 @@
    Priority for :embedding/cache-dir:
      1. Explicit value from config.edn
      2. Computed from root-path
-     3. \".mcp/embedding-cache\" (fallback)"
+     3. \".mcp/embedding-cache\" (fallback)
+
+  Config -> IO Config"
   [cfg]
   (let [get-env *getenv*
         root-path (or (:index/root-path cfg)
@@ -107,6 +143,10 @@
            :embedding/cache-dir cache-dir)))
 
 (defn validate-config
+  "Returns `config` unchanged, or throws when `:index/root-path` is missing
+   or `:index/include-extensions` is not a collection.
+
+  Config -> Config"
   [config]
   (when-not (:index/root-path config)
     (throw (ex-info "Missing :index/root-path in config" {:config config})))

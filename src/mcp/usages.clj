@@ -8,7 +8,8 @@
      each Target type has its own `usages` method.
    - `var-usage-kind-rules` classifies a var-usage into a Usage kind; the
      first rule whose predicate holds wins."
-  (:require [clojure.string :as st]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [mcp.code-index :as code-index]
             [rewrite-clj.zip :as z]))
 
@@ -31,18 +32,36 @@
 ;;  :kind      "call"                ; Usage kind, see GLOSSARY.md
 ;;  :enclosing "app.other/caller"}   ; Enclosing definition, or the namespace
 
+(s/def ::target
+  (s/keys :req [:target/type :target/name]
+          :opt-un [::code-index/definition ::keyword]))
+
+(s/def ::usage-kind
+  #{"require" "in-comment" "redef" "var-ref" "call" "value" "keyword" "edn"})
+
+(s/def ::usage (s/keys :req-un [::filename ::row ::col ::kind ::enclosing]))
+
+;; What `resolve-target` returns: {:target Target} for one Target,
+;; {:candidates [Definition]} for an ambiguous name, {} for no match.
+
+(s/def ::target-resolution (s/keys :opt-un [::target ::candidates]))
+
 ;; ---------------------------------------------------------------------------
 ;; Positions
 ;; ---------------------------------------------------------------------------
 
 (defn- position
-  "[row col] of the symbol of a clj-kondo entry."
+  "The [row col] of the symbol of a clj-kondo entry.
+
+  AnalysisEntry -> [Long Long]"
   [entry]
   [(or (:name-row entry) (:row entry)) (or (:name-col entry) (:col entry))])
 
 (defn- core-macro-usages
-  "Usages of `clojure.core/<macro-name>` in the file of `ctx`: the ranges of
-   those forms."
+  "The usages of `clojure.core/<macro-name>` in the file of `ctx`, whose
+   ranges are those of the macro's forms.
+
+  FileContext -> Symbol -> [AnalysisEntry]"
   [{:keys [file-usages]} macro-name]
   (filter #(and (= 'clojure.core (:to %)) (= macro-name (:name %))) file-usages))
 
@@ -57,7 +76,12 @@
 ;;  :file-usages var-usages of the file
 ;;  :lines       delay of the file's source lines}
 
+(s/def ::file-context (s/keys :req-un [::index ::filename ::file-usages ::lines]))
+
 (defn- file-context
+  "The FileContext of `filename`; its source lines are read on first use.
+
+  CodeIndex -> String -> FileContext"
   [index filename]
   {:index index
    :filename filename
@@ -69,6 +93,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- preceded-by-var-quote?
+  "True when `#'` stands right before the symbol of `var-usage`.
+
+  FileContext -> AnalysisEntry -> IO Boolean"
   [{:keys [lines]} var-usage]
   (let [[row col] (position var-usage)
         line (get @lines (dec row) "")]
@@ -76,19 +103,25 @@
          (= "#'" (subs line (- col 3) (dec col))))))
 
 (defn- var-ref?
-  "`#'name` or `(var name)`."
+  "True when `var-usage` is written `#'name` or `(var name)`.
+
+  FileContext -> AnalysisEntry -> IO Boolean"
   [ctx var-usage]
   (or (preceded-by-var-quote? ctx var-usage)
       (some #(code-index/contains-position? % (position var-usage)) (core-macro-usages ctx 'var))))
 
 (defn- in-comment?
-  "Inside a `(comment ...)` form."
+  "True when `var-usage` lies inside a `(comment ...)` form.
+
+  FileContext -> AnalysisEntry -> Boolean"
   [ctx var-usage]
   (some #(code-index/contains-position? % (position var-usage)) (core-macro-usages ctx 'comment)))
 
 (defn- redef-key-positions
-  "[row col] of each binding key of the `with-redefs` form starting at
-   `row`/`col` in `source`; `#'name` keys give the position of `name`."
+  "The [row col] of each binding key of the `with-redefs` form starting at
+   `row`/`col` in `source`; `#'name` keys give the position of `name`.
+
+  String -> FormRange -> [[Long Long]]"
   [source {:keys [row col]}]
   (let [loc (z/find-last-by-pos (z/of-string source {:track-position? true}) [row col])
         form (if (= :list (z/tag loc)) loc (z/up loc))
@@ -99,9 +132,13 @@
          (map #(z/position (if (= :var (z/tag %)) (z/down %) %))))))
 
 (defn- redef?
-  "A binding key of an enclosing `with-redefs`. clj-kondo gives the form's
-   range but not its bindings, so those are read from the source; only
-   files with an enclosing `with-redefs` (usually tests) are parsed."
+  "True when `var-usage` is a binding key of an enclosing `with-redefs`.
+
+  clj-kondo gives the form's range but not its bindings, so those are read
+  from the source; only files with an enclosing `with-redefs` (usually
+  tests) are parsed.
+
+  FileContext -> AnalysisEntry -> IO Boolean"
   [{:keys [lines] :as ctx} var-usage]
   (let [pos (position var-usage)]
     (when-let [forms (seq (filter #(code-index/contains-position? % pos) (core-macro-usages ctx 'with-redefs)))]
@@ -109,7 +146,10 @@
         (some #(some #{pos} (redef-key-positions source %)) forms)))))
 
 (def ^:private var-usage-kind-rules
-  "[kind (fn [ctx var-usage] truthy)], tried in order; the last always holds."
+  "The rules that classify a var-usage into a Usage kind, tried in order;
+   the last always holds.
+
+  [[UsageKind, (FileContext -> AnalysisEntry -> IO Boolean)]]"
   [["require" (fn [_ctx var-usage] (:refer var-usage))]
    ["in-comment" in-comment?]
    ["redef" redef?]
@@ -118,6 +158,9 @@
    ["value" (constantly true)]])
 
 (defn- var-usage-kind
+  "The Usage kind of `var-usage`: that of the first rule that holds.
+
+  FileContext -> AnalysisEntry -> IO UsageKind"
   [ctx var-usage]
   (some (fn [[kind holds?]] (when (holds? ctx var-usage) kind))
         var-usage-kind-rules))
@@ -127,8 +170,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- enclosing-definition
-  "Qualified name of the Definition whose body contains `entry`; the
-   namespace when the entry lies outside every Definition."
+  "The qualified name of the Definition whose body contains `entry`; the
+   namespace when the entry lies outside every Definition.
+
+  FileContext -> AnalysisEntry -> String"
   [{:keys [index filename]} entry]
   (let [[row col] (position entry)]
     (or (when-let [var-name (:from-var entry)]
@@ -142,6 +187,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- definition-target-type
+  "The `:target/type` of a Target that is `definition`.
+
+  Definition -> Keyword"
   [{:keys [ns dispatch] def-name :name}]
   (cond (keyword? def-name) :spec
         dispatch :defmethod
@@ -149,6 +197,9 @@
         :else :namespace))
 
 (defn- keyword-target
+  "The Target of a keyword without a spec.
+
+  Maybe Symbol -> String -> Target"
   [keyword-ns keyword-name]
   {:target/type :keyword
    :target/name (str (keyword (some-> keyword-ns str) keyword-name))
@@ -156,7 +207,9 @@
 
 (defn- auto-resolved-namespaces
   "Namespaces that `::alias/name` (or `::name` when `alias-str` is nil)
-   resolves to somewhere in the project."
+   resolves to somewhere in the project.
+
+  CodeIndex -> Maybe String -> String -> #{Symbol}"
   [index alias-str keyword-name]
   (->> (code-index/entries index :keywords)
        (filter #(and (:auto-resolved %) (:ns %) (= keyword-name (:name %))))
@@ -166,9 +219,12 @@
        (into (sorted-set) (map :ns))))
 
 (defn- resolve-keyword
-  "A keyword without a spec: `:name` and `:ns/name` always denote a
-   Target; `::name` and `::alias/name` denote the namespaces they resolve
-   to in the project."
+  "Resolves a keyword without a spec.
+
+  `:name` and `:ns/name` always denote a Target; `::name` and
+  `::alias/name` denote the namespaces they resolve to in the project.
+
+  CodeIndex -> String -> TargetResolution"
   [index keyword-str]
   (let [auto-resolved? (st/starts-with? keyword-str "::")
         [ns-part keyword-name] (code-index/split-name (st/replace keyword-str #"^::?" ""))]
@@ -182,9 +238,11 @@
                 {:candidates (map #(hash-map :name (keyword (str %) keyword-name)) namespaces)})))))
 
 (defn resolve-target
-  "Resolve a target as written by an agent. Returns {:target t} for one
+  "Resolves a target as written by an agent. Returns {:target t} for one
    Target, {:candidates [Definition ...]} for an ambiguous name, or {} when
-   nothing matches. A keyword without a spec is a Target of its own."
+   nothing matches. A keyword without a spec is a Target of its own.
+
+  CodeIndex -> Maybe String -> TargetResolution"
   [index target-str]
   (let [definitions (code-index/resolve-name index target-str)]
     (case (count definitions)
@@ -198,6 +256,9 @@
       {:candidates definitions})))
 
 (defn- usage
+  "The Usage of the clj-kondo `entry`, of Usage kind `kind`.
+
+  FileContext -> UsageKind -> AnalysisEntry -> Usage"
   [ctx kind entry]
   {:filename (:filename entry)
    :row (first (position entry))
@@ -206,8 +267,10 @@
    :enclosing (enclosing-definition ctx entry)})
 
 (defn- file-usages
-  "Usages built from `entries` (all of one target), file by file, with
-   `kind-fn` of (ctx entry)."
+  "Builds the Usages of `entries` (all of one target), file by file, with
+   the Usage kind that `kind-fn` gives.
+
+  CodeIndex -> (FileContext -> AnalysisEntry -> IO UsageKind) -> [AnalysisEntry] -> IO [Usage]"
   [index kind-fn entries]
   (->> (group-by :filename entries)
        (mapcat (fn [[filename file-entries]]
@@ -217,16 +280,24 @@
 (defmulti usages
   "All Usages of a Target, sorted by file and position, without duplicates
    (a `.cljc` form analysed for several languages appears once). Only for
-   a Target that `has-usages?`."
+   a Target that `has-usages?`.
+
+  CodeIndex -> Target -> IO [Usage]"
   (fn [_index target] (:target/type target)))
 
 (defn has-usages?
-  "False for a defmethod Target, which is never referred to by itself:
-   calls go through its multimethod."
+  "True when `usages` can find the Usages of `target`. False for a
+   defmethod Target, which is never referred to by itself: calls go through
+   its multimethod.
+
+  Maybe Target -> Boolean"
   [target]
   (contains? (methods usages) (:target/type target)))
 
 (defn- sorted-distinct
+  "The Usages in `found` without duplicates, sorted by file and position.
+
+  [Usage] -> [Usage]"
   [found]
   (->> found
        (group-by (juxt :filename :row :col :kind))
@@ -236,19 +307,26 @@
 
 (defn- in-ns-form?
   "True when a keyword entry lies inside the `ns` form of its file
-   (`:require`, `:as`, ...)."
+   (`:require`, `:as`, ...).
+
+  CodeIndex -> AnalysisEntry -> Boolean"
   [index keyword-entry]
   (some #(code-index/contains-position? % (position keyword-entry))
         (code-index/file-entries index (:filename keyword-entry) :namespace-definitions)))
 
 (defn- keyword-kind
+  "The Usage kind of a keyword entry: `edn` in an EDN file, else `keyword`.
+
+  FileContext -> AnalysisEntry -> UsageKind"
   [_ctx keyword-entry]
   (if (st/ends-with? (:filename keyword-entry) ".edn") "edn" "keyword"))
 
 (defn- keyword-usages
   "Usages of the keyword `:keyword-ns/keyword-name` (`keyword-ns` a symbol
    or nil) in code and in EDN files; the `s/def` registering it is its
-   Definition, not a Usage."
+   Definition, not a Usage.
+
+  CodeIndex -> Maybe Symbol -> String -> IO [Usage]"
   [index keyword-ns keyword-name]
   (->> (code-index/entries index :keywords)
        (filter #(and (= keyword-name (:name %)) (= keyword-ns (:ns %))))
@@ -283,6 +361,8 @@
        sorted-distinct))
 
 (defn kind-names
-  "The Usage kinds `usages` can report."
+  "The Usage kinds `usages` can report.
+
+  () -> [UsageKind]"
   []
   (conj (mapv first var-usage-kind-rules) "keyword" "edn"))

@@ -19,6 +19,10 @@
   (delay (code-index/build fixture-config)))
 
 (defn- answer
+  "The answer text of `find_implementations` on the fixture project.
+
+  ToolArgs -> IO String
+  Config -> ToolArgs -> IO String"
   ([args] (answer fixture-config args))
   ([cfg args]
    (project/answer-text cfg

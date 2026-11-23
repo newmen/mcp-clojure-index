@@ -16,6 +16,10 @@
          :search/re-rank-top 10))
 
 (defn- make-unit
+  "A Search unit `test.ns/<unit-name>` with an optional docstring.
+
+  String -> SearchUnit
+  String -> Maybe String -> SearchUnit"
   ([unit-name] (make-unit unit-name nil))
   ([unit-name doc]
    (cond-> {:id (str "id-" unit-name)
@@ -28,19 +32,26 @@
 
 (defn- reverse-rerank
   "A reranker that likes the candidates in reverse order: scores them and
-   returns them best first."
+   returns them best first.
+
+  String -> [Candidate] -> Config -> [Candidate]"
   [_query candidates _cfg]
   (mapv (fn [candidate position] (assoc candidate :re-rank (float (- 1.0 (* position 0.1)))))
         (reverse candidates)
         (range)))
 
 (defn- no-rerank
+  "A reranker that is unavailable: returns the candidates as given.
+
+  String -> [Candidate] -> Config -> [Candidate]"
   [_query candidates _cfg]
   candidates)
 
 (defn- search-names
-  "Names of the hits for `query`, with Qdrant answering `vector-units` and
-   the reranker `rerank`."
+  "The names of the hits for `query`, with Qdrant answering `vector-units`
+   and the reranker `rerank`.
+
+  String -> [SearchUnit] -> [SearchUnit] -> (String -> [Candidate] -> Config -> [Candidate]) -> IO [String]"
   [query vector-units all-units rerank]
   (with-redefs [embeddings/generate (fn [_texts _cfg] [[0.1 0.2 0.3]])
                 qdrant/search (fn [_cfg _emb _k]

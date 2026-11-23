@@ -9,6 +9,10 @@
 (set! *warn-on-reflection* true)
 
 (defn- answer
+  "The answer text of `get_source` on this project's code base.
+
+  ToolArgs -> IO String
+  Config -> ToolArgs -> IO String"
   ([args] (answer project/config args))
   ([cfg args]
    (project/answer-text cfg
@@ -16,9 +20,11 @@
                                    {:config cfg :code-index (project/code-index)}))))
 
 (def ^:private first-line-source
-  (str "src/mcp/output.clj:39-45\n"
+  (str "src/mcp/output.clj:52-60\n"
        "(defn first-line\n"
-       "  \"First non-blank line of `text` (e.g. a docstring), trimmed; nil if none.\"\n"
+       "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
+       "\n"
+       "  Maybe String -> Maybe String\"\n"
        "  [text]\n"
        "  (some->> (some-> text st/split-lines)\n"
        "           (map st/trim)\n"
@@ -49,21 +55,21 @@
 (deftest body-over-budget-ends-with-truncation-note-and-pages-by-line
   (let [cfg (assoc project/config :output/max-chars 100)
         text (answer cfg {:name "mcp.output/first-line"})]
-    (is (= (str "src/mcp/output.clj:39-45\n"
+    (is (= (str "src/mcp/output.clj:52-60\n"
                 "(defn first-line\n"
-                "truncated: shown 1 of 7, pass offset=1 or narrow the query")
+                "truncated: shown 1 of 9, pass offset=1 or narrow the query")
            text))
     (is (<= (count text) 100)))
   (testing "offset skips lines of the body"
-    (is (= (str "src/mcp/output.clj:39-45\n"
+    (is (= (str "src/mcp/output.clj:52-60\n"
                 "           (remove st/blank?)\n"
                 "           first))")
-           (answer {:name "mcp.output/first-line" :offset 5}))))
+           (answer {:name "mcp.output/first-line" :offset 7}))))
   (testing "limit lowers the number of lines"
-    (is (= (str "src/mcp/output.clj:39-45\n"
+    (is (= (str "src/mcp/output.clj:52-60\n"
                 "(defn first-line\n"
-                "  \"First non-blank line of `text` (e.g. a docstring), trimmed; nil if none.\"\n"
-                "truncated: shown 2 of 7, pass offset=2 or narrow the query")
+                "  \"The first non-blank line of `text`, trimmed; nil if none.\n"
+                "truncated: shown 2 of 9, pass offset=2 or narrow the query")
            (answer {:name "mcp.output/first-line" :limit 2})))))
 
 (deftest ambiguous-candidates-obey-limit-and-offset

@@ -2,6 +2,7 @@
   "Qdrant HTTP adapter: one point per Search unit (see `mcp.search-units`).
    Qdrant holds embeddings only, never the precise index (ADR-0003)."
   (:require [clojure.data.json :as json]
+            [clojure.spec.alpha :as s]
             [clj-http.client :as http]))
 
 (set! *warn-on-reflection* true)
@@ -16,10 +17,22 @@
 ;;  "name"   "shop.orders/order-total"
 ;;  "doc"    "First line.\n More."   ; whole docstring, absent when there is none
 ;;  "text"   "..."}                   ; the embedding text, also fed to the reranker
+;;
+;; A Point is {:id :vector :payload}; points read back have keyword payload
+;; keys and no vector. A QdrantResponse is {:status :body}, the body parsed.
+;; A ScoredUnit is a Search unit found by `search`, {:unit :score}.
+
+(s/def ::point (s/keys :req-un [::id ::payload] :opt-un [::vector]))
+
+(s/def ::qdrant-response (s/keys :req-un [::status ::body]))
+
+(s/def ::scored-unit (s/keys :req-un [::unit ::score]))
 
 (def payload-format
   "Version of the point payload; a collection holding another version is
-   dropped and recreated."
+   dropped and recreated.
+
+  Long"
   3)
 
 (def ^:private vector-config
@@ -35,11 +48,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- collection-url
+  "The URL of the configured Qdrant collection.
+
+  Config -> String"
   [cfg]
   (str "http://" (or (:qdrant/host cfg) "localhost") ":" (or (:qdrant/port cfg) 6333)
        "/collections/" (:qdrant/collection cfg)))
 
 (defn- request
+  "Sends an HTTP request to Qdrant, with `body-map` as JSON when given.
+
+  Keyword -> String -> Maybe Map -> IO QdrantResponse"
   [method url body-map]
   (let [response (http/request (cond-> {:method method
                                         :url url
@@ -53,7 +72,10 @@
                 (catch Exception _ nil))}))
 
 (defn- request!
-  "Like `request`, but throws unless Qdrant answers with one of `statuses`."
+  "Sends a request like `request`, but throws unless Qdrant answers with
+   one of `statuses`.
+
+  Keyword -> String -> Maybe Map -> String -> #{Long} -> IO QdrantResponse"
   [method url body-map description statuses]
   (let [{:keys [status] :as response} (request method url body-map)]
     (when-not (contains? statuses status)
@@ -66,16 +88,24 @@
 ;; ---------------------------------------------------------------------------
 
 (defn create-collection!
-  "Create the collection unless it exists."
+  "Creates the collection unless it exists.
+
+  Config -> IO QdrantResponse"
   [cfg]
   (request! :put (collection-url cfg) {:vectors vector-config} "create collection" #{200 409}))
 
 (defn delete-collection!
-  "Drop the collection with all its points."
+  "Drops the collection with all its points.
+
+  Config -> IO QdrantResponse"
   [cfg]
   (request! :delete (collection-url cfg) nil "delete collection" #{200 404}))
 
 (defn- scroll
+  "Reads one page of at most `limit` points, with the payload keys
+   `payload-keys`, starting at `page-offset` (nil for the first page).
+
+  Config -> Maybe String -> Long -> [String] -> IO {:points [Point] :next Maybe String}"
   [cfg page-offset limit payload-keys]
   (let [{:keys [body]} (request! :post (str (collection-url cfg) "/points/scroll")
                                  (cond-> {:limit limit
@@ -87,8 +117,10 @@
      :next (get-in body [:result :next_page_offset])}))
 
 (defn stored-format
-  "Payload format of the points in the collection: nil when it is missing
-   or empty, 1 for points of the old chunk format."
+  "Reads the payload format of the points in the collection: nil when it is
+   missing or empty, 1 for points of the old chunk format.
+
+  Config -> IO (Maybe Long)"
   [cfg]
   (let [{:keys [status]} (request :get (collection-url cfg) nil)]
     (if (= 404 status)
@@ -97,8 +129,10 @@
               (get-in [:payload :format] 1)))))
 
 (defn embedded-files
-  "{file mtime} of the files whose points the collection holds; a file
-   whose points disagree on the mtime is left out."
+  "Reads the mtime of each file whose points the collection holds; a file
+   whose points disagree on the mtime is left out.
+
+  Config -> IO {String Long}"
   [cfg]
   (loop [page-offset nil
          mtimes-by-file {}]
@@ -119,6 +153,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- unit->point
+  "The Point of a Search unit built from a file of `mtime`.
+
+  Long -> SearchUnit -> Embedding -> Point"
   [mtime {:keys [id filename row kind doc text] unit-name :name} unit-vector]
   {:id (str id)
    :vector unit-vector
@@ -132,27 +169,36 @@
               doc (assoc "doc" doc))})
 
 (defn- point->unit
+  "The Search unit stored in a Point read back from Qdrant.
+
+  Point -> SearchUnit"
   [{:keys [id payload]}]
   (cond-> (select-keys payload [:filename :row :kind :name :text])
     true (assoc :id (str id))
     (:doc payload) (assoc :doc (:doc payload))))
 
 (defn upsert!
-  "Store the Search `units` of one file, built from its `mtime`, with
-   their `unit-vectors`."
+  "Stores the Search `units` of one file, built from its `mtime`, with
+   their `unit-vectors`.
+
+  Config -> [SearchUnit] -> [Embedding] -> Long -> IO ()"
   [cfg units unit-vectors mtime]
   (doseq [batch (partition-all upsert-batch-size (map (partial unit->point mtime) units unit-vectors))]
     (request! :put (str (collection-url cfg) "/points?wait=true") {:points batch} "upsert" #{200})))
 
 (defn delete!
-  "Remove all points of `file-path`."
+  "Removes all points of `file-path`.
+
+  Config -> String -> IO QdrantResponse"
   [cfg file-path]
   (request! :post (str (collection-url cfg) "/points/delete?wait=true")
             {:filter {:must [{:key "filename" :match {:value file-path}}]}}
             "delete" #{200}))
 
 (defn search
-  "The `top-k` points nearest to `query-vector`: [{:unit unit :score s}]."
+  "Finds the `top-k` points nearest to `query-vector`.
+
+  Config -> Embedding -> Long -> IO [ScoredUnit]"
   [cfg query-vector top-k]
   (->> (request! :post (str (collection-url cfg) "/points/search")
                  {:vector query-vector :limit top-k :with_payload true :with_vector false}

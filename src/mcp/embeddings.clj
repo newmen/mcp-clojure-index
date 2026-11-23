@@ -2,6 +2,7 @@
   (:require [clojure.string :as st]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.spec.alpha :as s]
             [clojure.data.json :as json]
             [clj-http.client :as http]
             [clojure.tools.logging :as log]
@@ -19,12 +20,21 @@
 
 (defonce ^:dynamic *config* nil)
 
+;; Embedding: the vector Ollama returns for one text.
+;; HttpResponse: a clj-http response whose `:body` is parsed JSON.
+
+(s/def ::embedding (s/coll-of double? :kind vector?))
+
+(s/def ::http-response (s/keys :req-un [::status ::body]))
+
 (def ^:private batch-size 50)
 (def ^:private embedding-timeouts
   {:socket-timeout 300000 :connection-timeout 10000})
 
 (def ^:private rerank-timeouts
-  "The reranker is optional: an absent one is given up on quickly."
+  "The reranker is optional: an absent one is given up on quickly.
+
+  {:socket-timeout Long :connection-timeout Long}"
   {:socket-timeout 120000 :connection-timeout 2000})
 
 (def ^:private rerank-max-chars
@@ -32,10 +42,15 @@
    model takes at most 512 tokens per query and document together, and
    the reranker rejects the whole request when one pair is longer; 1000
    characters of Clojure measured at most ~415 tokens. A text starts with
-   name, arglists and docstring, so these are always read."
+   name, arglists and docstring, so these are always read.
+
+  Long"
   1000)
 
 (defn- get-config
+  "The config bound to `*config*`, or the defaults.
+
+  () -> Config"
   []
   (or *config* config/defaults))
 
@@ -44,15 +59,25 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- cache-dir
+  "The directory of the embedding cache.
+
+  Config -> File"
   [cfg]
   (let [dir (or (:embedding/cache-dir cfg) ".mcp/embedding-cache")]
     (io/file dir)))
 
 (defn- cache-file
+  "The cache file of the embedding of the text with hash `hash-str`.
+
+  Config -> String -> File"
   [cfg hash-str]
   (io/file (cache-dir cfg) (str hash-str ".edn")))
 
 (defn cached-embedding
+  "Reads the cached embedding of the text with hash `hash-str`; nil when it
+   is not cached or the cache file is unreadable.
+
+  Config -> String -> IO (Maybe Embedding)"
   [cfg hash-str]
   (let [^File f (cache-file cfg hash-str)]
     (when (.exists f)
@@ -62,6 +87,10 @@
         (catch Exception _ nil)))))
 
 (defn cache-embedding!
+  "Writes `embedding` to the cache under `hash-str`, atomically where the
+   file system allows it.
+
+  Config -> String -> Embedding -> IO ()"
   [cfg hash-str embedding]
   (let [^File dir (cache-dir cfg)]
     (.mkdirs dir)
@@ -82,25 +111,39 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- endpoint-url
-  "`path` under the API `base-url`, with or without a trailing slash."
+  "The URL of `path` under the API `base-url`, with or without a trailing
+   slash.
+
+  String -> String -> String"
   [base-url path]
   (str (st/replace base-url #"/$" "") path))
 
 (defn- ollama-embed-url
+  "The URL of Ollama's embeddings endpoint.
+
+  Config -> String"
   [cfg]
   (endpoint-url (or (:ollama/url cfg) "http://localhost:11434/v1") "/embeddings"))
 
 (defn- embedding-model
+  "The name of the embedding model.
+
+  Config -> String"
   [cfg]
   (or (:ollama/embedding-model cfg) "vishalraj/nomic-embed-code"))
 
 (defn- reranker-model
+  "The name of the reranker model.
+
+  Config -> String"
   [cfg]
   (or (:reranker/model cfg) "qllama/bce-reranker-base_v1"))
 
 (defn- http-post-json
-  "POST `body-map` as JSON to `url`; `timeouts` are clj-http's
-   {:socket-timeout :connection-timeout}. The body comes back parsed."
+  "Posts `body-map` as JSON to `url`; `timeouts` are clj-http's
+   {:socket-timeout :connection-timeout}. The body comes back parsed.
+
+  String -> Map -> {:socket-timeout Long :connection-timeout Long} -> IO HttpResponse"
   [url body-map timeouts]
   (let [response (http/post url (merge {:content-type "application/json"
                                         :body (json/write-str body-map)}
@@ -113,11 +156,20 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- extract-embeddings
+  "The embeddings in a parsed response of the embeddings endpoint; nil when
+   it has no `:data`.
+
+  Map -> Maybe [Embedding]"
   [data]
   (when-let [items (:data data)]
     (mapv (fn [item] (mapv double (:embedding item))) items)))
 
 (defn generate
+  "Asks Ollama for the embeddings of `texts`, in order and in batches; nil
+   for no texts. Throws when Ollama answers without embeddings.
+
+  [String] -> IO (Maybe [Embedding])
+  [String] -> Config -> IO (Maybe [Embedding])"
   ([texts]
    (generate texts (get-config)))
   ([texts cfg]
@@ -143,7 +195,9 @@
 (defn embed-units
   "Embedding vectors of the Search `units` (see `mcp.search-units`), in
    order. Vectors are cached on disk by the unit's `:hash`; only uncached
-   texts are sent to Ollama."
+   texts are sent to Ollama.
+
+  Config -> [SearchUnit] -> IO [Embedding]"
   [cfg units]
   (let [cached (mapv (comp (partial cached-embedding cfg) :hash) units)
         uncached (vec (remove (comp some? (partial nth cached)) (range (count units))))
@@ -167,12 +221,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- rerank-url
+  "The URL of the reranker's rerank endpoint.
+
+  Config -> String"
   [cfg]
   (endpoint-url (or (:reranker/url cfg) "http://localhost:8012/v1") "/rerank"))
 
 (defn- scores-in-order
-  "Scores of the reranker's `results` by candidate index, or nil unless
-   they score each of the `candidate-count` candidates exactly once."
+  "The scores of the reranker's `results` by candidate index, or nil
+   unless they score each of the `candidate-count` candidates exactly once.
+
+  [{:index Long :relevance_score Double}] -> Long -> Maybe [Double]"
   [results candidate-count]
   (let [by-index (into {} (map (juxt :index :relevance_score)) results)
         scores (mapv by-index (range candidate-count))]
@@ -182,7 +241,9 @@
 
 (defn- relevance-scores
   "The reranker's score of each of `texts` for `query`, in order, or nil
-   when it is not reachable, fails or answers something else."
+   when it is not reachable, fails or answers something else.
+
+  Config -> String -> [String] -> IO (Maybe [Double])"
   [cfg query texts]
   (try
     (-> (http-post-json (rerank-url cfg)
@@ -195,11 +256,17 @@
       nil)))
 
 (defn- sigmoid
+  "The logistic function of `logit`, a relevance in 0..1.
+
+  Double -> Double"
   [logit]
   (/ 1.0 (+ 1.0 (Math/exp (- (double logit))))))
 
 (defn- truncate-for-rerank
-  "Start of `text` that fits in `rerank-max-chars` together with `query`."
+  "The start of `text` that fits in `rerank-max-chars` together with
+   `query`.
+
+  String -> Maybe String -> String"
   [query text]
   (let [text (str text)
         max-chars (max 0 (- rerank-max-chars (count query)))]
@@ -207,9 +274,12 @@
       (> (count text) max-chars) (subs 0 max-chars))))
 
 (defn rerank
-  "`candidates` ({:text ...}) ordered by the reranker's relevance of their
-   `:text` to `query`, best first, each with its relevance (0..1) as `:re-rank`.
-   When the reranker is unavailable, `candidates` as given."
+  "Orders `candidates` by the reranker's relevance of their `:text` to
+   `query`, best first, each with its relevance (0..1) as `:re-rank`.
+   When the reranker is unavailable, returns `candidates` as given.
+
+  String -> [Candidate] -> IO [Candidate]
+  String -> [Candidate] -> Config -> IO [Candidate]"
   ([query candidates]
    (rerank query candidates (get-config)))
   ([query candidates cfg]

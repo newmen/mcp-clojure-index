@@ -1,6 +1,7 @@
 (ns mcp.server
   (:gen-class)
   (:require [clojure.data.json :as json]
+            [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
             [mcp.config :as config]
@@ -13,7 +14,9 @@
 
 (def ^:private protocol-version
   "First MCP revision whose `initialize` result carries `instructions`
-   is 2025-03-26; this is the latest one the server follows."
+   is 2025-03-26; this is the latest one the server follows.
+
+  String"
   "2025-06-18")
 
 (def ^:private instructions
@@ -23,24 +26,49 @@
        "Use get_source for a definition's body instead of reading the whole file."))
 (defonce ^:private server-state-atom (atom nil))
 
+;; JsonRpcMessage: a parsed request or notification, keyword keys.
+;; JsonRpcResponse: what is written back for a request.
+;; ServerState: the config, an atom of the code index and the semantic
+;; index state; `live-state` turns it into a ToolState.
+
+(s/def ::json-rpc-message (s/keys :req-un [::method] :opt-un [::jsonrpc ::id ::params]))
+
+(s/def ::json-rpc-response (s/keys :req-un [::jsonrpc ::id] :opt-un [::result ::error]))
+
+(s/def ::server-state
+  (s/keys :req-un [:mcp.config/config]
+          :opt-un [::code-index-ref ::semantic-index]))
+
 (defn- json-rpc-error
+  "The JSON-RPC error response to the request `id`.
+
+  Maybe (String | Long) -> Long -> String -> JsonRpcResponse"
   [id code message]
   {:jsonrpc "2.0"
    :id id
    :error {:code code :message message}})
 
 (defn- json-rpc-result
+  "The JSON-RPC result response to the request `id`.
+
+  Maybe (String | Long) -> Map -> JsonRpcResponse"
   [id result]
   {:jsonrpc "2.0"
    :id id
    :result result})
 
 (defn- parse-json
+  "Parses one line of input as a JSON-RPC message; nil when it is not JSON.
+
+  String -> Maybe JsonRpcMessage"
   [^String json-str]
   (try (json/read-str json-str :key-fn keyword)
        (catch Exception _ nil)))
 
 (defn- write-json
+  "Writes `data` as one line of JSON to `writer` and flushes it.
+
+  OutputStreamWriter -> JsonRpcResponse -> IO ()"
   [^OutputStreamWriter writer data]
   (let [s (json/write-str data)]
     (.write writer s)
@@ -48,6 +76,9 @@
     (.flush writer)))
 
 (defn- initialize-handler
+  "Answers `initialize` with the server's capabilities and `instructions`.
+
+  JsonRpcMessage -> ServerState -> [JsonRpcResponse ServerState]"
   [msg state]
   (let [id (:id msg)
         server-info {:name "mcp-clojure-index"
@@ -59,6 +90,9 @@
      state]))
 
 (defn- live-state
+  "The ToolState of `state`, with the current code index.
+
+  ServerState -> IO ToolState"
   [state]
   (if-let [code-index-ref (:code-index-ref state)]
     (assoc state :code-index @code-index-ref)
@@ -67,7 +101,9 @@
 (defn- ensure-fresh-code-index!
   "Re-analyse files changed on disk since the last answer, synchronously,
    so a precise tool never answers from a stale index (ADR-0005), then let
-   the embeddings of changed files catch up in the background."
+   the embeddings of changed files catch up in the background.
+
+  ServerState -> IO ServerState"
   [state]
   (when-let [code-index-ref (:code-index-ref state)]
     (try
@@ -79,6 +115,9 @@
   state)
 
 (defn- handle-method
+  "Answers one JSON-RPC message; nil for a notification.
+
+  JsonRpcMessage -> ServerState -> IO [Maybe JsonRpcResponse, ServerState]"
   [msg state]
   (let [method (:method msg)
         id (:id msg)
@@ -103,12 +142,18 @@
         [(json-rpc-error id -32603 (.getMessage e)) state]))))
 
 (defn stop
+  "Forgets the running server's state.
+
+  () -> IO ()"
   []
   (when @server-state-atom
     (reset! server-state-atom nil)
     (log/info "Server stopped")))
 
 (defn- process-message
+  "Answers one line of input; nil for a line that is not JSON.
+
+  String -> ServerState -> IO [Maybe JsonRpcResponse, ServerState]"
   [^String line state]
   (let [msg (parse-json line)]
     (if (nil? msg)
@@ -116,6 +161,9 @@
       (handle-method msg state))))
 
 (defn start
+  "Builds the code index and serves MCP on stdio until the input ends.
+
+  Config -> IO ()"
   [cfg]
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
@@ -145,6 +193,10 @@
         (stop)))))
 
 (defn -main
+  "Starts the server with the config file given as the first argument, or
+   `resources/config.edn`.
+
+  & String -> IO ()"
   [& args]
   (let [config-path (or (first args) "resources/config.edn")
         cfg (-> (config/load-config config-path)

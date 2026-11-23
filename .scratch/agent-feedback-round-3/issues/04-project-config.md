@@ -4,13 +4,13 @@
 
 **Blocked by:** 03 (both change the shipped server config)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `.clojure-index.edn` at the project root is read at start; any server config key is allowed and replaces the server value whole; always-excluded directories are still added.
-- [ ] An unknown key, a non-compiling pattern, a bad signature strategy or unreadable EDN gives the `project config error in .clojure-index.edn: …; using previous settings` line, with the previous settings still in use.
-- [ ] A Project config invalid from the start runs the server on the server config alone and reports the error the same way.
-- [ ] Editing a hot answer key applies from the next `tools/call`; deleting the file restores the server config.
-- [ ] Changing a cold key is not applied and answers end with the restart line naming every such key.
-- [ ] An invalid server config stops the server with its absolute path in the message.
-- [ ] The shipped server config holds defaults only; this repository's settings live in its `.clojure-index.edn`, and the shared test config picks them up so existing tests keep their exclusions and Type signatures.
-- [ ] Server-seam tests on a temporary project cover: edit applied, broken file, cold key, deleted file, invalid from start.
+- [x] `.clojure-index.edn` at the project root is read at start; any server config key is allowed and replaces the server value whole; always-excluded directories are still added.
+- [x] An unknown key, a non-compiling pattern, a bad signature strategy or unreadable EDN gives the `project config error in .clojure-index.edn: …; using previous settings` line, with the previous settings still in use.
+- [x] A Project config invalid from the start runs the server on the server config alone and reports the error the same way.
+- [x] Editing a hot answer key applies from the next `tools/call`; deleting the file restores the server config.
+- [x] Changing a cold key is not applied and answers end with the restart line naming every such key.
+- [x] An invalid server config stops the server with its absolute path in the message.
+- [x] The shipped server config holds defaults only; this repository's settings live in its `.clojure-index.edn`, and the shared test config picks them up so existing tests keep their exclusions and Type signatures.
+- [x] Server-seam tests on a temporary project cover: edit applied, broken file, cold key, deleted file, invalid from start.

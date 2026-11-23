@@ -20,8 +20,10 @@ LLM agents spend most of their tokens on understanding code: `grep`, then readin
 - [Leiningen](https://leiningen.org/) 2.11+ (development and build only)
 - Only for `semantic_search` (optional):
   - [Qdrant](https://qdrant.tech/) (vector database)
-  - [Ollama](https://ollama.com/) with the `vishalraj/nomic-embed-code` model — code embeddings
-  - optionally, a reranker: llama.cpp's `llama-server --rerank` with `qllama/bce-reranker-base_v1` — sorts the hits precisely and gives them a relevance score
+  - [Ollama](https://ollama.com/) with the `bge-m3` model — multilingual embeddings
+  - optionally, a reranker: llama.cpp's `llama-server --rerank` with `qllama/bge-reranker-v2-m3` — sorts the hits precisely and gives them a relevance score
+
+The default models are multilingual: queries in English or Russian (and 100+ other languages) find docstrings written in any of them. See [Choosing the models](#choosing-the-models) for the code-specific alternative.
 
 If Qdrant or Ollama is not reachable, the server still starts and every precise tool answers; `semantic_search` answers that it is unavailable. Without the reranker `semantic_search` still works: hits are ordered by vector search fused with word matching on names and docstrings, and carry no score.
 
@@ -43,32 +45,46 @@ Check: `curl http://localhost:6333/collections`
 <summary><b>Ollama</b> — embedding model</summary>
 
 ```bash
-ollama pull vishalraj/nomic-embed-code
+ollama pull bge-m3
 ```
 </details>
 
 <details>
-<summary><b>Reranker</b> (optional) — llama-server with the BCE model</summary>
+<summary><b>Reranker</b> (optional) — llama-server with bge-reranker-v2-m3</summary>
 
 Ollama cannot run the reranking model itself (it has no rerank API), but it can download it, and Linux builds of Ollama ship `llama-server`, which can:
 
 Bash:
 
 ```bash
-ollama pull qllama/bce-reranker-base_v1
-MODEL=$(ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+ollama pull qllama/bge-reranker-v2-m3
+MODEL=$(ollama show --modelfile qllama/bge-reranker-v2-m3 | sed -n 's/^FROM //p')
 LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
 ```
 
 Fish:
 
 ```
-ollama pull qllama/bce-reranker-base_v1
-set MODEL (ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+ollama pull qllama/bge-reranker-v2-m3
+set MODEL (ollama show --modelfile qllama/bge-reranker-v2-m3 | sed -n 's/^FROM //p')
 LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
 ```
 
-Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works the same way. Check: `curl http://localhost:8012/health`
+Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works the same way. Check: `curl http://localhost:8012/health`. The server answers with the model it was started with, whatever `:reranker/model` says: restart it after changing the model.
+</details>
+
+<details id="choosing-the-models">
+<summary><b>Choosing the models</b> — multilingual (default) or code-specific</summary>
+
+| | Multilingual (default) | Code-specific |
+|---|---|---|
+| `:ollama/embedding-model` | `"bge-m3"` (1.2 GB, 1024 dimensions) | `"vishalraj/nomic-embed-code"` (49 MB, 768 dimensions) |
+| `:reranker/model` and the llama-server model file | `"qllama/bge-reranker-v2-m3"` (635 MB) | `"qllama/bce-reranker-base_v1"` (303 MB) |
+| Docstrings and queries | any language, English and Russian measured | English |
+
+Choose the multilingual pair when docstrings or queries are not in English: with the code-specific pair every hit on Russian docstrings scores about the same and the expected Definition can fall out of the top 3. Choose the code-specific pair for a code base documented in English when memory or embedding time matters; on English docstrings both pairs find the same Definitions. The measurement is in `docs/adr/0008-multilingual-models.md`.
+
+Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collection records its model and is rebuilt when it differs, and the embedding cache keeps one directory per model.
 </details>
 
 ### 2. Configure
@@ -87,9 +103,9 @@ Any `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp) works
 | `:qdrant/collection` | `QD_COLLECTION` env, else `<project dir>-collection` | Qdrant collection (semantic search only) |
 | `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |
 | `:ollama/url` | `"http://localhost:11434/v1"` | Ollama API address (semantic search only) |
-| `:ollama/embedding-model` | `"vishalraj/nomic-embed-code"` | Embedding model (semantic search only) |
+| `:ollama/embedding-model` | `"bge-m3"` | Embedding model (semantic search only); a change rebuilds the collection |
 | `:reranker/url` | `"http://localhost:8012/v1"` | Reranker address, a `/v1/rerank` API such as `llama-server --rerank` (semantic search only, optional) |
-| `:reranker/model` | `"qllama/bce-reranker-base_v1"` | Model name sent to the reranker (semantic search only) |
+| `:reranker/model` | `"qllama/bge-reranker-v2-m3"` | Model name sent to the reranker (semantic search only) |
 | `:search/top-k` | `100` | Candidates taken from vector search and from word matching each, and fused candidates passed to the reranker (semantic search only) |
 | `:search/re-rank-top` | `10` | Hits kept after reranking (semantic search only) |
 | `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
@@ -272,7 +288,8 @@ src/mcp/
 # Tests (no Qdrant or Ollama needed)
 lein test
 
-# Tests that need Qdrant and Ollama (they pass with or without the reranker)
+# Tests that need Qdrant and Ollama with the default models; the Russian-docstring
+# test (acceptance case 12) also needs the reranker, the others pass without it
 lein test :integration
 
 # Linter

@@ -244,3 +244,14 @@
 (deftest embed-units-of-no-units-is-empty
   (is (= [] (sut/embed-units (temp-cache-config) []))))
 
+(deftest embeddings-of-another-model-are-not-taken-from-the-cache
+  (let [cfg (temp-cache-config)
+        other-model (assoc cfg :ollama/embedding-model "another/embedding-model")
+        sent (atom [])
+        units [{:hash "h-a" :text "a"}]]
+    (sut/cache-embedding! cfg "h-a" [0.1 0.2])
+    (with-redefs [sut/generate (fn [texts _cfg] (swap! sent into texts) (mapv (constantly [0.5 0.6 0.7]) texts))]
+      (is (= [[0.5 0.6 0.7]] (sut/embed-units other-model units)))
+      (is (= [[0.1 0.2]] (sut/embed-units cfg units))))
+    (is (= ["a"] @sent))))
+

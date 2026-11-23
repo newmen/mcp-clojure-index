@@ -202,21 +202,64 @@
   []
   (str (Files/createTempDirectory "semantic-search-it" (make-array FileAttribute 0))))
 
-(deftest ^:integration expected-definition-is-in-the-top-3-of-semantic-search
-  (let [cfg (assoc project/config
-                   :index/root-path fixture-root
+(defn- top-3-misses
+  "The queries of `expected` whose expected Definition is not among the
+   first three hits of `semantic_search` on the project at `root`, each
+   with its answer; also asserts that every file is embedded and every
+   answer fits the budget. Uses a fresh collection and embedding cache,
+   so it measures the models of `cfg`.
+
+  Config -> String -> {String String} -> IO {String String}"
+  [cfg root expected]
+  (let [cfg (assoc cfg
+                   :index/root-path root
                    :qdrant/collection (str "mcp-integration-" (random-uuid))
                    :embedding/cache-dir (temp-cache-dir))
+        index (code-index/build cfg)
         semantic-index (semantic-index/create cfg)]
     (try
-      (semantic-index/sync! semantic-index @fixture-index)
-      (is (= [] (semantic-index/stale-files semantic-index @fixture-index)) "every file embedded")
-      (doseq [[query expected] expected-top-3]
-        (let [text (-> (tool/call :semantic_search {:query query}
-                                  {:config cfg :code-index @fixture-index :semantic-index semantic-index})
-                       :content first :text)]
-          (is (some #(and % (st/starts-with? % expected)) (top-names text))
-              (str query " => " expected "\n" text))
-          (is (<= (count text) (:output/max-chars cfg)))))
+      (semantic-index/sync! semantic-index index)
+      (is (= [] (semantic-index/stale-files semantic-index index)) "every file embedded")
+      (into (sorted-map)
+            (keep (fn [[query expected-name]]
+                    (let [text (-> (tool/call :semantic_search {:query query}
+                                              {:config cfg :code-index index :semantic-index semantic-index})
+                                   :content first :text)]
+                      (is (<= (count text) (:output/max-chars cfg)))
+                      (when-not (some #(and % (st/starts-with? % expected-name)) (top-names text))
+                        [query (str expected-name "\n" text)]))))
+            expected)
       (finally
         (qdrant/delete-collection! cfg)))))
+
+(deftest ^:integration expected-definition-is-in-the-top-3-of-semantic-search
+  (is (= {} (top-3-misses project/config fixture-root expected-top-3))))
+
+;; ---------------------------------------------------------------------------
+;; Acceptance case 12: Russian docstrings, queries in English and Russian.
+;; Needs the reranker; fails with the code-specific models (ADR-0008).
+;; ---------------------------------------------------------------------------
+
+(def ^:private multilingual-root
+  (.getCanonicalPath (File. "test-resources/fixtures/multilingual_project")))
+
+(def ^:private multilingual-top-3
+  "Queries in English and Russian against the Russian docstrings of the
+   multilingual fixture, each with the Definition expected in the top 3.
+
+  {String String}"
+  {"how much a reader pays for returning a book late" "library.loans/overdue-fine"
+   "lend a book to a reader for two weeks" "library.loans/issue-book"
+   "remind the reader by email that the due date is near" "library.readers/notify-reader"
+   "the most borrowed books of a period" "library.catalog/popular-titles"
+   "search the catalogue by writer" "library.catalog/find-by-author"
+   "a reader pays off a debt" "library.billing/pay-fine"
+   "продлить срок, если книгу никто не ждёт" "library.loans/extend-loan"
+   "принять возвращённую книгу" "library.loans/return-book"
+   "запретить выдачу должникам" "library.readers/block-reader"
+   "оформить читательский билет новому посетителю" "library.readers/register-reader"
+   "добавить новый экземпляр в фонд" "library.catalog/add-copy"
+   "какие экземпляры сейчас можно взять" "library.catalog/available-copies"})
+
+(deftest ^:integration russian-docstrings-are-found-by-english-and-russian-queries
+  (is (= {} (top-3-misses project/config multilingual-root multilingual-top-3))))

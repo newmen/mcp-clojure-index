@@ -22,10 +22,11 @@
    :text "shop.orders/order-total\n[order]"
    :hash "abc"})
 
-(deftest point-payload-carries-the-search-unit-file-mtime-and-format
+(deftest point-payload-carries-the-search-unit-file-mtime-format-and-model
   (is (= {:id "00000000-0000-0000-0000-000000000001"
           :vector [0.1 0.2]
           :payload {"format" sut/payload-format
+                    "model" "bge-m3"
                     "filename" "/proj/src/shop/orders.clj"
                     "mtime" 42
                     "row" 5
@@ -33,7 +34,7 @@
                     "name" "shop.orders/order-total"
                     "doc" "Sum of line items."
                     "text" "shop.orders/order-total\n[order]"}}
-         (#'sut/unit->point 42 unit [0.1 0.2]))))
+         (#'sut/unit->point "bge-m3" 42 unit [0.1 0.2]))))
 
 (deftest point-from-search-reads-back-as-a-search-unit
   (is (= (-> unit (dissoc :hash) (update :id str))
@@ -44,9 +45,9 @@
                                        :text "shop.orders/order-total\n[order]"}}))))
 
 (deftest every-operation-throws-when-qdrant-is-unreachable
-  (doseq [operation [#(sut/create-collection! test-config)
+  (doseq [operation [#(sut/create-collection! test-config 768)
                      #(sut/delete-collection! test-config)
-                     #(sut/stored-format test-config)
+                     #(sut/stored-layout test-config)
                      #(sut/embedded-files test-config)
                      #(sut/upsert! test-config [unit] [[0.1 0.2]] 42)
                      #(sut/delete! test-config "/proj/src/shop/orders.clj")

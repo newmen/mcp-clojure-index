@@ -10,6 +10,7 @@
 ;; Point payload (string keys, as stored):
 ;;
 ;; {"format" 3                        ; `payload-format`
+;;  "model"  "bge-m3"                 ; the embedding model of the vector
 ;;  "filename" "/abs/src/shop/orders.clj"
 ;;  "mtime"  1700000000000            ; mtime of the file the unit was built from
 ;;  "row"    5
@@ -21,12 +22,16 @@
 ;; A Point is {:id :vector :payload}; points read back have keyword payload
 ;; keys and no vector.
 ;; A ScoredUnit is a Search unit found by `search`, {:unit :score}.
+;; A CollectionLayout is what the points of a collection were stored with,
+;; {:format :model}; :model is nil for points stored before it was recorded.
 ;; A ScrollPage is one page of points and the offset of the next page,
 ;; {:points :next}; :next is nil on the last page.
 
 (s/def ::point (s/keys :req-un [::id ::payload] :opt-un [::vector]))
 
 (s/def ::scored-unit (s/keys :req-un [::unit ::score]))
+
+(s/def ::collection-layout (s/keys :req-un [::format ::model]))
 
 (s/def ::scroll-page (s/keys :req-un [::points ::next]))
 
@@ -36,10 +41,6 @@
 
   Long"
   3)
-
-(def ^:private vector-config
-  {:size 768
-   :distance "Cosine"})
 
 (def ^:private upsert-batch-size 100)
 
@@ -90,11 +91,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn create-collection!
-  "Creates the collection unless it exists.
+  "Creates the collection for vectors of `vector-size` unless it exists.
 
-  Config -> IO JsonResponse"
-  [cfg]
-  (request! :put (collection-url cfg) {:vectors vector-config} "create collection" #{200 409}))
+  Config -> Long -> IO JsonResponse"
+  [cfg vector-size]
+  (request! :put (collection-url cfg) {:vectors {:size vector-size :distance "Cosine"}}
+            "create collection" #{200 409}))
 
 (defn delete-collection!
   "Drops the collection with all its points.
@@ -118,17 +120,18 @@
     {:points (get-in body [:result :points])
      :next (get-in body [:result :next_page_offset])}))
 
-(defn stored-format
-  "Reads the payload format of the points in the collection: nil when it is
-   missing or empty, 1 for points of the old chunk format.
+(defn stored-layout
+  "Reads the payload format and embedding model of the points in the
+   collection: nil when it is missing or empty, format 1 for points of the
+   old chunk format.
 
-  Config -> IO (Maybe Long)"
+  Config -> IO (Maybe CollectionLayout)"
   [cfg]
   (let [{:keys [status]} (request :get (collection-url cfg) nil)]
-    (if (= 404 status)
-      nil
-      (some-> (first (:points (scroll cfg nil 1 ["format"])))
-              (get-in [:payload :format] 1)))))
+    (when-not (= 404 status)
+      (when-let [payload (some-> (first (:points (scroll cfg nil 1 ["format" "model"]))) :payload)]
+        {:format (:format payload 1)
+         :model (:model payload)}))))
 
 (defn embedded-files
   "Reads the mtime of each file whose points the collection holds; a file
@@ -155,13 +158,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- unit->point
-  "The Point of a Search unit built from a file of `mtime`.
+  "The Point of a Search unit built from a file of `mtime`, with its
+   vector from the embedding model `model`.
 
-  Long -> SearchUnit -> Embedding -> Point"
-  [mtime {:keys [id filename row kind doc text] unit-name :name} unit-vector]
+  String -> Long -> SearchUnit -> Embedding -> Point"
+  [model mtime {:keys [id filename row kind doc text] unit-name :name} unit-vector]
   {:id (str id)
    :vector unit-vector
    :payload (cond-> {"format" payload-format
+                     "model" model
                      "filename" filename
                      "mtime" mtime
                      "row" row
@@ -181,11 +186,11 @@
 
 (defn upsert!
   "Stores the Search `units` of one file, built from its `mtime`, with
-   their `unit-vectors`.
+   their `unit-vectors` from the configured embedding model.
 
   Config -> [SearchUnit] -> [Embedding] -> Long -> IO ()"
   [cfg units unit-vectors mtime]
-  (doseq [batch (partition-all upsert-batch-size (map (partial unit->point mtime) units unit-vectors))]
+  (doseq [batch (partition-all upsert-batch-size (map (partial unit->point (:ollama/embedding-model cfg) mtime) units unit-vectors))]
     (request! :put (str (collection-url cfg) "/points?wait=true") {:points batch} "upsert" #{200})))
 
 (defn delete!

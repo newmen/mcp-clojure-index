@@ -28,8 +28,10 @@ LLM-агенты тратят большую часть своих токено�
 - [Leiningen](https://leiningen.org/) 2.11+ (только для разработки и сборки)
 - Только для `semantic_search` (опционально):
   - [Qdrant](https://qdrant.tech/) — векторная база данных.
-  - [Ollama](https://ollama.com/) с моделью `vishalraj/nomic-embed-code` — для создания code embeddings.
-  - Опционально reranker: `llama.cpp` с командой `llama-server --rerank` и моделью `qllama/bce-reranker-base_v1` — точно сортирует найденные результаты и присваивает им оценку релевантности.
+  - [Ollama](https://ollama.com/) с моделью `bge-m3` — для создания многоязычных embeddings.
+  - Опционально reranker: `llama.cpp` с командой `llama-server --rerank` и моделью `qllama/bge-reranker-v2-m3` — точно сортирует найденные результаты и присваивает им оценку релевантности.
+
+Модели по умолчанию многоязычные: запросы на русском или английском (и ещё более чем на 100 языках) находят docstrings, написанные на любом из них. Альтернатива для кода, документированного по-английски, описана в разделе [Выбор моделей](#choosing-the-models).
 
 Если Qdrant или Ollama недоступны, сервер всё равно запускается, и все инструменты точного поиска продолжают работать. При этом `semantic_search` сообщает, что он недоступен.
 
@@ -56,28 +58,28 @@ curl http://localhost:6333/collections
 <details> <summary><b>Ollama</b> — модель для создания embeddings</summary>
 
 ```bash
-ollama pull vishalraj/nomic-embed-code
+ollama pull bge-m3
 ```
 
 </details>
 
-<details> <summary><b>Reranker</b> (опционально) — llama-server с моделью BCE</summary>
+<details> <summary><b>Reranker</b> (опционально) — llama-server с моделью bge-reranker-v2-m3</summary>
 
 Ollama не может самостоятельно запускать модель reranking (у неё нет API для reranking), однако может скачать эту модель. В Linux-сборки Ollama входит `llama-server`, который можно использовать следующим образом:
 
 Bash:
 
 ```bash
-ollama pull qllama/bce-reranker-base_v1
-MODEL=$(ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+ollama pull qllama/bge-reranker-v2-m3
+MODEL=$(ollama show --modelfile qllama/bge-reranker-v2-m3 | sed -n 's/^FROM //p')
 LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
 ```
 
 Fish:
 
 ```
-ollama pull qllama/bce-reranker-base_v1
-set MODEL (ollama show --modelfile qllama/bce-reranker-base_v1 | sed -n 's/^FROM //p')
+ollama pull qllama/bge-reranker-v2-m3
+set MODEL (ollama show --modelfile qllama/bge-reranker-v2-m3 | sed -n 's/^FROM //p')
 LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MODEL" --rerank --port 8012
 ```
 
@@ -88,6 +90,22 @@ LD_LIBRARY_PATH=/usr/local/lib/ollama /usr/local/lib/ollama/llama-server -m "$MO
 ```bash
 curl http://localhost:8012/health
 ```
+
+Сервер отвечает той моделью, с которой был запущен, независимо от `:reranker/model`: после смены модели его нужно перезапустить.
+
+</details>
+
+<details id="choosing-the-models"> <summary><b>Выбор моделей</b> — многоязычные (по умолчанию) или для кода</summary>
+
+| | Многоязычные (по умолчанию) | Для кода |
+|---|---|---|
+| `:ollama/embedding-model` | `"bge-m3"` (1,2 ГБ, 1024 измерения) | `"vishalraj/nomic-embed-code"` (49 МБ, 768 измерений) |
+| `:reranker/model` и файл модели llama-server | `"qllama/bge-reranker-v2-m3"` (635 МБ) | `"qllama/bce-reranker-base_v1"` (303 МБ) |
+| Docstrings и запросы | на любом языке, измерены русский и английский | на английском |
+
+Выбирайте многоязычные модели, если docstrings или запросы не на английском: с моделями для кода все результаты по русским docstrings получают почти одинаковую оценку, и нужное определение может не попасть в первую тройку. Модели для кода подходят проекту с docstrings на английском, когда важны память или время создания embeddings: на английских docstrings обе пары находят одни и те же определения. Измерения приведены в `docs/adr/0008-multilingual-models.md`.
+
+Смена `:ollama/embedding-model` один раз заново создаёт embeddings всего проекта: коллекция Qdrant хранит имя своей модели и пересоздаётся, если оно другое, а кэш embeddings хранит отдельную директорию для каждой модели.
 
 </details>
 
@@ -113,9 +131,9 @@ curl http://localhost:8012/health
 | `:qdrant/collection`           | Переменная окружения `QD_COLLECTION`, иначе `<project dir>-collection` | Имя коллекции Qdrant (только для семантического поиска)                                                                                                                                  |
 | `:qdrant/recreate?`            | `false`                                                                | Удалить и заново создать коллекцию при запуске (только для семантического поиска)                                                                                                        |
 | `:ollama/url`                  | `"http://localhost:11434/v1"`                                          | Адрес API Ollama (только для семантического поиска)                                                                                                                                      |
-| `:ollama/embedding-model`      | `"vishalraj/nomic-embed-code"`                                         | Модель для создания embeddings (только для семантического поиска)                                                                                                                        |
+| `:ollama/embedding-model`      | `"bge-m3"`                                                             | Модель для создания embeddings (только для семантического поиска); при смене коллекция пересоздаётся                                                                                     |
 | `:reranker/url`                | `"http://localhost:8012/v1"`                                           | Адрес reranker — API `/v1/rerank`, например `llama-server --rerank` (только для семантического поиска, опционально)                                                                      |
-| `:reranker/model`              | `"qllama/bce-reranker-base_v1"`                                        | Имя модели, передаваемое reranker (только для семантического поиска)                                                                                                                     |
+| `:reranker/model`              | `"qllama/bge-reranker-v2-m3"`                                          | Имя модели, передаваемое reranker (только для семантического поиска)                                                                                                                     |
 | `:search/top-k`                | `100`                                                                  | Количество кандидатов, получаемых отдельно из векторного поиска и поиска по словам, а также количество объединённых кандидатов, передаваемых reranker (только для семантического поиска) |
 | `:search/re-rank-top`          | `10`                                                                   | Количество результатов, оставляемых после reranking (только для семантического поиска)                                                                                                   |
 | `:embedding/cache-dir`         | `<root>/.mcp/embedding-cache`                                          | Директория кэша embeddings (только для семантического поиска)                                                                                                                            |
@@ -396,8 +414,9 @@ src/mcp/
 # Тесты (Qdrant и Ollama не требуются)
 lein test
 
-# Интеграционные тесты, которым нужны Qdrant и Ollama
-# (проходят как с reranker, так и без него)
+# Интеграционные тесты, которым нужны Qdrant и Ollama с моделями по умолчанию;
+# тесту с русскими docstrings (acceptance case 12) нужен ещё и reranker,
+# остальные проходят и без него
 lein test :integration
 
 # Статический анализ

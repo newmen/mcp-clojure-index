@@ -4,8 +4,8 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The new integration test is shown to fail with the current models (numbers in ADR-0008).
-- [ ] The chosen pair passes it and the existing case 9.
-- [ ] Defaults, ADR-0008 and both READMEs updated; the collection is recreated on the model change.
+- [x] The new integration test is shown to fail with the current models (numbers in ADR-0008).
+- [x] The chosen pair passes it and the existing case 9.
+- [x] Defaults, ADR-0008 and both READMEs updated; the collection is recreated on the model change.

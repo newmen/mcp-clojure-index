@@ -2,9 +2,9 @@
  :qdrant/port       6333
  :qdrant/recreate?  false
  :ollama/url        "http://localhost:11434/v1"
- :ollama/embedding-model "vishalraj/nomic-embed-code"
+ :ollama/embedding-model "bge-m3"
  :reranker/url      "http://localhost:8012/v1"
- :reranker/model    "qllama/bce-reranker-base_v1"
+ :reranker/model    "qllama/bge-reranker-v2-m3"
  :server/transport  :stdio
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
  :index/exclude     ["dev" "test-resources"]

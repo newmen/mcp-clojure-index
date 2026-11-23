@@ -39,10 +39,11 @@
   {:socket-timeout 120000 :connection-timeout 2000})
 
 (def ^:private rerank-max-chars
-  "Characters of query plus candidate text the reranker reads. The BCE
-   model takes at most 512 tokens per query and document together, and
-   the reranker rejects the whole request when one pair is longer; 1000
-   characters of Clojure measured at most ~415 tokens. A text starts with
+  "Characters of query plus candidate text the reranker reads.
+   llama-server runs a reranker in batches of 512 tokens (the BCE model
+   also takes no more per pair), and rejects the whole request when one
+   query and document pair is longer; 1000 characters of Clojure measured
+   at most ~415 tokens, of Russian docstrings ~300. A text starts with
    name, arglists and docstring, so these are always read.
 
   Long"
@@ -59,13 +60,22 @@
 ;; Embedding cache (hash -> vector) — thread-safe via atomic write
 ;; ---------------------------------------------------------------------------
 
+(defn- embedding-model
+  "The name of the embedding model.
+
+  Config -> String"
+  [cfg]
+  (or (:ollama/embedding-model cfg) (:ollama/embedding-model config/defaults)))
+
 (defn- cache-dir
-  "The directory of the embedding cache.
+  "The directory of the embedding cache of the configured embedding
+   model: one subdirectory per model, so vectors of another model are
+   never reused.
 
   Config -> File"
   [cfg]
   (let [dir (or (:embedding/cache-dir cfg) ".mcp/embedding-cache")]
-    (io/file dir)))
+    (io/file dir (st/replace (embedding-model cfg) #"[^A-Za-z0-9._-]" "_"))))
 
 (defn- cache-file
   "The cache file of the embedding of the text with hash `hash-str`.
@@ -126,19 +136,12 @@
   [cfg]
   (endpoint-url (or (:ollama/url cfg) "http://localhost:11434/v1") "/embeddings"))
 
-(defn- embedding-model
-  "The name of the embedding model.
-
-  Config -> String"
-  [cfg]
-  (or (:ollama/embedding-model cfg) "vishalraj/nomic-embed-code"))
-
 (defn- reranker-model
   "The name of the reranker model.
 
   Config -> String"
   [cfg]
-  (or (:reranker/model cfg) "qllama/bce-reranker-base_v1"))
+  (or (:reranker/model cfg) (:reranker/model config/defaults)))
 
 (defn- http-post-json
   "Posts `body-map` as JSON to `url`; `timeouts` are clj-http's
@@ -212,13 +215,13 @@
 ;; Architecture interface: (rerank query candidates) -> candidates best first,
 ;; each with :re-rank (absent when the reranker is unavailable)
 ;;
-;; Ollama cannot run the BCE cross-encoder (no rerank API; its embedding
-;; runner crashes on the model), so the reranker is a separate server
+;; Ollama cannot run cross-encoders such as bge-reranker-v2-m3 or BCE (no
+;; rerank API; its embedding runner crashes on BCE), so the reranker is a separate server
 ;; speaking the /v1/rerank API of llama.cpp's `llama-server --rerank`
 ;; (also Jina- and Cohere-compatible): request {:model :query :documents},
 ;; response {:results [{:index i :relevance_score s}]}. llama-server's
 ;; scores are the model's logits; their sigmoid is the relevance in 0..1,
-;; as the BCE model is meant to be read.
+;; as these models are meant to be read (ADR-0007, ADR-0008).
 ;; ---------------------------------------------------------------------------
 
 ;; Candidate shape (what the reranker receives, see `mcp.search`):

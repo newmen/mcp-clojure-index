@@ -75,6 +75,12 @@
     (is (instance? java.util.regex.Pattern (first (:index/exclude cfg))))
     (is (= "/Users/altermn/projects/clojure/mcp" (:index/root-path cfg)))))
 
+(deftest defaults-and-shipped-config-use-the-multilingual-models
+  (doseq [cfg [sut/defaults (sut/load-config "resources/config.edn")]]
+    (is (= {:ollama/embedding-model "bge-m3"
+            :reranker/model "qllama/bge-reranker-v2-m3"}
+           (select-keys cfg [:ollama/embedding-model :reranker/model])))))
+
 (deftest load-config-defaults-output-budget
   (let [cfg (sut/load-config (fixture-path "config.edn"))]
     (is (= 50 (:output/limit cfg)))

@@ -54,8 +54,8 @@
   Atom {UUID SearchUnit} -> & Any -> IO a"
   [points & body]
   `(with-redefs [embeddings/generate (fn [texts# _cfg#] (mapv (constantly [0.1 0.2]) texts#))
-                 qdrant/stored-format (fn [_cfg#] nil)
-                 qdrant/create-collection! (fn [_cfg#] nil)
+                 qdrant/stored-layout (fn [_cfg#] nil)
+                 qdrant/create-collection! (fn [_cfg# _vector-size#] nil)
                  qdrant/embedded-files (fn [_cfg#] {})
                  qdrant/delete! (fn [_cfg# file-path#]
                                   (swap! ~points #(into {} (remove (comp #{file-path#} :filename val)) %)))
@@ -122,24 +122,40 @@
           (sut/sync! semantic-index @fixture-index)))
       (is (= 6 (count (sut/stale-files semantic-index @fixture-index)))))))
 
-(deftest prepare-recreates-an-old-format-collection
-  (let [calls (atom [])]
-    (with-redefs [qdrant/stored-format (fn [_cfg] 1)
-                  qdrant/delete-collection! (fn [_cfg] (swap! calls conj :delete))
-                  qdrant/create-collection! (fn [_cfg] (swap! calls conj :create))
-                  qdrant/embedded-files (fn [_cfg] {})]
-      (sut/prepare! (sut/create (services-config))))
-    (is (= [:delete :create] @calls))))
+(defn- prepare-calls
+  "The collection operations `prepare!` performs on a collection found
+   with `layout`, and the stale files after it; the embedding model returns
+   vectors of size 3.
 
-(deftest prepare-keeps-a-current-collection-and-its-embedded-files
+  Maybe CollectionLayout -> IO {:calls [Any] :stale Long}"
+  [layout]
   (let [calls (atom [])
         semantic-index (sut/create (services-config))
         inventory (fixture-file "src/shop/inventory.clj")
         mtime (get-in @fixture-index [:files inventory :mtime])]
-    (with-redefs [qdrant/stored-format (fn [_cfg] qdrant/payload-format)
+    (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2 0.3]) texts))
+                  qdrant/stored-layout (fn [_cfg] layout)
                   qdrant/delete-collection! (fn [_cfg] (swap! calls conj :delete))
-                  qdrant/create-collection! (fn [_cfg] (swap! calls conj :create))
+                  qdrant/create-collection! (fn [_cfg vector-size] (swap! calls conj [:create vector-size]))
                   qdrant/embedded-files (fn [_cfg] {inventory mtime})]
       (sut/prepare! semantic-index))
-    (is (= [:create] @calls))
-    (is (= 5 (count (sut/stale-files semantic-index @fixture-index))))))
+    {:calls @calls
+     :stale (count (sut/stale-files semantic-index @fixture-index))}))
+
+(def ^:private current-model
+  (:ollama/embedding-model project/config))
+
+(deftest prepare-creates-a-missing-collection-with-the-vector-size-of-the-model
+  (is (= {:calls [[:create 3]] :stale 6} (prepare-calls nil))))
+
+(deftest prepare-recreates-an-old-format-collection
+  (is (= {:calls [:delete [:create 3]] :stale 6}
+         (prepare-calls {:format 1 :model current-model}))))
+
+(deftest prepare-recreates-a-collection-of-another-embedding-model
+  (is (= {:calls [:delete [:create 3]] :stale 6}
+         (prepare-calls {:format qdrant/payload-format :model "another-model"}))))
+
+(deftest prepare-keeps-a-current-collection-and-its-embedded-files
+  (is (= {:calls [[:create 3]] :stale 5}
+         (prepare-calls {:format qdrant/payload-format :model current-model}))))

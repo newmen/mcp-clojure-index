@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Test Definitions are absent by default and present with `include_tests: true`.
-- [ ] Acceptance case 11; runs without Qdrant/Ollama by stubbing the search the way existing semantic tests do.
+- [x] Test Definitions are absent by default and present with `include_tests: true`.
+- [x] Acceptance case 11; runs without Qdrant/Ollama by stubbing the search the way existing semantic tests do.

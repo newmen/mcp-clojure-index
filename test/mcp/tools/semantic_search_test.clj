@@ -132,8 +132,24 @@
     (is (<= (count text) (:output/max-chars config)))))
 
 (deftest no-hits-says-so
+  (is (= "no results for: nothing (checked 5 files, excluding tests)"
+         (answer {:query "nothing"} (fresh-semantic-index) [])))
   (is (= "no results for: nothing (checked 6 files, including tests)"
-         (answer {:query "nothing"} (fresh-semantic-index) []))))
+         (answer {:query "nothing" :include_tests true} (fresh-semantic-index) []))))
+
+;; Acceptance case 11
+(deftest test-definitions-are-found-only-with-include-tests
+  (let [test-hit (hit "test/shop/orders_test.clj" 5 "deftest" "shop.orders-test/order-total-test" nil 0.95)
+        stub-hits (conj hits test-hit)
+        test-line "0.95  test/shop/orders_test.clj:5  deftest  shop.orders-test/order-total-test"]
+    (testing "by default Search units in Test paths are dropped, from the vector and the word matching"
+      (let [lines (st/split-lines (answer {:query "order total test"} (fresh-semantic-index) stub-hits))]
+        (is (some #(st/starts-with? % "0.91  src/shop/orders.clj:5  defn  shop.orders/order-total") lines))
+        (is (not-any? #(st/includes? % "test/shop/orders_test.clj") lines))))
+    (testing "with include_tests they are hits"
+      (is (some #{test-line}
+                (st/split-lines (answer {:query "order total test" :include_tests true}
+                                        (fresh-semantic-index) stub-hits)))))))
 
 (deftest blank-query-is-rejected
   (is (= "query is empty" (answer {:query "  "})))

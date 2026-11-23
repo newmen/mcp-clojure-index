@@ -7,8 +7,7 @@
  :reranker/model    "qllama/bge-reranker-v2-m3"
  :server/transport  :stdio
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
- :index/exclude     ["dev" "test-resources"]
+ :index/exclude     []
  :search/min-relevance 0.3
  :output/limit      50
- :output/max-chars  4000
- :doc/signature     {:strategy :last-paragraph}}
+ :output/max-chars  4000}

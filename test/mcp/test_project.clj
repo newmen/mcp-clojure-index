@@ -1,7 +1,7 @@
 (ns mcp.test-project
   "Test support: this project's own code base as the indexed project,
-   with the shipped `resources/config.edn`. The code index is built once
-   per test run."
+   with the shipped `resources/config.edn` and its own `.clojure-index.edn`.
+   The code index is built once per test run."
   (:require [clojure.test :refer [is]]
             [mcp.code-index :as code-index]
             [mcp.config :as config])
@@ -16,12 +16,15 @@
   (.getCanonicalPath (File. ".")))
 
 (def config
-  "Resolved config for indexing this project.
+  "Resolved config for indexing this project: its Project config over the
+   shipped server config.
 
   Config"
-  (-> (config/load-config "resources/config.edn")
+  (-> (config/load-settings "resources/config.edn")
       (assoc :index/root-path root)
-      config/resolve-config))
+      config/resolve-config
+      config/start-project-config
+      :config))
 
 (def ^:private code-index-delay
   (delay (code-index/build config)))

@@ -2,7 +2,8 @@
   (:require [clojure.java.io :as io]
             [clojure.spec.alpha :as s]
             [clojure.string :as st]
-            [clojure.edn :as edn])
+            [clojure.edn :as edn]
+            [mcp.docstring :as docstring])
   (:import (java.io PushbackReader)
            (java.lang System)))
 
@@ -31,9 +32,11 @@
   (let [escaped (st/replace pattern "." "\\.")]
     (re-pattern escaped)))
 
-;; Config: the defaults below, the file's keys and the fields computed by
+;; Settings: the defaults below, the file's keys and the fields computed by
 ;; `resolve-config` (:index/root-path, :qdrant/collection,
-;; :embedding/cache-dir); :index/exclude holds compiled regexes.
+;; :embedding/cache-dir), as written: :index/exclude holds strings.
+;; Config: Settings after `settings->config`: :index/exclude holds compiled
+;; regexes, the always-excluded directories included.
 
 (s/def ::config
   (s/keys :opt [:qdrant/host :qdrant/port :qdrant/recreate? :qdrant/collection
@@ -45,6 +48,8 @@
                 :search/top-k :search/re-rank-top :search/min-relevance
                 :output/limit :output/max-chars
                 :doc/signature]))
+
+(s/def ::settings ::config)
 
 (def defaults
   "The config values used where the config file leaves a key out. There is
@@ -97,34 +102,118 @@
         (zero? (.groupCount ^java.util.regex.Matcher (re-matcher pattern "")))
         (str ":doc/signature :pattern regex needs a capture group for the Type signature: " regex)))))
 
-(defn- check-signature-strategy
-  "Returns `cfg` unchanged, or throws when its `:doc/signature` strategy
-   cannot find a Type signature (see `signature-pattern-error`).
+(def ^:private always-excluded
+  "The exclude patterns added to `:index/exclude` whatever the server
+   config and the Project config say.
 
-  Config -> Config"
-  [cfg]
-  (when-let [error (signature-pattern-error (:doc/signature cfg))]
-    (throw (ex-info error {:doc/signature (:doc/signature cfg)})))
-  cfg)
+  [String]"
+  [".calva" ".claude" ".clj-kondo" ".cpcache" ".git"
+   ".kilo" ".lsp" ".mcp" "logs" "target" "tmp"])
+
+(def ^:private config-keys
+  "Every key a server config or a Project config may hold.
+
+  #{Keyword}"
+  (let [[_keys & {:keys [opt]}] (s/form ::config)]
+    (set opt)))
+
+(defn- signature-strategy-error
+  "Why the `:doc/signature` value cannot find a Type signature: it is not
+   a map, names no built-in strategy, or is a `:pattern` whose regex does
+   not compile or has no capture group. Nil when it can, or when there is
+   no `:doc/signature`.
+
+  Maybe SignatureStrategy -> Maybe String"
+  [signature-strategy]
+  (when (some? signature-strategy)
+    (let [strategy (when (map? signature-strategy) (:strategy signature-strategy))]
+      (if (contains? (dissoc (methods docstring/split-signature) :default) strategy)
+        (signature-pattern-error signature-strategy)
+        (str "unknown :doc/signature strategy " (pr-str strategy))))))
+
+(defn- exclude-pattern-error
+  "Why an exclude pattern list cannot be used: it is not a sequence of
+   strings, or one of them does not compile. Nil when it can.
+
+  Keyword -> Any -> Maybe String"
+  [setting-key patterns]
+  (if-not (and (sequential? patterns) (every? string? patterns))
+    (str setting-key " must be a vector of strings")
+    (some (fn [pattern]
+            (try (pattern->regex pattern) nil
+                 (catch java.util.regex.PatternSyntaxException e
+                   (str setting-key " pattern does not compile: " pattern
+                        " (" (.getDescription e) ")"))))
+          patterns)))
+
+(defn- settings-value-error
+  "Why a value of `settings` cannot be used, nil when all can. Covers the
+   keys whose bad value would only show up later, in every answer.
+
+  Settings -> Maybe String"
+  [settings]
+  (let [present? (partial contains? settings)]
+    (or (signature-strategy-error (:doc/signature settings))
+        (when (and (present? :index/include-extensions)
+                   (not (coll? (:index/include-extensions settings))))
+          ":index/include-extensions must be a collection")
+        (when (present? :index/exclude)
+          (exclude-pattern-error :index/exclude (:index/exclude settings)))
+        (some (fn [setting-key]
+                (when (and (present? setting-key) (not (pos-int? (get settings setting-key))))
+                  (str setting-key " must be a positive integer")))
+              [:output/limit :output/max-chars])
+        (when (and (present? :search/min-relevance)
+                   (not (number? (:search/min-relevance settings))))
+          ":search/min-relevance must be a number"))))
+
+(defn- read-edn-file
+  "The EDN value in `file`.
+
+  File -> IO Any"
+  [^java.io.File file]
+  (with-open [r (io/reader file)]
+    (edn/read (PushbackReader. r))))
+
+(defn load-settings
+  "Reads the server config file at `config-path` over `defaults`, without
+   compiling its exclude patterns (see `settings->config`).
+
+  Throws, naming the file's absolute path, when the file cannot be read
+  or a value cannot be used (e.g. a `:doc/signature` `:pattern` whose
+  regex does not compile or has no capture group).
+
+  String -> IO Settings"
+  [config-path]
+  (let [file (io/file config-path)
+        fail (fn [reason]
+               (throw (ex-info (str "invalid server config " (.getAbsolutePath file) ": " reason)
+                               {:config-path (.getAbsolutePath file)})))
+        file-settings (try (read-edn-file file)
+                           (catch Exception e (fail (str "cannot read EDN: " (ex-message e)))))]
+    (when-not (map? file-settings)
+      (fail "not a map"))
+    (some-> (settings-value-error file-settings) fail)
+    (merge defaults file-settings)))
+
+(defn settings->config
+  "The Config of `settings`: the always-excluded directories added to
+   `:index/exclude` and its patterns compiled.
+
+  Settings -> Config"
+  [settings]
+  (-> settings
+      (update :index/exclude (comp compile-exclude-patterns vec set (partial concat always-excluded)))))
 
 (defn load-config
-  "Reads the config file at `config-path` over `defaults`, adds the
+  "Reads the server config file at `config-path` over `defaults`, adds the
    directories that are always excluded and compiles the exclude patterns.
 
-  Throws when the `:doc/signature` strategy is a `:pattern` whose regex
-  does not compile or has no capture group.
+  Throws as `load-settings` does.
 
   String -> IO Config"
   [config-path]
-  (with-open [r (io/reader config-path)]
-    (let [file-config (edn/read (PushbackReader. r))]
-      (-> (merge defaults file-config)
-          check-signature-strategy
-          (update :index/exclude conj
-                  ".calva" ".claude" ".clj-kondo" ".cpcache" ".git"
-                  ".kilo" ".lsp" ".mcp" "logs" "target" "tmp")
-          (update :index/exclude set)
-          (update :index/exclude compile-exclude-patterns)))))
+  (settings->config (load-settings config-path)))
 
 (defn- not-blank
   "The string itself unless it is nil or blank.
@@ -196,3 +285,160 @@
   (when-not (coll? (:index/include-extensions config))
     (throw (ex-info ":index/include-extensions must be a collection" {:config config})))
   config)
+
+;; ---------------------------------------------------------------------------
+;; Project config
+;; ---------------------------------------------------------------------------
+
+;; ProjectConfig: what the server knows of the Project config.
+;; {:server-settings Settings  the server config, resolved
+;;  :start-settings  Settings  what the server started on; its cold keys stay
+;;  :file-settings   Map       the last valid Project config, {} without one
+;;  :stamp           [Boolean Long]  presence and mtime at the last read
+;;  :error           Maybe String    why the file on disk is not used
+;;  :config          Config}   the settings answers are given with
+
+(s/def ::project-config
+  (s/keys :req-un [::server-settings ::start-settings ::file-settings ::stamp ::config]
+          :opt-un [::error]))
+
+(def project-config-file
+  "The Project config's file name, at the project root.
+
+  String"
+  ".clojure-index.edn")
+
+(def hot-keys
+  "The keys of a Project config that apply from the next answer; every
+   other key is read at server start only.
+
+  #{Keyword}"
+  #{:search/min-relevance :output/limit :output/max-chars :doc/signature})
+
+(defn- project-config-path
+  "The Project config file of the project `settings` index.
+
+  Settings -> File"
+  [settings]
+  (io/file (:index/root-path settings) project-config-file))
+
+(defn- file-stamp
+  "Whether `file` exists, and its mtime.
+
+  File -> IO [Boolean Long]"
+  [^java.io.File file]
+  [(.exists file) (.lastModified file)])
+
+(defn- project-settings-error
+  "Why `file-settings`, read from a Project config, cannot be used: not a
+   map, a key the server config cannot hold, or a value that cannot be
+   used. Nil when it can.
+
+  Any -> Maybe String"
+  [file-settings]
+  (if-not (map? file-settings)
+    "not a map"
+    (let [unknown-keys (sort (remove config-keys (keys file-settings)))]
+      (if (seq unknown-keys)
+        (str (if (next unknown-keys) "unknown keys " "unknown key ")
+             (st/join ", " unknown-keys))
+        (settings-value-error file-settings)))))
+
+(defn- read-project-settings
+  "The settings of the Project config `file`: `{:settings Map}` ({} when
+   there is no file), or `{:error String}` when it cannot be used.
+
+  File -> IO {:settings Maybe Map :error Maybe String}"
+  [^java.io.File file]
+  (if-not (.exists file)
+    {:settings {}}
+    (try
+      (let [file-settings (read-edn-file file)]
+        (if-let [error (project-settings-error file-settings)]
+          {:error error}
+          {:settings file-settings}))
+      (catch Exception e
+        {:error (str "cannot read EDN: " (ex-message e))}))))
+
+(defn- current-settings
+  "The settings answers are given with: the start settings, with the hot
+   keys of the server config overlaid by the last valid Project config.
+
+  ProjectConfig -> Settings"
+  [{:keys [server-settings start-settings file-settings]}]
+  (merge (apply dissoc start-settings hot-keys)
+         (select-keys (merge server-settings file-settings) hot-keys)))
+
+(defn- with-current-config
+  "`project-config` with its `:config` rebuilt from its settings.
+
+  ProjectConfig -> ProjectConfig"
+  [project-config]
+  (assoc project-config :config (settings->config (current-settings project-config))))
+
+(defn start-project-config
+  "Reads the Project config of the project `server-settings` index, as the
+   server does at start. A valid file overrides any key; with an invalid
+   one the server config alone is used, and `project-config-notices`
+   reports it.
+
+  Settings -> IO ProjectConfig"
+  [server-settings]
+  (let [file (project-config-path server-settings)
+        stamp (file-stamp file)
+        {:keys [settings error]} (read-project-settings file)
+        file-settings (or settings {})]
+    (with-current-config
+      (cond-> {:server-settings server-settings
+               :start-settings (merge server-settings file-settings)
+               :file-settings file-settings
+               :stamp stamp}
+        error (assoc :error error)))))
+
+(defn refresh-project-config
+  "Re-reads the Project config when its presence or mtime changed since
+   the last read. A valid file becomes the source of the hot keys; an
+   invalid one keeps the previous settings, and `project-config-notices`
+   reports it.
+
+  ProjectConfig -> IO ProjectConfig"
+  [project-config]
+  (let [file (project-config-path (:server-settings project-config))
+        stamp (file-stamp file)]
+    (if (= stamp (:stamp project-config))
+      project-config
+      (let [{:keys [settings error]} (read-project-settings file)]
+        (if error
+          (assoc project-config :stamp stamp :error error)
+          (-> project-config
+              (assoc :stamp stamp :file-settings settings)
+              (dissoc :error)
+              with-current-config))))))
+
+(defn- restart-keys
+  "The cold keys whose value in the last valid Project config (or the
+   server config) differs from the one the server started on.
+
+  ProjectConfig -> [Keyword]"
+  [{:keys [server-settings start-settings file-settings]}]
+  (let [wanted (merge server-settings file-settings)]
+    (->> (concat (keys wanted) (keys start-settings))
+         distinct
+         (remove hot-keys)
+         (remove #(= (get wanted %) (get start-settings %)))
+         sort)))
+
+(defn project-config-notices
+  "The lines an answer carries about the Project config: `:before` while
+   the file is invalid, `:after` while a key that needs a restart differs
+   from its running value.
+
+  ProjectConfig -> {:before Maybe String :after Maybe String}"
+  [project-config]
+  (let [cold-keys (restart-keys project-config)]
+    {:before (when-let [error (:error project-config)]
+               (str "project config error in " project-config-file ": " error
+                    "; using previous settings"))
+     :after (when (seq cold-keys)
+              (str project-config-file ": " (st/join ", " cold-keys)
+                   " changes after a server restart"))}))

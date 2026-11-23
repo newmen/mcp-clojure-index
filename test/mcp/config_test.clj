@@ -1,7 +1,8 @@
 (ns mcp.config-test
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is]]
-            [mcp.config :as sut]))
+            [mcp.config :as sut]
+            [mcp.test-project :as project]))
 
 (def fixtures-dir "test-resources/fixtures")
 
@@ -137,9 +138,11 @@
 ;; load-config from non-existent file
 ;; ---------------------------------------------------------------------------
 
-(deftest load-config-throws-on-missing-file
-  (is (thrown? java.io.FileNotFoundException
-               (sut/load-config "/nonexistent/path.edn"))))
+(deftest an-invalid-server-config-names-its-absolute-path
+  (is (= (str "invalid server config /nonexistent/path.edn: cannot read EDN: "
+              "/nonexistent/path.edn (No such file or directory)")
+         (try (sut/load-config "/nonexistent/path.edn") nil
+              (catch clojure.lang.ExceptionInfo e (ex-message e))))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config with minimal file (only overrides)
@@ -304,13 +307,21 @@
 (deftest a-config-without-doc-signature-has-no-signatures
   (is (= nil (:doc/signature (sut/load-config (fixture-path "config-without-signature.edn"))))))
 
-(deftest the-shipped-config-finds-signatures-in-the-last-paragraph
-  (is (= {:strategy :last-paragraph} (:doc/signature (sut/load-config "resources/config.edn")))))
+(deftest the-shipped-config-holds-defaults-only
+  (let [shipped (edn/read-string (slurp "resources/config.edn"))]
+    (is (= [] (:index/exclude shipped)))
+    (is (not (contains? shipped :doc/signature)))))
+
+(deftest this-repository-finds-signatures-in-the-last-paragraph
+  (is (= {:strategy :last-paragraph} (:doc/signature project/config)))
+  (is (some #(re-find % "test-resources/fixtures/a.clj") (:index/exclude project/config))))
 
 (deftest a-pattern-without-a-capture-group-is-rejected-at-load
-  (is (= ":doc/signature :pattern regex needs a capture group for the Type signature: Signature: .*"
+  (is (= (str "invalid server config " (.getAbsolutePath (java.io.File. ^String (fixture-path "config-pattern-without-group.edn")))
+              ": :doc/signature :pattern regex needs a capture group for the Type signature: Signature: .*")
          (load-error "config-pattern-without-group.edn"))))
 
 (deftest an-invalid-pattern-is-rejected-at-load
-  (is (= ":doc/signature :pattern regex does not compile: Signature: (.*"
+  (is (= (str "invalid server config " (.getAbsolutePath (java.io.File. ^String (fixture-path "config-pattern-invalid.edn")))
+              ": :doc/signature :pattern regex does not compile: Signature: (.*")
          (load-error "config-pattern-invalid.edn"))))

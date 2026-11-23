@@ -282,3 +282,135 @@
   (let [state {:config config/defaults
                :code-index-ref (atom {:files {}})}]
     (is (= {:files {}} (:code-index (#'sut/live-state state))))))
+
+;; ---------------------------------------------------------------------------
+;; Project config
+;; ---------------------------------------------------------------------------
+
+(defn- temp-project
+  "A temporary project with one namespace of three Definitions, and its
+   `.clojure-index.edn` holding `project-config-text` unless that is nil.
+   Returns the project root.
+
+  Maybe String -> IO String"
+  [project-config-text]
+  (let [root (.getCanonicalPath (.toFile (Files/createTempDirectory "project-config" (make-array FileAttribute 0))))
+        file (io/file root "src/app/core.clj")]
+    (io/make-parents file)
+    (spit file "(ns app.core)\n(defn alpha [x] x)\n(defn beta [x] x)\n(defn gamma [x] x)\n")
+    (when project-config-text
+      (spit (io/file root ".clojure-index.edn") project-config-text))
+    root))
+
+(defn- edit-project-config!
+  "Writes `text` to the Project config of the project at `root` with a
+   later mtime, or deletes it when `text` is nil.
+
+  String -> Maybe String -> IO ()"
+  [root text]
+  (let [file (io/file root ".clojure-index.edn")]
+    (if text
+      (do (spit file text)
+          (.setLastModified file (+ 2000 (System/currentTimeMillis))))
+      (io/delete-file file))))
+
+(defn- project-state
+  "The server state of the project at `root`, started on the default
+   server config.
+
+  String -> IO ServerState"
+  [root]
+  (#'sut/initial-state (assoc config/defaults :index/root-path root)))
+
+(defn- summary-call
+  "The answer text of `namespace_summary` of `app.core`, and the server
+   state after it.
+
+  ServerState -> IO [String ServerState]"
+  [state]
+  (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"
+             :params {:name "namespace_summary" :arguments {:ns "app.core"}}}
+        [response new-state] (#'sut/handle-method msg state)]
+    [(-> response :result :content first :text) new-state]))
+
+(def ^:private full-summary
+  "The namespace_summary of the temporary project's `app.core`.
+
+  String"
+  (str "ns app.core  src/app/core.clj\n"
+       "2  defn  alpha  [x]\n"
+       "3  defn  beta  [x]\n"
+       "4  defn  gamma  [x]\n"
+       "required by: none"))
+
+(def ^:private summary-of-one
+  "The namespace_summary of `app.core` under `:output/limit 1`.
+
+  String"
+  (str "ns app.core  src/app/core.clj\n"
+       "2  defn  alpha  [x]\n"
+       "truncated: shown 1 of 4, pass offset=1 or narrow the query"))
+
+(deftest a-project-config-hot-key-applies-from-the-start-and-after-an-edit
+  (let [root (temp-project "{:output/limit 1}")
+        [first-answer state] (summary-call (project-state root))
+        _ (edit-project-config! root "{:output/limit 50}")
+        [second-answer state] (summary-call state)
+        _ (edit-project-config! root "{:output/limit 1}")
+        [third-answer _state] (summary-call state)]
+    (is (= summary-of-one first-answer))
+    (is (= full-summary second-answer))
+    (is (= summary-of-one third-answer))))
+
+(deftest a-broken-project-config-keeps-the-previous-settings-and-says-why
+  (let [root (temp-project "{:output/limit 1}")
+        [_answer state] (summary-call (project-state root))
+        _ (edit-project-config! root "{:output/limit 50 :search/exlude [\"gen\"]}")
+        [unknown-key-answer state] (summary-call state)
+        _ (edit-project-config! root "{:output/limit 50 :index/exclude [\"gen(\"]}")
+        [bad-pattern-answer state] (summary-call state)
+        _ (edit-project-config! root "{:output/limit 50 :doc/signature {:strategy :first-line}}")
+        [bad-strategy-answer state] (summary-call state)
+        _ (edit-project-config! root "{:output/limit 50")
+        [unreadable-answer state] (summary-call state)
+        _ (edit-project-config! root "{:output/limit 50}")
+        [fixed-answer _state] (summary-call state)]
+    (is (= (str "project config error in .clojure-index.edn: unknown key :search/exlude; "
+                "using previous settings\n" summary-of-one)
+           unknown-key-answer))
+    (is (st/starts-with? bad-pattern-answer
+                         "project config error in .clojure-index.edn: :index/exclude pattern does not compile: gen("))
+    (is (st/ends-with? bad-pattern-answer (str "; using previous settings\n" summary-of-one)))
+    (is (= (str "project config error in .clojure-index.edn: unknown :doc/signature strategy :first-line; "
+                "using previous settings\n" summary-of-one)
+           bad-strategy-answer))
+    (is (st/starts-with? unreadable-answer "project config error in .clojure-index.edn: cannot read EDN: "))
+    (is (st/ends-with? unreadable-answer (str "; using previous settings\n" summary-of-one)))
+    (is (= full-summary fixed-answer))))
+
+(deftest a-changed-cold-key-is-not-applied-and-answers-say-it-needs-a-restart
+  (let [root (temp-project "{:qdrant/port 6333}")
+        state (project-state root)
+        _ (edit-project-config! root "{:qdrant/port 7000 :search/top-k 5 :output/limit 1}")
+        [changed-answer state] (summary-call state)
+        _ (edit-project-config! root "{:qdrant/port 6333 :output/limit 1}")
+        [reverted-answer state] (summary-call state)]
+    (is (= (str summary-of-one "\n"
+                ".clojure-index.edn: :qdrant/port, :search/top-k changes after a server restart")
+           changed-answer))
+    (is (= 6333 (get-in state [:config :qdrant/port])))
+    (is (= summary-of-one reverted-answer))))
+
+(deftest deleting-the-project-config-brings-back-the-server-config
+  (let [root (temp-project "{:output/limit 1}")
+        [_answer state] (summary-call (project-state root))
+        _ (edit-project-config! root nil)
+        [answer _state] (summary-call state)]
+    (is (= full-summary answer))))
+
+(deftest a-project-config-invalid-from-the-start-runs-on-the-server-config
+  (let [root (temp-project "{:output/limit 1 :output/limt 2}")
+        [answer _state] (summary-call (project-state root))]
+    (is (= (str "project config error in .clojure-index.edn: unknown key :output/limt; "
+                "using previous settings\n" full-summary)
+           answer))))

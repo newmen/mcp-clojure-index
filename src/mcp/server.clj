@@ -2,6 +2,7 @@
   (:gen-class)
   (:require [clojure.data.json :as json]
             [clojure.spec.alpha :as s]
+            [clojure.string :as st]
             [clojure.tools.logging :as log]
             [mcp.code-index :as code-index]
             [mcp.config :as config]
@@ -30,8 +31,8 @@
 
 ;; JsonRpcMessage: a parsed request or notification, keyword keys.
 ;; JsonRpcResponse: what is written back for a request.
-;; ServerState: the config, an atom of the code index and the
-;; SemanticIndex; `live-state` turns it into a ToolState.
+;; ServerState: the config, the ProjectConfig it comes from, an atom of the
+;; code index and the SemanticIndex; `live-state` turns it into a ToolState.
 
 (s/def ::json-rpc-message (s/keys :req-un [::method] :opt-un [::jsonrpc ::id ::params]))
 
@@ -39,7 +40,8 @@
 
 (s/def ::server-state
   (s/keys :req-un [:mcp.config/config]
-          :opt-un [::code-index-ref :mcp.semantic-index/semantic-index]))
+          :opt-un [::code-index-ref :mcp.config/project-config
+                   :mcp.semantic-index/semantic-index]))
 
 (defn- json-rpc-error
   "The JSON-RPC error response to the request `id`.
@@ -116,6 +118,45 @@
         (log/error e "Freshness check failed, answering from the last index"))))
   state)
 
+(defn- apply-settings-change
+  "Brings the parts of `state` built from the settings in line with
+   `new-config`, the settings that replaced `old-config`. Answers read
+   their hot keys from `:config` at call time, so for them taking the new
+   Config is all there is to do.
+
+  ServerState -> Config -> Config -> ServerState"
+  [state _old-config new-config]
+  (assoc state :config new-config))
+
+(defn- ensure-current-project-config
+  "Re-reads the Project config when it changed on disk since the last
+   answer, and applies the settings that changed (ADR-0010).
+
+  ServerState -> IO ServerState"
+  [state]
+  (if-let [project-config (:project-config state)]
+    (let [refreshed (config/refresh-project-config project-config)
+          old-config (:config state)
+          new-config (:config refreshed)]
+      (cond-> (assoc state :project-config refreshed)
+        (not (identical? old-config new-config))
+        (apply-settings-change old-config new-config)))
+    state))
+
+(defn- with-project-config-notices
+  "`tool-result` with the Project config's notices: the error line before
+   the answer, the restart line after it.
+
+  ServerState -> ToolResult -> ToolResult"
+  [state tool-result]
+  (if-let [project-config (:project-config state)]
+    (let [{:keys [before after]} (config/project-config-notices project-config)
+          add-notices (fn [text]
+                        (st/join "\n" (remove nil? [before text after])))]
+      (cond-> tool-result
+        (or before after) (update-in [:content 0 :text] add-notices)))
+    tool-result))
+
 (defn- handle-method
   "Answers one JSON-RPC message; nil for a notification.
 
@@ -124,8 +165,10 @@
   (let [method (:method msg)
         id (:id msg)
         params (:params msg)
-        fresh (live-state (cond-> state
-                            (= "tools/call" method) ensure-fresh-code-index!))]
+        state (cond-> state
+                (= "tools/call" method) (-> ensure-current-project-config
+                                            ensure-fresh-code-index!))
+        fresh (live-state state)]
     (try
       (case method
         "initialize" (initialize-handler msg state)
@@ -136,7 +179,8 @@
         "tools/call"
         (if-let [tool-name (get params :name)]
           (let [arguments (get params :arguments {})
-                tool-result (tool/call (keyword tool-name) arguments fresh)]
+                tool-result (with-project-config-notices
+                              state (tool/call (keyword tool-name) arguments fresh))]
             [(json-rpc-result id {:content (:content tool-result)}) state])
           [(json-rpc-error id -32602 "Missing tool name") state])
         [(json-rpc-error id -32601 (str "Method not found: " method)) state])
@@ -162,20 +206,34 @@
       [nil state]
       (handle-method msg state))))
 
-(defn start
-  "Builds the code index and serves MCP on stdio until the input ends.
+(defn- initial-state
+  "The ServerState of the project `server-settings` index, before the
+   semantic index: the Project config read over the server config and the
+   code index built with the result.
 
-  Config -> IO ()"
-  [cfg]
+  Settings -> IO ServerState"
+  [server-settings]
+  (let [project-config (config/start-project-config server-settings)
+        cfg (config/validate-config (:config project-config))]
+    (when-let [error (:before (config/project-config-notices project-config))]
+      (log/warn error))
+    {:config cfg
+     :project-config project-config
+     :code-index-ref (atom (code-index/build cfg))}))
+
+(defn start
+  "Reads the Project config, builds the code index and serves MCP on stdio
+   until the input ends.
+
+  Settings -> IO ()"
+  [server-settings]
   (let [reader (BufferedReader. (InputStreamReader. System/in))
         writer (OutputStreamWriter. System/out)
-        _ (log/info "Starting MCP server with" (:server/transport cfg) "transport")
-        code-index-ref (atom (code-index/build cfg))
+        _ (log/info "Starting MCP server with" (:server/transport server-settings) "transport")
+        {cfg :config code-index-ref :code-index-ref :as state} (initial-state server-settings)
         _ (log/info "Code index built:" (count (code-index/files @code-index-ref)) "files")
         semantic-index (semantic-index/create cfg)
-        server-state (atom {:config cfg
-                            :code-index-ref code-index-ref
-                            :semantic-index semantic-index})]
+        server-state (atom (assoc state :semantic-index semantic-index))]
     (reset! server-state-atom @server-state)
     (semantic-index/sync-async! semantic-index @code-index-ref)
     (log/info "MCP server ready on stdio (embeddings are computed in the background)")
@@ -201,9 +259,8 @@
   & String -> IO ()"
   [& args]
   (let [config-path (or (first args) "resources/config.edn")
-        cfg (-> (config/load-config config-path)
-                (config/resolve-config)
-                (config/validate-config))]
-    (start cfg)
+        server-settings (-> (config/load-settings config-path)
+                            (config/resolve-config))]
+    (start server-settings)
     ;; the background embeddings sync must not keep the JVM alive
     (shutdown-agents)))

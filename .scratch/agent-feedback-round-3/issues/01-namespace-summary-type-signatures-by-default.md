@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Default `namespace_summary` lines carry the Type signature, the same text `find_definition` shows for that Definition.
-- [ ] `detail: true` adds the Docstring summary after the signature; without it there is no Docstring summary.
-- [ ] Definitions without a Type signature, and projects without `:doc/signature`, keep `line  kind  name  [arglists]`.
-- [ ] The tool description and the `detail` parameter description say what is shown by default and what `detail` adds.
-- [ ] ADR-0006 is amended: Type signatures are in the overview by default, Docstring summaries stay behind `detail`, and why.
-- [ ] ADR-0009 notes that its `namespace_summary` numbers predate this change and need remeasuring.
-- [ ] `GLOSSARY.md` Docstring summary entry still matches (already updated during grilling).
-- [ ] Tool-seam tests cover default and `detail: true`, with and without a signature strategy; every answer fits the Output budget.
+- [x] Default `namespace_summary` lines carry the Type signature, the same text `find_definition` shows for that Definition.
+- [x] `detail: true` adds the Docstring summary after the signature; without it there is no Docstring summary.
+- [x] Definitions without a Type signature, and projects without `:doc/signature`, keep `line  kind  name  [arglists]`.
+- [x] The tool description and the `detail` parameter description say what is shown by default and what `detail` adds.
+- [x] ADR-0006 is amended: Type signatures are in the overview by default, Docstring summaries stay behind `detail`, and why.
+- [x] ADR-0009 notes that its `namespace_summary` numbers predate this change and need remeasuring.
+- [x] `GLOSSARY.md` Docstring summary entry still matches (already updated during grilling).
+- [x] Tool-seam tests cover default and `detail: true`, with and without a signature strategy; every answer fits the Output budget.

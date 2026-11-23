@@ -125,7 +125,7 @@
                :content first :text)))))
 
 (deftest weak-best-relevance-is-announced-before-the-hits
-  (is (= (str "no confident matches (best 0.04), try rephrasing\n"
+  (is (= (str "no confident matches (best 0.04), try rephrasing in the docstrings' words\n"
               "0.04  src/shop/orders.clj:5  defn  shop.orders/order-total  "
               "Sum of price times quantity over all line items of an order.\n"
               "0.01  resources/config.edn:1  edn  :db/connection-pool")
@@ -140,7 +140,7 @@
                          "0.30  resources/config.edn:1"))))
 
 (deftest a-best-hit-under-0-3-is-not-confident
-  (is (= (str "no confident matches (best 0.15), try rephrasing\n"
+  (is (= (str "no confident matches (best 0.15), try rephrasing in the docstrings' words\n"
               "0.15  src/shop/orders.clj:5  defn  shop.orders/order-total  "
               "Sum of price times quantity over all line items of an order.")
          (answer {:query "qwerty"} (fresh-semantic-index)
@@ -151,6 +151,49 @@
          (answer {:query "qwerty"} (fresh-semantic-index)
                  [(hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total"
                        "Sum of price times quantity over all line items of an order." 0.95)]))))
+
+(def ^:private multilingual-root
+  (.getCanonicalPath (File. "test-resources/fixtures/multilingual_project")))
+
+(defn- multilingual-answer
+  "The answer text of `semantic_search` on the multilingual fixture, whose
+   Descriptions are in Russian, with Qdrant finding the unit of
+   `library.loans/overdue-fine` scored `score`.
+
+  Double -> IO String"
+  [score]
+  (let [cfg (assoc config :index/root-path multilingual-root)
+        index (code-index/build (assoc project/config :index/root-path multilingual-root))
+        semantic-index (semantic-index/create cfg)
+        unit-hit {:unit {:id (str (random-uuid))
+                         :filename (str multilingual-root "/src/library/loans.clj")
+                         :row 20 :kind "defn" :name "library.loans/overdue-fine"
+                         :text "library.loans/overdue-fine\n(source)"}
+                  :score score}]
+    (swap! (:state semantic-index) assoc :prepared? true :embedded (code-index/file-mtimes index))
+    (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
+                  qdrant/verify-layout! current-collection
+                  qdrant/search (fn [_cfg _vector _top-k _excluded-files] [unit-hit])
+                  embeddings/rerank (fn [_query candidates _cfg]
+                                      (mapv #(assoc % :re-rank (:score %)) candidates))]
+      (-> (tool/call :semantic_search {:query "zzzz"}
+                     {:config cfg :code-index index :semantic-index semantic-index})
+          :content first :text))))
+
+(deftest weak-matches-on-mostly-cyrillic-descriptions-name-the-script
+  (is (= (str "no confident matches (best 0.10), try rephrasing in the docstrings' words "
+              "(they are mostly in Cyrillic)\n"
+              "0.10  src/library/loans.clj:20  defn  library.loans/overdue-fine")
+         (multilingual-answer 0.1)))
+  (testing "a confident best hit gets no line"
+    (is (= "0.90  src/library/loans.clj:20  defn  library.loans/overdue-fine"
+           (multilingual-answer 0.9)))))
+
+(deftest semantic-search-description-tells-how-to-word-the-query
+  (is (st/includes? (:description (tool/spec :semantic_search))
+                    (str "Describe what the code does in the words its docstrings would use, "
+                         "not the identifiers you expect; "
+                         "a query in the docstrings' language matches best."))))
 
 (deftest without-reranker-there-is-no-confidence-line
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
@@ -361,9 +404,6 @@
 ;; Acceptance case 12: Russian docstrings, queries in English and Russian.
 ;; Needs the reranker; fails with the code-specific models (ADR-0008).
 ;; ---------------------------------------------------------------------------
-
-(def ^:private multilingual-root
-  (.getCanonicalPath (File. "test-resources/fixtures/multilingual_project")))
 
 (def ^:private multilingual-top-3
   "Queries in English and Russian against the Russian docstrings of the

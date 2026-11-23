@@ -6,7 +6,7 @@
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Every `defn`, `defn-` and `defmacro` in `src/` and `test/` has a docstring whose last paragraph is a Type signature.
 - [x] Every function with side effects (files, network, Qdrant, Ollama, atoms, logging) has `IO` in its signature; every function without `IO` is pure.

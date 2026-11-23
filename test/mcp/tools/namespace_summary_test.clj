@@ -32,88 +32,88 @@
    without Type signatures and Docstring summaries.
 
   [String]"
-  ["15  public  s/def  ::header"
-   "17  public  s/def  ::footer"
-   "19  public  s/def  ::answer-frame"
-   "25  public  s/def  ::output-budget"
-   "27  public  defrecord  ->OutputBudget  [limit max-chars offset]"
-   "27  public  defrecord  OutputBudget"
-   "27  public  defrecord  map->OutputBudget  [m]"
-   "33  public  defn  budget  [cfg {:keys [limit offset]}]"
-   "46  private  defn-  truncation-note  [shown-until total]"
-   "60  public  defn  relative-path  [root-path file-path]"
-   "75  private  defn-  answer-text  [shown offset total]"
-   "86  private  defn-  oversized-first-finding  [cut max-chars page offset total]"
-   "104  public  s/def  ::text-of"
-   "106  public  s/def  ::cut"
-   "108  public  s/def  ::render-options"
-   "110  public  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]"
-   "126  public  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]"
-   "148  public  s/def  ::what"
-   "150  public  s/def  ::text"
-   "152  public  s/def  ::finding-of"
-   "154  public  s/def  ::finding-cut"
-   "156  private  defn-  single-finding-note  [what shown total]"
-   "164  public  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]"
-   "195  public  s/def  ::budget"
-   "197  public  s/def  ::index"
-   "199  public  s/def  ::signature-strategy"
-   "201  public  s/def  ::answer-context"
-   "203  public  defrecord  ->AnswerContext  [budget index signature-strategy]"
-   "203  public  defrecord  AnswerContext"
-   "203  public  defrecord  map->AnswerContext  [m]"
-   "205  public  defn  answer-context  [cfg args index]"
-   "212  public  defn  checked  [index] [index include-tests?]"
-   "226  public  defn  not-found  [index name-str]"
-   "235  public  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]"
-   "248  public  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]"
-   "268  public  defn  ambiguous-header  [what name-str candidate-count]"
-   "276  public  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]"
-   "287  public  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]"])
+  ["15  s/def  ::header"
+   "17  s/def  ::footer"
+   "19  s/def  ::answer-frame"
+   "25  s/def  ::output-budget"
+   "27  defrecord  ->OutputBudget  [limit max-chars offset]"
+   "27  defrecord  OutputBudget"
+   "27  defrecord  map->OutputBudget  [m]"
+   "33  defn  budget  [cfg {:keys [limit offset]}]"
+   "46  defn-  truncation-note  [shown-until total]"
+   "60  defn  relative-path  [root-path file-path]"
+   "75  defn-  answer-text  [shown offset total]"
+   "86  defn-  oversized-first-finding  [cut max-chars page offset total]"
+   "104  s/def  ::text-of"
+   "106  s/def  ::cut"
+   "108  s/def  ::render-options"
+   "110  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]"
+   "126  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]"
+   "148  s/def  ::what"
+   "150  s/def  ::text"
+   "152  s/def  ::finding-of"
+   "154  s/def  ::finding-cut"
+   "156  defn-  single-finding-note  [what shown total]"
+   "164  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]"
+   "195  s/def  ::budget"
+   "197  s/def  ::index"
+   "199  s/def  ::signature-strategy"
+   "201  s/def  ::answer-context"
+   "203  defrecord  ->AnswerContext  [budget index signature-strategy]"
+   "203  defrecord  AnswerContext"
+   "203  defrecord  map->AnswerContext  [m]"
+   "205  defn  answer-context  [cfg args index]"
+   "212  defn  checked  [index] [index include-tests?]"
+   "226  defn  not-found  [index name-str]"
+   "235  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]"
+   "248  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]"
+   "268  defn  ambiguous-header  [what name-str candidate-count]"
+   "276  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]"
+   "287  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]"])
 
 (def ^:private output-detailed-definitions
   "Hand-checked Definitions of `src/mcp/output.clj` in the answer with
    `detail: true`.
 
   [String]"
-  ["15  public  s/def  ::header"
-   "17  public  s/def  ::footer"
-   "19  public  s/def  ::answer-frame"
-   "25  public  s/def  ::output-budget"
-   "27  public  defrecord  ->OutputBudget  [limit max-chars offset]"
-   "27  public  defrecord  OutputBudget"
-   "27  public  defrecord  map->OutputBudget  [m]"
-   "33  public  defn  budget  [cfg {:keys [limit offset]}]  Config -> ToolArgs -> OutputBudget  The Output budget of a call with the tool's `args`. (+100 chars)"
-   "46  private  defn-  truncation-note  [shown-until total]  Long -> Long -> String  The Truncation note of a page. (+50 chars)"
-   "60  public  defn  relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."
-   "75  private  defn-  answer-text  [shown offset total]  [String] -> Long -> Long -> String  Joins the `shown` findings of a page starting at `offset`, adding a Truncation note when findings remain after them."
-   "86  private  defn-  oversized-first-finding  [cut max-chars page offset total]  (Long -> a -> String) -> Long -> [a] -> Long -> Long -> String  Cuts the first finding of a page that alone exceeds `max-chars` with `cut`, so that paging still advances by one."
-   "104  public  s/def  ::text-of"
-   "106  public  s/def  ::cut"
-   "108  public  s/def  ::render-options"
-   "110  public  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [String] -> String OutputBudget -> [a] -> RenderOptions -> String  Renders `findings` as an answer within the Output budget."
-   "126  public  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]  OutputBudget -> AnswerFrame -> [String] -> String OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String  Renders `findings` inside an AnswerFrame. (+113 chars)"
-   "148  public  s/def  ::what"
-   "150  public  s/def  ::text"
-   "152  public  s/def  ::finding-of"
-   "154  public  s/def  ::finding-cut"
-   "156  private  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String  The Truncation note of a single finding cut to `shown` of its `total` characters of `what`; it has no paging hint."
-   "164  public  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String  The finding made of the longest prefix of the FindingCut's text that fits `room` characters together with its Truncation note on the next line."
-   "195  public  s/def  ::budget"
-   "197  public  s/def  ::index"
-   "199  public  s/def  ::signature-strategy"
-   "201  public  s/def  ::answer-context"
-   "203  public  defrecord  ->AnswerContext  [budget index signature-strategy]"
-   "203  public  defrecord  AnswerContext"
-   "203  public  defrecord  map->AnswerContext  [m]"
-   "205  public  defn  answer-context  [cfg args index]  Config -> ToolArgs -> CodeIndex -> AnswerContext  The AnswerContext of a call with the tool's `args` on `index`."
-   "212  public  defn  checked  [index] [index include-tests?]  CodeIndex -> String CodeIndex -> Boolean -> String  What an answer searched: `(checked N files, including tests)`, or excluding tests (which are then not counted) when `include-tests?` is false."
-   "226  public  defn  not-found  [index name-str]  CodeIndex -> String -> String  The answer for a name that resolves to nothing. (+26 chars)"
-   "235  public  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]  CodeIndex -> Definition -> String  The start of a Definition's Compact answer line: `path:line kind ns/name [arglists]`."
-   "248  public  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]  AnswerContext -> Definition -> String AnswerContext -> Definition -> {:signature? Boolean} -> String  The Compact answer line of a Definition. (+216 chars)"
-   "268  public  defn  ambiguous-header  [what name-str candidate-count]  String -> String -> Long -> String  The header line for `name-str` that denotes `candidate-count` candidates, naming what they are (`what`, such as \"definitions\")."
-   "276  public  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]  AnswerContext -> String -> String -> [Definition] -> String  The answer for `name-str` that denotes several `definitions`: an `ambiguous-header`, then one line per candidate, with its Type signature, within the Output budget."
-   "287  public  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String  The answer for `name-str` that resolved to `definitions`: `not-found` for none, `(answer-fn definition)` for exactly one, and for several `(ambiguous-fn definitions)`, by default the `ambiguous` candidates."])
+  ["15  s/def  ::header"
+   "17  s/def  ::footer"
+   "19  s/def  ::answer-frame"
+   "25  s/def  ::output-budget"
+   "27  defrecord  ->OutputBudget  [limit max-chars offset]"
+   "27  defrecord  OutputBudget"
+   "27  defrecord  map->OutputBudget  [m]"
+   "33  defn  budget  [cfg {:keys [limit offset]}]  Config -> ToolArgs -> OutputBudget  The Output budget of a call with the tool's `args`. (+100 chars)"
+   "46  defn-  truncation-note  [shown-until total]  Long -> Long -> String  The Truncation note of a page. (+50 chars)"
+   "60  defn  relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."
+   "75  defn-  answer-text  [shown offset total]  [String] -> Long -> Long -> String  Joins the `shown` findings of a page starting at `offset`, adding a Truncation note when findings remain after them."
+   "86  defn-  oversized-first-finding  [cut max-chars page offset total]  (Long -> a -> String) -> Long -> [a] -> Long -> Long -> String  Cuts the first finding of a page that alone exceeds `max-chars` with `cut`, so that paging still advances by one."
+   "104  s/def  ::text-of"
+   "106  s/def  ::cut"
+   "108  s/def  ::render-options"
+   "110  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [String] -> String OutputBudget -> [a] -> RenderOptions -> String  Renders `findings` as an answer within the Output budget."
+   "126  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]  OutputBudget -> AnswerFrame -> [String] -> String OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String  Renders `findings` inside an AnswerFrame. (+113 chars)"
+   "148  s/def  ::what"
+   "150  s/def  ::text"
+   "152  s/def  ::finding-of"
+   "154  s/def  ::finding-cut"
+   "156  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String  The Truncation note of a single finding cut to `shown` of its `total` characters of `what`; it has no paging hint."
+   "164  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String  The finding made of the longest prefix of the FindingCut's text that fits `room` characters together with its Truncation note on the next line."
+   "195  s/def  ::budget"
+   "197  s/def  ::index"
+   "199  s/def  ::signature-strategy"
+   "201  s/def  ::answer-context"
+   "203  defrecord  ->AnswerContext  [budget index signature-strategy]"
+   "203  defrecord  AnswerContext"
+   "203  defrecord  map->AnswerContext  [m]"
+   "205  defn  answer-context  [cfg args index]  Config -> ToolArgs -> CodeIndex -> AnswerContext  The AnswerContext of a call with the tool's `args` on `index`."
+   "212  defn  checked  [index] [index include-tests?]  CodeIndex -> String CodeIndex -> Boolean -> String  What an answer searched: `(checked N files, including tests)`, or excluding tests (which are then not counted) when `include-tests?` is false."
+   "226  defn  not-found  [index name-str]  CodeIndex -> String -> String  The answer for a name that resolves to nothing. (+26 chars)"
+   "235  defn  definition-head  [index {:keys [filename row kind arglists] :as definition}]  CodeIndex -> Definition -> String  The start of a Definition's Compact answer line: `path:line kind ns/name [arglists]`."
+   "248  defn  definition->line  [ctx definition] [{:keys [index signature-strategy]} definition {:keys [signature?]}]  AnswerContext -> Definition -> String AnswerContext -> Definition -> {:signature? Boolean} -> String  The Compact answer line of a Definition. (+216 chars)"
+   "268  defn  ambiguous-header  [what name-str candidate-count]  String -> String -> Long -> String  The header line for `name-str` that denotes `candidate-count` candidates, naming what they are (`what`, such as \"definitions\")."
+   "276  defn  ambiguous  [{:keys [budget] :as ctx} what name-str definitions]  AnswerContext -> String -> String -> [Definition] -> String  The answer for `name-str` that denotes several `definitions`: an `ambiguous-header`, then one line per candidate, with its Type signature, within the Output budget."
+   "287  defn  one-definition  [ctx name-str definitions answer-fn] [{:keys [index]} name-str definitions answer-fn ambiguous-fn]  AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> IO String AnswerContext -> String -> [Definition] -> (Definition -> IO String) -> ([Definition] -> String) -> IO String  The answer for `name-str` that resolved to `definitions`: `not-found` for none, `(answer-fn definition)` for exactly one, and for several `(ambiguous-fn definitions)`, by default the `ambiguous` candidates."])
 
 (def ^:private output-requirers
   "Hand-checked namespaces that require `mcp.output` (more may be added).
@@ -194,8 +194,8 @@
 (deftest defmethods-belong-to-the-namespace-of-their-file
   (testing "a tool namespace lists its own defmethods with their dispatch values"
     (let [lines (st/split-lines (answer {:ns "mcp.tools.get-source"}))]
-      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/spec :get_source") lines))
-      (is (some (partial re-matches #"\d+  public  defmethod  mcp\.tool/call :get_source") lines))))
+      (is (some (partial re-matches #"\d+  defmethod  mcp\.tool/spec :get_source") lines))
+      (is (some (partial re-matches #"\d+  defmethod  mcp\.tool/call :get_source") lines))))
   (testing "the multimethod's namespace does not list defmethods written in other files"
     (is (not (st/includes? (answer {:ns "mcp.tool"}) "defmethod"))))
   (testing "a defmethod of a local multimethod is named without its namespace"
@@ -203,14 +203,23 @@
                               {:config definitions-fixture-config
                                :code-index (code-index/build definitions-fixture-config)})
                    :content first :text)]
-      (is (some #{"15  public  defmethod  area :circle"} (st/split-lines text))))))
+      (is (some #{"15  defmethod  area :circle"} (st/split-lines text))))))
 
 (deftest specs-of-the-namespace-are-written-as-auto-resolved-keywords
   (let [lines (-> (tool/call :namespace_summary {:ns "app.core"}
                              {:config definitions-fixture-config
                               :code-index (code-index/build definitions-fixture-config)})
                   :content first :text st/split-lines set)]
-    (is (contains? lines "23  public  s/def  ::uuid"))))
+    (is (contains? lines "23  s/def  ::uuid"))))
+
+(deftest visibility-is-written-as-in-the-source
+  (let [lines (st/split-lines (answer {:ns "mcp.tools.namespace-summary" :limit 100}))]
+    (testing "a private def carries ^:private before its name"
+      (is (some (partial re-matches #"\d+  def  \^:private description") lines)))
+    (testing "defn- says it is private by itself"
+      (is (some (partial re-matches #"\d+  defn-  header  \[.*\]") lines)))
+    (testing "no visibility words"
+      (is (not-any? (partial re-find #"^\d+  (public|private)  ") lines)))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

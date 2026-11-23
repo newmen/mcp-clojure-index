@@ -17,7 +17,8 @@
        "Unlike grep, lists every Definition (public and private, including tests, protocols, "
        "records and specs) with its arglists, and which namespaces require it. "
        "Answer: a header line (ns name  path  Docstring summary), then one line per Definition "
-       "(line  public|private  kind  name  [arglists], the namespace's own specs as `::name`; "
+       "(line  kind  name  [arglists]; a private Definition whose kind is not `defn-` is named "
+       "`^:private name`, the namespace's own specs `::name`; "
        "`detail: true` adds  Type signature  Docstring summary), "
        "then `required by: ...`; "
        "no bodies, at most :output/limit lines and :output/max-chars characters. "
@@ -61,18 +62,27 @@
                 (output/relative-path root filename)
                 (docstring/docstring-summary doc)]))
 
+(defn- written-name
+  "The name of a Definition as its defining form shows it: `^:private name`
+   when it is private but its form (`def`, `defn`, `defmacro`, ...) does
+   not say so, as `defn-` does.
+
+  Definition -> String"
+  [{:keys [kind private] :as definition}]
+  (cond->> (code-index/local-name definition)
+    (and private (not (st/ends-with? kind "-"))) (str "^:private ")))
+
 (defn- summary-line
   "The answer line of one Definition of the namespace; with `detail?`, also
    its Type signature, found by `signature-strategy`, and Docstring summary.
 
   SignatureStrategy -> Boolean -> Definition -> String"
-  [signature-strategy detail? {:keys [row kind arglists private] :as definition}]
+  [signature-strategy detail? {:keys [row kind arglists] :as definition}]
   (let [{:keys [summary signature]} (when detail?
                                       (docstring/definition-doc signature-strategy definition))]
     (join-fields [(str row)
-                  (if private "private" "public")
                   kind
-                  (code-index/local-name definition)
+                  (written-name definition)
                   (st/join " " arglists)
                   signature
                   summary])))

@@ -41,6 +41,8 @@ Relevance of the expected hits with the chosen pair (for `:search/min-relevance`
 
 `0.05` lies between them with room on both sides: twice the highest unrelated score, less than half of the weakest case 12 query. It is the relevance of the best hit that matters, so case 12's expected hit at 0.08 in second place does not trigger the line. Case 9 has queries whose best hit is 0.00–0.05 (a spec without a docstring, `shipping-cost`), so its queries may get the line while still finding the right hit; no threshold avoids that, and acceptance case 13 only requires case 12 to be free of it. The threshold belongs to this reranker: BCE put the best hit of every case 12 query at 0.43–0.64, so another reranker needs its own value.
 
+The default was later raised to `0.3` (spec `agent-feedback-round-3`): a query whose best hit scores 0.15 is a weak answer, and an agent warned of it rephrases instead of opening random hits. The weakest case 12 queries (best 0.12 and 0.19) now get the line too, still followed by their hits; acceptance case 13 checks case 12 against the `0.05` measured here, which still separates it from the unrelated queries.
+
 ## Consequences
 
 - Switching models re-embeds the whole project once (the collection is rebuilt and the cache directory of the new model starts empty).

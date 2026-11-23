@@ -136,7 +136,20 @@
     (is (st/starts-with? (answer {:query "qwerty"} (fresh-semantic-index)
                                  [(hit "resources/config.edn" 1 "edn" ":db/connection-pool" nil
                                        (:search/min-relevance config))])
-                         "0.05  resources/config.edn:1"))))
+                         "0.30  resources/config.edn:1"))))
+
+(deftest a-best-hit-under-0-3-is-not-confident
+  (is (= (str "no confident matches (best 0.15), try rephrasing\n"
+              "0.15  src/shop/orders.clj:5  defn  shop.orders/order-total  "
+              "Sum of price times quantity over all line items of an order.")
+         (answer {:query "qwerty"} (fresh-semantic-index)
+                 [(hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total"
+                       "Sum of price times quantity over all line items of an order." 0.15)])))
+  (is (= (str "0.95  src/shop/orders.clj:5  defn  shop.orders/order-total  "
+              "Sum of price times quantity over all line items of an order.")
+         (answer {:query "qwerty"} (fresh-semantic-index)
+                 [(hit "src/shop/orders.clj" 5 "defn" "shop.orders/order-total"
+                       "Sum of price times quantity over all line items of an order." 0.95)]))))
 
 (deftest without-reranker-there-is-no-confidence-line
   (with-redefs [embeddings/generate (fn [texts _cfg] (mapv (constantly [0.1 0.2]) texts))
@@ -365,10 +378,11 @@
       (is (= {}
              (into {} (remove (comp #(st/starts-with? % "no confident matches (best ") val))
                    (confidence-lines (answers project/config root unmatched-queries)))))))
-  (testing "the queries of case 12 are confident"
+  (testing "the queries of case 12 are confident at the 0.05 measured in ADR-0008"
     (is (= {}
            (into {} (filter (comp #(st/starts-with? % "no confident matches") val))
-                 (confidence-lines (answers project/config multilingual-root (keys multilingual-top-3))))))))
+                 (confidence-lines (answers (assoc project/config :search/min-relevance 0.05)
+                                            multilingual-root (keys multilingual-top-3))))))))
 
 (deftest a-deleted-emptied-or-replaced-collection-makes-every-file-stale
   (let [lost (ex-info "Qdrant collection was deleted, emptied or replaced" {:qdrant/lost? true})

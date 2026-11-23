@@ -8,7 +8,7 @@
  :server/transport  :stdio
  :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
  :index/exclude     ["dev" "test-resources"]
- :search/min-relevance 0.05
+ :search/min-relevance 0.3
  :output/limit      50
  :output/max-chars  4000
  :doc/signature     {:strategy :last-paragraph}}

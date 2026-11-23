@@ -49,13 +49,20 @@
 (deftest initialize-returns-instructions-to-prefer-the-server-over-grep
   (let [[response _state] (#'sut/initialize-handler {:id 1 :method "initialize"} {})
         instructions (get-in response [:result :instructions])]
-    (is (<= 4 (count (st/split-lines instructions)) 6))
+    (is (<= 7 (count (st/split-lines instructions)) 8))
     (doseq [phrase ["instead of grep" ":refer" "#'var" "with-redefs" "keywords in EDN"
                     "path:line" "size ceiling" "get_source"
                     "re-read from changed files" "edits are visible immediately"]]
       (is (st/includes? instructions phrase) phrase))
     (testing "says only what the spec lists"
       (is (not (st/includes? instructions "find_definition"))))))
+
+(deftest initialize-instructions-tell-the-agent-about-the-project-config
+  (let [[response _state] (#'sut/initialize-handler {:id 1 :method "initialize"} {})
+        instructions (get-in response [:result :instructions])]
+    (doseq [phrase [".clojure-index.edn" "project root" "overrides the server config"
+                    "next answer" "after a restart" ":search/exclude" "com/google/protobuf"]]
+      (is (st/includes? instructions phrase) phrase))))
 
 (deftest handle-method-tools-call-find-definition-without-qdrant
   (let [msg {:jsonrpc "2.0" :id 1 :method "tools/call"

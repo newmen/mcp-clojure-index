@@ -115,7 +115,7 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:search/exclude` | `[]` | Search exclusions: paths (same syntax as `:index/exclude`) kept out of `semantic_search` and its embeddings, typically generated code; the precise tools still see them |
 | `:output/limit` | `50` | Output budget: the maximum number of findings in one answer; a call's `limit` can only lower it |
 | `:output/max-chars` | `4000` | Output budget: the maximum number of characters in one answer |
-| `:doc/signature` | `{:strategy :last-paragraph}` in the shipped config | How the Type signature is found in a docstring: `:last-paragraph` (the last paragraph of a docstring with at least two), or `{:strategy :pattern :regex "..."}` (the first capture group of the regex; a regex without one is rejected at startup); without the key, or with `nil`, there are no signatures |
+| `:doc/signature` | none (this repository's Project config sets `{:strategy :last-paragraph}`) | How the Type signature is found in a docstring: `:last-paragraph` (the last paragraph of a docstring with at least two), or `{:strategy :pattern :regex "..."}` (the first capture group of the regex; a regex without one is rejected at startup); without the key, or with `nil`, there are no signatures |
 | `:qdrant/host`, `:qdrant/port` | `"localhost"`, `6333` | Qdrant (semantic search only) |
 | `:qdrant/collection` | `QD_COLLECTION` env, else `<project dir>-collection` | Qdrant collection (semantic search only) |
 | `:qdrant/recreate?` | `false` | Drop and recreate the collection at startup (semantic search only) |
@@ -129,6 +129,27 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:embedding/cache-dir` | `<root>/.mcp/embedding-cache` | Embedding cache directory (semantic search only) |
 
 An answer that hits the Output budget ends with a Truncation note, e.g. `truncated: shown 50 of 120, pass offset=50 or narrow the query`.
+
+#### Project config
+
+The config passed at start (the server config) holds the defaults for every project. A project may keep its own settings in a Project config: `.clojure-index.edn` at the project root (`:index/root-path`), committed with the project. It is optional; without it the server config applies as is. See ADR-0010.
+
+- **Keys.** Any key of the table above is allowed. A key the server config cannot hold (a typo such as `:search/exlude`) is an error, not ignored.
+- **Replacement.** A value replaces the server config's value whole; lists are not concatenated, so a project that needs the server's `:index/exclude` entries too repeats them. The always-excluded directories are added to `:index/exclude` either way. Patterns of `:index/exclude` and `:search/exclude` are regexes searched in the path relative to the project root, in which `.` matches only a dot.
+- **Hot keys** apply from the next answer: the server compares the file's mtime (and presence) before every tool call, as it does for the sources. They are `:index/include-extensions`, `:index/exclude`, `:search/exclude`, `:search/min-relevance`, `:output/limit`, `:output/max-chars` and `:doc/signature`. A changed `:index/exclude` or `:index/include-extensions` drops newly excluded files from the index and analyses newly included ones; a changed `:search/exclude` removes the embeddings of newly excluded files and embeds un-excluded ones in the background. Deleting the file brings back the server config's values.
+- **Cold keys** are every other key (Qdrant, Ollama, reranker, transport, `:search/top-k`, `:search/re-rank-top`, `:qdrant/collection`, `:embedding/cache-dir`, …). They are read at server start only. While the file's value of one differs from the running one, answers end with `.clojure-index.edn: :search/top-k changes after a server restart` (one line naming every such key).
+- **Errors.** An unreadable or invalid file does not stop the server: it keeps the previous settings, and while the file stays broken, answers start with `project config error in .clojure-index.edn: <reason>; using previous settings`. A file invalid from the start leaves the server on the server config alone, with the same line. An invalid server config still stops the server at start, naming its absolute path.
+
+The agent may edit the Project config itself; the server's instructions tell it so. A full example:
+
+```clojure
+{:index/exclude        ["dev" "test-resources"]          ; replaces the server's list
+ :search/exclude       ["com/google/protobuf" "^src/gen/"] ; generated code, kept out of semantic_search only
+ :search/min-relevance 0.4
+ :output/limit         30
+ :doc/signature        {:strategy :last-paragraph}
+ :search/top-k         50}                                ; cold: applies after a restart
+```
 
 ### 3. Build uberjar
 

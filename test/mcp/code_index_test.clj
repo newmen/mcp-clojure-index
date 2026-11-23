@@ -223,16 +223,28 @@
 
 (deftest refresh-rebuilds-the-definitions-of-the-refreshed-files-only
   (let [root (temp-project {"src/app/core.clj" core-v1
-                            "src/app/util.clj" util-src})
+                            "src/app/util.clj" util-src
+                            "src/app/gone.clj" "(ns app.gone)\n(def omega 1)\n"})
         cfg (temp-config root)
         idx (sut/build cfg)
-        by-name (fn [index name-str] (first (sut/resolve-name index name-str)))]
+        file-definitions (fn [index relative-path]
+                           (get-in index [:files (str root "/" relative-path) :definitions]))]
     (write-later! (str root "/src/app/core.clj") "(ns app.core)\n(defn alpha [x y] x)\n")
+    (spit (io/file root "src/app/added.clj") "(ns app.added)\n(def gamma 1)\n")
+    (io/delete-file (io/file root "src/app/gone.clj"))
     (let [fresh (sut/refresh cfg idx)]
-      (testing "an untouched file keeps its Definitions"
-        (is (identical? (by-name idx "helper") (by-name fresh "helper"))))
-      (testing "a refreshed file gets new ones"
-        (is (= ["[x y]"] (:arglists (by-name fresh "alpha"))))))))
+      (testing "an untouched file keeps its Definitions, not rebuilt"
+        (is (identical? (file-definitions idx "src/app/util.clj")
+                        (file-definitions fresh "src/app/util.clj"))))
+      (testing "an edited file's Definitions are rebuilt"
+        (is (= #{["app.core" "ns"] ["app.core/alpha" "defn"]}
+               (set (map (juxt sut/qualified-name :kind) (file-definitions fresh "src/app/core.clj")))))
+        (is (= [["[x y]"]] (keep :arglists (file-definitions fresh "src/app/core.clj")))))
+      (testing "an added file's Definitions are built"
+        (is (some #{"app.added/gamma"} (map sut/qualified-name (sut/definitions fresh)))))
+      (testing "a deleted file's Definitions are gone"
+        (is (nil? (file-definitions fresh "src/app/gone.clj")))
+        (is (not-any? #{"app.gone/omega"} (map sut/qualified-name (sut/definitions fresh))))))))
 
 (deftest stale-files-are-only-the-changed-added-and-deleted-ones
   (let [root (temp-project {"src/app/core.clj" core-v1

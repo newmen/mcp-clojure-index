@@ -4,9 +4,9 @@
    Ollama (ADR-0003).
 
    The index keeps clj-kondo's raw analysis per file, so a changed file is
-   re-analysed on its own (`update-files`) and every query derives what it
-   needs from `entries`. Each file also keeps its Definitions, built once
-   when the file is analysed and listed by `definitions`;
+   re-analysed on its own (`update-files`). Each file also keeps its
+   Definitions, built once when the file is analysed and listed by
+   `definitions`; every other query derives what it needs from `entries`.
    `resolve-name` maps a name as an agent writes it (simple, alias-qualified
    or fully qualified) to the Definitions it may denote."
   (:require [clj-kondo.core :as kondo]
@@ -34,8 +34,8 @@
 ;;                                           :symbols [...]
 ;;                                           :java-class-usages [...]}
 ;;                                :definitions [...]}}}  ; Definitions of the
-;;                                                       ;  analysis, see
-;;                                                       ;  `file-definitions`
+;;                                                       ;  analysis (Definition
+;;                                                       ;  shape below)
 ;;
 ;; Analysis entries are clj-kondo's own maps (see clj-kondo's analysis
 ;; docs); every entry has an absolute `:filename`.
@@ -43,6 +43,14 @@
 (s/def ::analysis-entry (s/keys :req-un [::filename]))
 
 (s/def ::analysis (s/map-of keyword? (s/coll-of ::analysis-entry)))
+
+(s/def ::definitions (s/coll-of ::definition :kind vector?))
+
+;; FileEntry: one value of `:files` in the shape above.
+
+(s/def ::file (s/keys :req-un [::mtime ::analysis ::definitions]))
+
+(s/def ::files (s/map-of string? ::file))
 
 (s/def ::code-index (s/keys :req-un [::root ::test-paths ::test-names? ::files]))
 
@@ -336,6 +344,16 @@
                (zipmap file-paths (repeat empty-analysis))
                (:analysis result))))
 
+(defn- file-entry
+  "The index entry of the file `file-path` (absolute) analysed as `analysis`:
+   its mtime, the analysis and the Definitions built from it.
+
+  String -> Analysis -> IO FileEntry"
+  [^String file-path analysis]
+  {:mtime (.lastModified (io/file file-path))
+   :analysis analysis
+   :definitions (vec (file-definitions analysis))})
+
 (defn update-files
   "Re-analyses `file-paths` (absolute) and replaces their entries and
    Definitions in `index`. Paths that no longer exist are dropped from the
@@ -350,10 +368,7 @@
         (update :files merge
                 (into {}
                       (map (fn [file-path]
-                             (let [analysis (get analyses file-path)]
-                               [file-path {:mtime (.lastModified (io/file ^String file-path))
-                                           :analysis analysis
-                                           :definitions (vec (file-definitions analysis))}])))
+                             [file-path (file-entry file-path (get analyses file-path))]))
                       existing)))))
 
 (defn build
@@ -541,7 +556,7 @@
           (entries index :var-usages)))
 
 ;; ---------------------------------------------------------------------------
-;; Definitions
+;; Definitions of the project
 ;; ---------------------------------------------------------------------------
 
 (defn definitions

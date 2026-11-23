@@ -4,6 +4,7 @@
   (:require [clojure.string :as st]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
+            [mcp.config :as config]
             [mcp.embeddings :as embeddings]
             [mcp.qdrant :as qdrant]
             [mcp.semantic-index :as semantic-index]
@@ -218,7 +219,6 @@
            (with-redefs [config (assoc config :search/top-k 2)]
              (answer {:query "qwerty"} (fresh-semantic-index) (conj test-hits orders-hit)))))))
 
-
 (deftest test-definitions-are-found-only-with-include-tests
   (let [test-hit (hit "test/shop/orders_test.clj" 5 "deftest" "shop.orders-test/order-total-test" nil 0.95)
         stub-hits (conj hits test-hit)
@@ -231,6 +231,44 @@
       (is (some #{test-line}
                 (st/split-lines (answer {:query "order total test" :include_tests true}
                                         (fresh-semantic-index) stub-hits)))))))
+
+;; ---------------------------------------------------------------------------
+;; Search exclusions
+;; ---------------------------------------------------------------------------
+
+(def ^:private search-excluding-config
+  (assoc config :search/exclude (config/compile-exclude-patterns ["src/shop/inventory" "resources/config.edn"])))
+
+(defn- inventory-hit
+  "A ScoredUnit of `shop.inventory/reserve-stock`, a file under a Search
+   exclusion.
+
+  () -> ScoredUnit"
+  []
+  (hit "src/shop/inventory.clj" 4 "defn" "shop.inventory/reserve-stock"
+       "Decrease the available stock of a product when an order is placed." 0.97))
+
+(deftest files-under-a-search-exclusion-are-never-hits
+  (testing (str "neither from the vector search nor from the word matching, "
+                "while their points wait for the sync to delete them")
+    (is (= (str "0.91  src/shop/orders.clj:5  defn  shop.orders/order-total  "
+                "Sum of price times quantity over all line items of an order.\n"
+                "embeddings stale for 2 files")
+           (with-redefs [config search-excluding-config]
+             (answer {:query "decrease the available stock of a product"} (fresh-semantic-index)
+                     (conj hits (inventory-hit)))))))
+  (testing "without the exclusion the same files are hits"
+    (is (st/includes? (answer {:query "decrease the available stock of a product"} (fresh-semantic-index)
+                              (conj hits (inventory-hit)))
+                      "0.97  src/shop/inventory.clj:4  defn  shop.inventory/reserve-stock"))))
+
+(deftest files-under-a-search-exclusion-are-neither-checked-nor-stale-once-synced
+  (let [semantic-index (fresh-semantic-index)]
+    (swap! (:state semantic-index) update :embedded dissoc
+           (str fixture-root "/src/shop/inventory.clj") (str fixture-root "/resources/config.edn"))
+    (with-redefs [config search-excluding-config]
+      (is (= "no results for: nothing (checked 3 files, excluding tests)"
+             (answer {:query "nothing"} semantic-index []))))))
 
 (deftest blank-query-is-rejected
   (is (= "query is empty" (answer {:query "  "})))

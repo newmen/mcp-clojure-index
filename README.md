@@ -112,6 +112,7 @@ Changing `:ollama/embedding-model` re-embeds the project once: the Qdrant collec
 | `:index/root-path` | see above | Path to the indexed project |
 | `:index/include-extensions` | `[".clj" ".cljc" ".cljs" ".edn"]` | File extensions to analyse |
 | `:index/exclude` | `[]` | Directories to exclude; `.calva`, `.claude`, `.clj-kondo`, `.cpcache`, `.git`, `.kilo`, `.lsp`, `.mcp`, `logs`, `target`, `tmp` are always excluded |
+| `:search/exclude` | `[]` | Search exclusions: paths (same syntax as `:index/exclude`) kept out of `semantic_search` and its embeddings, typically generated code; the precise tools still see them |
 | `:output/limit` | `50` | Output budget: the maximum number of findings in one answer; a call's `limit` can only lower it |
 | `:output/max-chars` | `4000` | Output budget: the maximum number of characters in one answer |
 | `:doc/signature` | `{:strategy :last-paragraph}` in the shipped config | How the Type signature is found in a docstring: `:last-paragraph` (the last paragraph of a docstring with at least two), or `{:strategy :pattern :regex "..."}` (the first capture group of the regex; a regex without one is rejected at startup); without the key, or with `nil`, there are no signatures |

@@ -488,3 +488,24 @@
         (definition-call state "delta")))
     (is (= [[".clojure-index.edn" "src/app/core.clj"]
             [".clojure-index.edn" "gen/app/proto.clj" "src/app/core.clj"]] @synced-files))))
+
+;; ---------------------------------------------------------------------------
+;; Project config: Search exclusions
+;; ---------------------------------------------------------------------------
+
+(deftest a-changed-search-exclusion-hands-the-searched-files-to-the-embeddings-sync
+  (let [root (temp-project "{:search/exclude [\"gen\"]}")
+        _ (add-project-file! root "gen/app/proto.clj" "(ns app.proto)\n(defn delta [x] x)\n")
+        synced-files (atom [])
+        relative-paths (fn [index]
+                         (sort (map #(subs % (inc (count root))) (code-index/files index))))
+        state (assoc (project-state root) :semantic-index (semantic-index/create config/defaults))]
+    (with-redefs [semantic-index/sync-async! (fn [_semantic-index index]
+                                               (swap! synced-files conj (relative-paths index)))]
+      (let [[excluded-answer state] (definition-call state "delta")]
+        (testing "the precise tools still see files under a Search exclusion"
+          (is (= "delta\ngen/app/proto.clj:2  defn  app.proto/delta  [x]" excluded-answer)))
+        (edit-project-config! root "{:search/exclude []}")
+        (definition-call state "delta")))
+    (is (= [[".clojure-index.edn" "src/app/core.clj"]
+            [".clojure-index.edn" "gen/app/proto.clj" "src/app/core.clj"]] @synced-files))))

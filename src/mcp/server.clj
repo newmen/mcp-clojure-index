@@ -105,15 +105,19 @@
 (defn- ensure-fresh-code-index!
   "Re-analyses files changed on disk since the last answer, synchronously,
    so a precise tool never answers from a stale index (ADR-0005), then lets
-   the embeddings of changed files catch up in the background.
+   the embeddings of changed files catch up in the background. The
+   embeddings follow the files outside the Search exclusions, so a changed
+   `:search/exclude` forgets or embeds the files it affects.
 
   ServerState -> IO ServerState"
   [state]
   (when-let [code-index-ref (:code-index-ref state)]
     (try
-      (let [index (swap! code-index-ref (partial code-index/refresh (:config state)))]
+      (let [cfg (:config state)
+            index (swap! code-index-ref (partial code-index/refresh cfg))]
         (when-let [semantic-index (:semantic-index state)]
-          (semantic-index/sync-async! semantic-index index)))
+          (semantic-index/sync-async! semantic-index
+                                      (code-index/without-search-exclusions cfg index))))
       (catch Exception e
         (log/error e "Freshness check failed, answering from the last index"))))
   state)
@@ -125,8 +129,9 @@
    Config is all there is to do. A changed file set (`:index/exclude`,
    `:index/include-extensions`) is reconciled by the freshness check that
    follows: the code index drops the files that left it and analyses the
-   ones that joined, and the semantic index, handed the result, forgets
-   and embeds the same files.
+   ones that joined, and the semantic index, handed the result without the
+   Search exclusions (`:search/exclude`), forgets and embeds the same
+   files, and those of a changed Search exclusion.
 
   ServerState -> Config -> Config -> ServerState"
   [state _old-config new-config]
@@ -239,7 +244,8 @@
         semantic-index (semantic-index/create cfg)
         server-state (atom (assoc state :semantic-index semantic-index))]
     (reset! server-state-atom @server-state)
-    (semantic-index/sync-async! semantic-index @code-index-ref)
+    (semantic-index/sync-async! semantic-index
+                                (code-index/without-search-exclusions cfg @code-index-ref))
     (log/info "MCP server ready on stdio (embeddings are computed in the background)")
     (try
       (loop [line (.readLine reader)]

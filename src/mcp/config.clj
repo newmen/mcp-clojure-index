@@ -34,9 +34,11 @@
 
 ;; Settings: the defaults below, the file's keys and the fields computed by
 ;; `resolve-config` (:index/root-path, :qdrant/collection,
-;; :embedding/cache-dir), as written: :index/exclude holds strings.
-;; Config: Settings after `settings->config`: :index/exclude holds compiled
-;; regexes, the always-excluded directories included.
+;; :embedding/cache-dir), as written: :index/exclude and :search/exclude
+;; hold strings.
+;; Config: Settings after `settings->config`: :index/exclude and
+;; :search/exclude hold compiled regexes, the always-excluded directories
+;; added to :index/exclude.
 
 (s/def ::config
   (s/keys :opt [:qdrant/host :qdrant/port :qdrant/recreate? :qdrant/collection
@@ -45,7 +47,7 @@
                 :server/transport
                 :index/root-path :index/include-extensions :index/exclude
                 :embedding/cache-dir
-                :search/top-k :search/re-rank-top :search/min-relevance
+                :search/exclude :search/top-k :search/re-rank-top :search/min-relevance
                 :output/limit :output/max-chars
                 :doc/signature]))
 
@@ -66,6 +68,7 @@
    :server/transport  :stdio
    :index/include-extensions [".clj" ".cljc" ".cljs" ".edn"]
    :index/exclude     []
+   :search/exclude    []
    :search/top-k      100
    :search/re-rank-top 10
    :search/min-relevance 0.3
@@ -157,8 +160,10 @@
         (when (and (present? :index/include-extensions)
                    (not (coll? (:index/include-extensions settings))))
           ":index/include-extensions must be a collection")
-        (when (present? :index/exclude)
-          (exclude-pattern-error :index/exclude (:index/exclude settings)))
+        (some (fn [setting-key]
+                (when (present? setting-key)
+                  (exclude-pattern-error setting-key (get settings setting-key))))
+              [:index/exclude :search/exclude])
         (some (fn [setting-key]
                 (when (and (present? setting-key) (not (pos-int? (get settings setting-key))))
                   (str setting-key " must be a positive integer")))
@@ -198,12 +203,14 @@
 
 (defn settings->config
   "The Config of `settings`: the always-excluded directories added to
-   `:index/exclude` and its patterns compiled.
+   `:index/exclude`, and its patterns and those of `:search/exclude`
+   compiled.
 
   Settings -> Config"
   [settings]
   (-> settings
-      (update :index/exclude (comp compile-exclude-patterns vec set (partial concat always-excluded)))))
+      (update :index/exclude (comp compile-exclude-patterns vec set (partial concat always-excluded)))
+      (update :search/exclude (comp compile-exclude-patterns vec))))
 
 (defn load-config
   "Reads the server config file at `config-path` over `defaults`, adds the
@@ -314,7 +321,7 @@
 
   #{Keyword}"
   #{:index/exclude :index/include-extensions
-    :search/min-relevance :output/limit :output/max-chars :doc/signature})
+    :search/exclude :search/min-relevance :output/limit :output/max-chars :doc/signature})
 
 (defn- project-config-path
   "The Project config file of the project `settings` index.

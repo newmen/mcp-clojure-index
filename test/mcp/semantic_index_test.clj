@@ -4,6 +4,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [mcp.code-index :as code-index]
+            [mcp.config :as config]
             [mcp.embeddings :as embeddings]
             [mcp.qdrant :as qdrant]
             [mcp.search-units :as search-units]
@@ -188,6 +189,41 @@
         (is (= [] (sut/stale-files semantic-index with-inventory)))))
     (is (= (set (map :id (search-units/search-units @fixture-index)))
            (set (keys @points))))))
+
+(defn- searched-index
+  "The fixture's code index without the files under `search-exclusions`.
+
+  [String] -> CodeIndex"
+  [search-exclusions]
+  (code-index/without-search-exclusions
+   (assoc (services-config) :search/exclude (config/compile-exclude-patterns search-exclusions))
+   @fixture-index))
+
+(deftest files-under-a-search-exclusion-are-never-embedded
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        excluded #{(fixture-file "src/shop/inventory.clj") (fixture-file "resources/carriers.edn")}]
+    (with-services points
+      (sut/sync! semantic-index (searched-index ["src/shop/inventory" "carriers.edn"])))
+    (is (seq @points))
+    (is (not-any? (comp excluded :filename) (vals @points)))
+    (is (= [] (sut/stale-files semantic-index (searched-index ["src/shop/inventory" "carriers.edn"]))))))
+
+(deftest a-changed-search-exclusion-forgets-and-re-embeds-its-files
+  (let [points (fake-qdrant)
+        semantic-index (sut/create (services-config))
+        inventory (fixture-file "src/shop/inventory.clj")
+        inventory-points #(set (keep (comp #{inventory} :filename) (vals @points)))]
+    (with-services points
+      (sut/sync! semantic-index (searched-index []))
+      (is (= #{inventory} (inventory-points)))
+      (testing "adding an exclusion removes the points of its files"
+        (sut/sync! semantic-index (searched-index ["src/shop/inventory"]))
+        (is (= #{} (inventory-points))))
+      (testing "removing it makes its files stale, and the next sync embeds them"
+        (is (= [inventory] (sut/stale-files semantic-index (searched-index []))))
+        (sut/sync! semantic-index (searched-index []))
+        (is (= #{inventory} (inventory-points)))))))
 
 (deftest sync-after-the-collection-was-deleted-recreates-it-and-re-embeds-every-file
   (let [points (fake-qdrant)

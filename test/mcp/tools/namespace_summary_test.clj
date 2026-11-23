@@ -32,10 +32,10 @@
    without Type signatures and Docstring summaries.
 
   [String]"
-  ["15  public  s/def  :mcp.output/header"
-   "17  public  s/def  :mcp.output/footer"
-   "19  public  s/def  :mcp.output/answer-frame"
-   "25  public  s/def  :mcp.output/output-budget"
+  ["15  public  s/def  ::header"
+   "17  public  s/def  ::footer"
+   "19  public  s/def  ::answer-frame"
+   "25  public  s/def  ::output-budget"
    "27  public  defrecord  ->OutputBudget  [limit max-chars offset]"
    "27  public  defrecord  OutputBudget"
    "27  public  defrecord  map->OutputBudget  [m]"
@@ -44,21 +44,21 @@
    "60  public  defn  relative-path  [root-path file-path]"
    "75  private  defn-  answer-text  [shown offset total]"
    "86  private  defn-  oversized-first-finding  [cut max-chars page offset total]"
-   "104  public  s/def  :mcp.output/text-of"
-   "106  public  s/def  :mcp.output/cut"
-   "108  public  s/def  :mcp.output/render-options"
+   "104  public  s/def  ::text-of"
+   "106  public  s/def  ::cut"
+   "108  public  s/def  ::render-options"
    "110  public  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]"
    "126  public  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]"
-   "148  public  s/def  :mcp.output/what"
-   "150  public  s/def  :mcp.output/text"
-   "152  public  s/def  :mcp.output/finding-of"
-   "154  public  s/def  :mcp.output/finding-cut"
+   "148  public  s/def  ::what"
+   "150  public  s/def  ::text"
+   "152  public  s/def  ::finding-of"
+   "154  public  s/def  ::finding-cut"
    "156  private  defn-  single-finding-note  [what shown total]"
    "164  public  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]"
-   "195  public  s/def  :mcp.output/budget"
-   "197  public  s/def  :mcp.output/index"
-   "199  public  s/def  :mcp.output/signature-strategy"
-   "201  public  s/def  :mcp.output/answer-context"
+   "195  public  s/def  ::budget"
+   "197  public  s/def  ::index"
+   "199  public  s/def  ::signature-strategy"
+   "201  public  s/def  ::answer-context"
    "203  public  defrecord  ->AnswerContext  [budget index signature-strategy]"
    "203  public  defrecord  AnswerContext"
    "203  public  defrecord  map->AnswerContext  [m]"
@@ -76,10 +76,10 @@
    `detail: true`.
 
   [String]"
-  ["15  public  s/def  :mcp.output/header"
-   "17  public  s/def  :mcp.output/footer"
-   "19  public  s/def  :mcp.output/answer-frame"
-   "25  public  s/def  :mcp.output/output-budget"
+  ["15  public  s/def  ::header"
+   "17  public  s/def  ::footer"
+   "19  public  s/def  ::answer-frame"
+   "25  public  s/def  ::output-budget"
    "27  public  defrecord  ->OutputBudget  [limit max-chars offset]"
    "27  public  defrecord  OutputBudget"
    "27  public  defrecord  map->OutputBudget  [m]"
@@ -88,21 +88,21 @@
    "60  public  defn  relative-path  [root-path file-path]  Maybe String -> String -> String  Returns `file-path` relative to the project root `root-path`; paths outside the root are returned unchanged."
    "75  private  defn-  answer-text  [shown offset total]  [String] -> Long -> Long -> String  Joins the `shown` findings of a page starting at `offset`, adding a Truncation note when findings remain after them."
    "86  private  defn-  oversized-first-finding  [cut max-chars page offset total]  (Long -> a -> String) -> Long -> [a] -> Long -> Long -> String  Cuts the first finding of a page that alone exceeds `max-chars` with `cut`, so that paging still advances by one."
-   "104  public  s/def  :mcp.output/text-of"
-   "106  public  s/def  :mcp.output/cut"
-   "108  public  s/def  :mcp.output/render-options"
+   "104  public  s/def  ::text-of"
+   "106  public  s/def  ::cut"
+   "108  public  s/def  ::render-options"
    "110  public  defn  render  [budget findings] [{:keys [limit max-chars offset]} findings {:keys [text-of cut] :or {text-of identity}}]  OutputBudget -> [String] -> String OutputBudget -> [a] -> RenderOptions -> String  Renders `findings` as an answer within the Output budget."
    "126  public  defn  render-framed  [budget frame findings] [budget {:keys [header footer]} findings options]  OutputBudget -> AnswerFrame -> [String] -> String OutputBudget -> AnswerFrame -> [a] -> RenderOptions -> String  Renders `findings` inside an AnswerFrame. (+113 chars)"
-   "148  public  s/def  :mcp.output/what"
-   "150  public  s/def  :mcp.output/text"
-   "152  public  s/def  :mcp.output/finding-of"
-   "154  public  s/def  :mcp.output/finding-cut"
+   "148  public  s/def  ::what"
+   "150  public  s/def  ::text"
+   "152  public  s/def  ::finding-of"
+   "154  public  s/def  ::finding-cut"
    "156  private  defn-  single-finding-note  [what shown total]  Keyword -> Long -> Long -> String  The Truncation note of a single finding cut to `shown` of its `total` characters of `what`; it has no paging hint."
    "164  public  defn  cut-finding  [{:keys [what text finding-of] :or {finding-of identity}} room]  FindingCut -> Long -> String  The finding made of the longest prefix of the FindingCut's text that fits `room` characters together with its Truncation note on the next line."
-   "195  public  s/def  :mcp.output/budget"
-   "197  public  s/def  :mcp.output/index"
-   "199  public  s/def  :mcp.output/signature-strategy"
-   "201  public  s/def  :mcp.output/answer-context"
+   "195  public  s/def  ::budget"
+   "197  public  s/def  ::index"
+   "199  public  s/def  ::signature-strategy"
+   "201  public  s/def  ::answer-context"
    "203  public  defrecord  ->AnswerContext  [budget index signature-strategy]"
    "203  public  defrecord  AnswerContext"
    "203  public  defrecord  map->AnswerContext  [m]"
@@ -204,6 +204,13 @@
                                :code-index (code-index/build definitions-fixture-config)})
                    :content first :text)]
       (is (some #{"15  public  defmethod  area :circle"} (st/split-lines text))))))
+
+(deftest specs-of-the-namespace-are-written-as-auto-resolved-keywords
+  (let [lines (-> (tool/call :namespace_summary {:ns "app.core"}
+                             {:config definitions-fixture-config
+                              :code-index (code-index/build definitions-fixture-config)})
+                  :content first :text st/split-lines set)]
+    (is (contains? lines "23  public  s/def  ::uuid"))))
 
 (deftest description-says-what-grep-cannot-do
   (let [spec (some #(when (= "namespace_summary" (:name %)) %)

@@ -14,3 +14,5 @@ Measured 2026-11-23 with `dev/token_benchmark.clj` (ADR-0009).
 ## Comments
 
 2026-11-23: both options. `namespace_summary` gets `detail` (default false): Definition lines without Type signatures and Docstring summaries unless asked. ADR-0001 now measures "smaller" against the grep and reads that give the same information (for a namespace, reading the file); ADR-0006 and ADR-0009 updated. Remeasured: default +31% (−2%) and −19% (−28%) against careful, 89% and 84% against typical; with `detail` −61% and −40%. The rest of the excess is what `rg '^\s*\(def'` misses (specs, protocol methods, record constructors, requirers).
+
+2026-11-23: the namespace's own specs are written `::name` instead of `:full.ns/name`. Remeasured: default +28% (0%) and −17% (−26%) against careful, 89% and 85% against typical; with `detail` −72% and −38%. Note: a spec of another namespace's keyword (`(s/def :other.ns/x ...)`) belongs to that keyword's namespace, so it is not in the summary of the file that defines it.

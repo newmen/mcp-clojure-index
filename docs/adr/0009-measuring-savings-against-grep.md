@@ -42,7 +42,7 @@ Saving = 1 − MCP / baseline over all questions of a scenario, median per quest
 | `find_definition` | 64% (69%) | 99% (98%) | 77% (81%) | 98% (98%) |
 | `get_source` | 50% (54%) | 97% (97%) | 59% (67%) | 96% (94%) |
 | `find_usages` | 93% (93%) | 99% (99%) | 95% (90%) | 100% (98%) |
-| `namespace_summary` | **+31% (−2%)** | 89% (89%) | **−19% (−28%)** | 84% (81%) |
+| `namespace_summary` | **+28% (0%)** | 89% (89%) | **−17% (−26%)** | 85% (82%) |
 | `semantic_search` | 87% (87%) | 97% (97%) | 98% (97%) | 99% (99%) |
 
 Precision:
@@ -50,7 +50,7 @@ Precision:
 - `find_usages`: the careful pattern brought 59 (this repository) and 138 (large project) lines over the 20 questions that are not Usages; it missed no Usage of the sampled names in either project.
 - `semantic_search`: the expected Definition was on the answer page for 12/12 and 11/12 questions; some grep hit fell inside it for 12/12 and 11/12 (different misses: `token` matched the access token reader by grep but not by the search, `same timestamp` the opposite). Grep "finds" it among the hit lines the agent still has to read: a median of 44 lines (10–240) in this repository and 628 (4–3662) in the large project.
 
-`namespace_summary` is the one answer often bigger than the careful baseline (13 of 22 and 138 of 201 namespaces). The first measurement gave Type signatures and Docstring summaries on every line and was bigger by 67% and 36% (17 of 20 and 122 of 181 namespaces); they are now opt-in (`detail: true`), and the default answer was remeasured on the same day, when the projects had grown to 22 and 201 namespaces. With `detail: true` the same code gives −61% (−132%) and −40% (−39%) against careful (19 of 22 and 142 of 201 namespaces bigger), 73% and 81% against typical. What remains of the excess is information `rg '^\s*\(def'` does not give: specs (`(s/def` does not match `\(def`), protocol methods, the constructors a `defrecord` generates, arglists that start on the next line, and the requiring namespaces. Following ADR-0001, the baseline that answers the question is reading the file, against which it saves 84–89%.
+`namespace_summary` is the one answer often bigger than the careful baseline (11 of 22 and 137 of 201 namespaces). The first measurement gave Type signatures and Docstring summaries on every line and was bigger by 67% and 36% (17 of 20 and 122 of 181 namespaces); they are now opt-in (`detail: true`), the namespace's own specs are written `::name`, and the default answer was remeasured on the same day, when the projects had grown to 22 and 201 namespaces. With `detail: true` the same code gives −72% (−122%) and −38% (−39%) against careful (19 of 22 and 141 of 201 namespaces bigger), 73% and 82% against typical. What remains of the excess is information `rg '^\s*\(def'` does not give: specs (`(s/def` does not match `\(def`), protocol methods, the constructors a `defrecord` generates, arglists that start on the next line, and the requiring namespaces. Following ADR-0001, the baseline that answers the question is reading the file, against which it saves 85–89%.
 
 ## Consequences
 
